@@ -1,12 +1,33 @@
 class_name Hud
 extends CanvasLayer
-## In-flight HUD (PLAN.md D4, grown through E4/H): console gauges, weapon selector,
-## score/level, kill counter for locked arenas, radar, message line, damage flash.
-## Built entirely in code at the 320x200 design resolution; Phase G restyles it into
-## the sculpted cockpit console.
+## In-flight HUD (PLAN.md D4, grown through E4/H, restyled in G4): the cockpit —
+## canopy struts with a THREAT panel, and a sculpted bottom console holding the
+## weapon selector, MISL ammo counter, TIME clock, kill counter over the radar,
+## and SHLD/ENRG/HEAT bars. Built entirely in code at the 320x200 design
+## resolution with flat 90s greys and blocky 3x5 bitmap digits (PROJECT.md §11.2).
 
 const W := 320
 const H := 200
+const CONSOLE_H := 36
+const CONSOLE_Y := H - CONSOLE_H
+
+const BAR_W := 40.0
+const THREAT_RANGE_SQ := 70.0 * 70.0
+
+const PANEL := Color(0.145, 0.155, 0.175)
+const PANEL_DARK := Color(0.075, 0.082, 0.10)
+const PANEL_EDGE := Color(0.30, 0.32, 0.36)
+const DIGIT_COL := Color("ff9a30")
+const DIGIT_DIM := Color(0.35, 0.22, 0.10)
+
+## 3x5 bitmap glyphs, one int per row, 3 bits per row (MSB = left pixel).
+const GLYPHS := {
+	"0": [7, 5, 5, 5, 7], "1": [2, 6, 2, 2, 7], "2": [7, 1, 7, 4, 7],
+	"3": [7, 1, 7, 1, 7], "4": [5, 5, 7, 1, 1], "5": [7, 4, 7, 1, 7],
+	"6": [7, 4, 7, 5, 7], "7": [7, 1, 1, 2, 2], "8": [7, 5, 7, 5, 7],
+	"9": [7, 5, 7, 1, 7], ":": [0, 2, 0, 2, 0], "/": [1, 1, 2, 4, 4],
+	"-": [0, 0, 7, 0, 0], " ": [0, 0, 0, 0, 0],
+}
 
 var player: PlayerShip
 var enemy_mgr: EnemyManager
@@ -16,19 +37,20 @@ var weapon_names: Array[String] = []
 var _flash: ColorRect
 var _msg: Label
 var _msg_t := 0.0
-var _kill_label: Label
 var _level_speed: Label
 var _score: Label
-var _weapon_labels: Array[Label] = []
+var _wpn_name: Label
 var _shield_bar: ColorRect
 var _energy_bar: ColorRect
 var _heat_bar: ColorRect
 var _shield_num: Label
-var _wpn_name: Label
 var _crosshair: Control
+var _canopy: Control
+var _console_draw: Control
+var _kills := 0
+var _kill_target := 0
+var _threat := false
 var radar: RadarDisplay
-
-const BAR_W := 44.0
 
 
 func _ready() -> void:
@@ -41,6 +63,12 @@ func _ready() -> void:
 	_flash.color = Color(1, 0.1, 0.05, 0.0)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_flash)
+	# canopy frame under everything else so readouts stay on top
+	_canopy = Control.new()
+	_canopy.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_canopy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_canopy.draw.connect(_draw_canopy)
+	root.add_child(_canopy)
 	_crosshair = Control.new()
 	_crosshair.position = Vector2(W / 2.0, H / 2.0)
 	_crosshair.draw.connect(_draw_crosshair)
@@ -48,37 +76,27 @@ func _ready() -> void:
 	_msg = _label(root, Vector2(0, 30), "", Color("ff7b5a"), 8)
 	_msg.size = Vector2(W, 10)
 	_msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_kill_label = _label(root, Vector2(0, 42), "", Color("ffd34d"), 8)
-	_kill_label.size = Vector2(W, 10)
-	_kill_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_level_speed = _label(root, Vector2(8, 8), "LVL 1 · VEL 18", Color("5fb6d8"), 8)
+	_level_speed = _label(root, Vector2(8, 6), "LVL 1 · VEL 18", Color("5fb6d8"), 8)
+	_score = _label(root, Vector2(8, 16), "SCORE 0", Color("ffd34d"), 8)
+	# ---- bottom console ----
+	_console_draw = Control.new()
+	_console_draw.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_console_draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_console_draw.draw.connect(_draw_console)
+	root.add_child(_console_draw)
 	radar = RadarDisplay.new()
-	radar.position = Vector2(W - 52, 6)
-	radar.size = Vector2(46, 46)
+	radar.position = Vector2(W / 2.0 - 13, CONSOLE_Y + 7)
+	radar.size = Vector2(26, 26)
 	radar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(radar)
-	# ---- bottom console strip ----
-	var console := ColorRect.new()
-	console.color = Color(0.02, 0.03, 0.06, 0.75)
-	console.position = Vector2(0, H - 30)
-	console.size = Vector2(W, 30)
-	console.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(console)
-	_label(console, Vector2(6, 3), "SHLD", Color("62ffae"), 8)
-	_shield_bar = _bar(console, Vector2(32, 5), Color("37ff9a"))
-	_shield_num = _label(console, Vector2(80, 3), "100", Color("62ffae"), 8)
-	_label(console, Vector2(6, 16), "ENRG", Color("7fd8ff"), 8)
-	_energy_bar = _bar(console, Vector2(32, 18), Color("41c8ff"))
-	_label(console, Vector2(228, 16), "HEAT", Color("ffab66"), 8)
-	_heat_bar = _bar(console, Vector2(258, 18), Color("ff9a30"))
-	_score = _label(console, Vector2(0, 3), "SCORE 0", Color("ffd34d"), 8)
-	_score.position = Vector2(W / 2.0 - 40, 3)
-	_score.size = Vector2(80, 10)
-	_score.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	for i in 4:
-		var wl := _label(console, Vector2(112 + i * 12, 16), str(i + 1), Color("5fb6d8"), 8)
-		_weapon_labels.append(wl)
-	_wpn_name = _label(console, Vector2(164, 16), "", Color("9fe8ff"), 8)
+	_label(root, Vector2(214, CONSOLE_Y + 2), "SHLD", Color("62ffae"), 8)
+	_shield_bar = _bar(root, Vector2(242, CONSOLE_Y + 4), Color("37ff9a"))
+	_shield_num = _label(root, Vector2(290, CONSOLE_Y + 2), "100", Color("62ffae"), 8)
+	_label(root, Vector2(214, CONSOLE_Y + 13), "ENRG", Color("7fd8ff"), 8)
+	_energy_bar = _bar(root, Vector2(242, CONSOLE_Y + 15), Color("41c8ff"))
+	_label(root, Vector2(214, CONSOLE_Y + 24), "HEAT", Color("ffab66"), 8)
+	_heat_bar = _bar(root, Vector2(242, CONSOLE_Y + 26), Color("ff9a30"))
+	_wpn_name = _label(root, Vector2(8, CONSOLE_Y + 24), "", Color("9fe8ff"), 8)
 	GameState.shields_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.energy_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.heat_changed.connect(func(_v: float) -> void: _update_bars())
@@ -104,10 +122,8 @@ func show_message(text: String) -> void:
 
 
 func set_kill_counter(kills: int, target: int) -> void:
-	if target <= 0:
-		_kill_label.text = ""
-	else:
-		_kill_label.text = "HOSTILES %03d/%03d" % [kills, target]
+	_kills = kills
+	_kill_target = target
 
 
 func _process(delta: float) -> void:
@@ -116,7 +132,15 @@ func _process(delta: float) -> void:
 	if player:
 		_flash.color.a = minf(1.0, player.shake * 1.6) * 0.3
 		_level_speed.text = "LVL %d · VEL %d" % [GameState.level_index + 1, int(player.speed)]
+	_threat = false
+	if shot_mgr and player:
+		for p in shot_mgr.enemy_shot_positions():
+			if p.distance_squared_to(player.position) < THREAT_RANGE_SQ:
+				_threat = true
+				break
 	_crosshair.queue_redraw()
+	_canopy.queue_redraw()
+	_console_draw.queue_redraw()
 
 
 func _draw_crosshair() -> void:
@@ -124,6 +148,95 @@ func _draw_crosshair() -> void:
 	var col := Color("ff5030") if hot else Color("62ffd0")
 	for arm in [Vector2(0, -1), Vector2(0, 1), Vector2(-1, 0), Vector2(1, 0)]:
 		_crosshair.draw_line(arm * 3.0, arm * 8.0, col, 1.0)
+
+
+## G4: canopy frame — angled side struts with brace lines and the THREAT panel
+## top-center, all flat fills per the reference-screenshot anatomy.
+func _draw_canopy() -> void:
+	var c := _canopy
+	var floor_y := float(CONSOLE_Y)
+	# left strut: wide at the top corner, tapering toward the console
+	c.draw_colored_polygon(PackedVector2Array([
+		Vector2(0, 0), Vector2(24, 0), Vector2(9, 46), Vector2(0, 62),
+	]), PANEL_DARK)
+	c.draw_colored_polygon(PackedVector2Array([
+		Vector2(0, floor_y), Vector2(0, floor_y - 34), Vector2(12, floor_y),
+	]), PANEL_DARK)
+	c.draw_line(Vector2(24, 0), Vector2(9, 46), PANEL_EDGE)
+	c.draw_line(Vector2(9, 46), Vector2(0, 62), PANEL_EDGE)
+	c.draw_line(Vector2(0, floor_y - 34), Vector2(12, floor_y), PANEL_EDGE)
+	c.draw_line(Vector2(14, 8), Vector2(6, 30), Color(0.20, 0.21, 0.24))
+	# right strut, mirrored
+	c.draw_colored_polygon(PackedVector2Array([
+		Vector2(W, 0), Vector2(W - 24, 0), Vector2(W - 9, 46), Vector2(W, 62),
+	]), PANEL_DARK)
+	c.draw_colored_polygon(PackedVector2Array([
+		Vector2(W, floor_y), Vector2(W, floor_y - 34), Vector2(W - 12, floor_y),
+	]), PANEL_DARK)
+	c.draw_line(Vector2(W - 24, 0), Vector2(W - 9, 46), PANEL_EDGE)
+	c.draw_line(Vector2(W - 9, 46), Vector2(W, 62), PANEL_EDGE)
+	c.draw_line(Vector2(W, floor_y - 34), Vector2(W - 12, floor_y), PANEL_EDGE)
+	c.draw_line(Vector2(W - 14, 8), Vector2(W - 6, 30), Color(0.20, 0.21, 0.24))
+	# THREAT panel top-center: label plate + warning light
+	c.draw_rect(Rect2(W / 2.0 - 20, 0, 40, 11), PANEL_DARK)
+	c.draw_rect(Rect2(W / 2.0 - 20, 10, 40, 1), PANEL_EDGE)
+	var lit := _threat and int(Time.get_ticks_msec() / 180) % 2 == 0
+	c.draw_rect(Rect2(W / 2.0 - 14, 3, 5, 5), Color("ff3018") if lit else Color(0.22, 0.09, 0.07))
+	_draw_text3x5(c, Vector2(W / 2.0 - 6, 3), "-", 1, DIGIT_DIM)  # spacer tick
+	var threat_col := Color("ff5030") if _threat else Color(0.36, 0.20, 0.16)
+	c.draw_rect(Rect2(W / 2.0 - 4, 4, 22, 3), threat_col)
+
+
+## G4: sculpted console plate — bevel lines, weapon slot row, MISL ammo digits,
+## TIME clock, and the kill counter over the radar, in blocky 3x5 digits.
+func _draw_console() -> void:
+	var c := _console_draw
+	c.draw_rect(Rect2(0, CONSOLE_Y, W, CONSOLE_H), PANEL)
+	c.draw_rect(Rect2(0, CONSOLE_Y, W, 1), PANEL_EDGE)
+	c.draw_rect(Rect2(0, CONSOLE_Y + 1, W, 1), PANEL_DARK)
+	# recessed wells: weapons / time / radar / bars
+	c.draw_rect(Rect2(4, CONSOLE_Y + 4, 100, CONSOLE_H - 8), PANEL_DARK)
+	c.draw_rect(Rect2(110, CONSOLE_Y + 4, 40, CONSOLE_H - 8), PANEL_DARK)
+	c.draw_rect(Rect2(W / 2.0 - 16, CONSOLE_Y + 4, 32, CONSOLE_H - 8), PANEL_DARK)
+	c.draw_rect(Rect2(210, CONSOLE_Y + 4, 106, CONSOLE_H - 8), PANEL_DARK)
+	# weapon slots 1-4
+	for i in 4:
+		var r := Rect2(8 + i * 13, CONSOLE_Y + 6, 11, 11)
+		var on := i == GameState.weapon_index
+		c.draw_rect(r, Color(0.24, 0.17, 0.08) if on else Color(0.10, 0.11, 0.13))
+		c.draw_rect(r, DIGIT_COL if on else Color(0.24, 0.26, 0.30), false)
+		_draw_text3x5(c, r.position + Vector2(4, 3), str(i + 1), 1,
+			DIGIT_COL if on else Color(0.40, 0.43, 0.48))
+	# MISL ammo (live with Phase I2)
+	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 7), "%02d" % GameState.missiles, 2,
+		DIGIT_COL if GameState.missiles > 0 else Color("ff3018"))
+	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 20), "-", 1, DIGIT_DIM)
+	# TIME clock
+	_draw_text3x5(c, Vector2(114, CONSOLE_Y + 7), _time_string(), 2, DIGIT_COL)
+	# kill counter over the radar (only while an arena lock is active)
+	if _kill_target > 0:
+		var s := "%03d/%03d" % [_kills, _kill_target]
+		_draw_text3x5(c, Vector2(W / 2.0 - s.length() * 2.0, CONSOLE_Y - 8), s, 1, DIGIT_COL)
+
+
+func _time_string() -> String:
+	if not player:
+		return "0:00"
+	var t := int(player.elapsed)
+	return "%d:%02d" % [t / 60, t % 60]
+
+
+## Blocky 3x5 pixel digits, the DOS console look — px is the pixel scale.
+func _draw_text3x5(ci: CanvasItem, pos: Vector2, text: String, px: int, color: Color) -> void:
+	var x := pos.x
+	for chr in text:
+		var rows: Array = GLYPHS.get(chr, GLYPHS[" "])
+		for ry in 5:
+			for rx in 3:
+				if rows[ry] & (4 >> rx):
+					ci.draw_rect(Rect2(x + rx * px, pos.y + ry * px, px, px), color)
+		x += 4 * px
+	# colons render narrow; acceptable at this scale
 
 
 func _update_bars() -> void:
@@ -135,10 +248,6 @@ func _update_bars() -> void:
 
 
 func _update_weapons() -> void:
-	for i in _weapon_labels.size():
-		var on := i == GameState.weapon_index
-		_weapon_labels[i].add_theme_color_override(
-			"font_color", Color("ffd34d") if on else Color("35506a"))
 	if not weapon_names.is_empty():
 		_wpn_name.text = weapon_names[GameState.weapon_index]
 
@@ -158,7 +267,7 @@ func _bar(parent: Control, pos: Vector2, color: Color) -> ColorRect:
 	var back := ColorRect.new()
 	back.position = pos
 	back.size = Vector2(BAR_W + 2, 7)
-	back.color = Color(0.02, 0.04, 0.07)
+	back.color = Color(0.03, 0.04, 0.06)
 	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(back)
 	var fill := ColorRect.new()

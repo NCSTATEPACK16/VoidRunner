@@ -20,30 +20,35 @@ var enemy_mgr: EnemyManager
 var shot_mgr: ShotManager
 var hud: Hud
 var overlays: Overlays
+var view: SubViewport
+var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
 
 var _fire_cd := 0.0
+var _lowfire_cd := 0.0   # rate-limits the "LOW ENERGY"/"NO MISSILES" nag (I1/I2)
 var _overheat_t := 0.0
 var _arena_spawned := {}
 var _arena_kills := {}
 
 
 func _ready() -> void:
+	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
 	for w in ["neutron", "scatter", "bolt", "missile"]:
 		weapons.append(load("res://resources/weapons/%s.tres" % w))
 	for i in 5:
 		levels.append(load("res://resources/levels/level_%d.tres" % (i + 1)))
+	_build_game_view()
 	_build_environment()
 	world = WorldBuilder.new()
-	add_child(world)
+	view.add_child(world)
 	player = PlayerShip.new()
-	add_child(player)
+	view.add_child(player)
 	enemy_mgr = EnemyManager.new()
-	add_child(enemy_mgr)
+	view.add_child(enemy_mgr)
 	shot_mgr = ShotManager.new()
-	add_child(shot_mgr)
+	view.add_child(shot_mgr)
 	hud = Hud.new()
 	hud.layer = 1
-	add_child(hud)
+	view.add_child(hud)
 	_build_dither_layer()
 	overlays = Overlays.new()
 	overlays.layer = 10
@@ -67,11 +72,35 @@ func _ready() -> void:
 	for w in weapons:
 		names.append(w.display_name)
 	hud.setup(player, enemy_mgr, shot_mgr, names)
+	# Phase H: dither layer follows the settings toggle; apply saved settings now
+	GameState.dither_toggled.connect(func(on: bool) -> void: dither_layer.visible = on)
+	GameState.apply_settings()
 	# idle backdrop behind the start screen (v2.2 does the same)
 	_load_level_world(0)
 	player.reset_to_start()
 	player.active = false
 	overlays.show_only("start")
+
+
+## Phase I4: the whole game frame (3D world + in-flight HUD + dither) renders in a
+## fixed 320x200 SubViewport scaled up with nearest sampling, so the DOS look is
+## locked to that resolution no matter the window size. The menu/briefing overlays
+## stay OUTSIDE this viewport and draw at native resolution for crisp text (project
+## stretch mode is canvas_items). Do not move overlays inside, and do not let the
+## viewport size follow the window — both would undo the effect.
+func _build_game_view() -> void:
+	var container := SubViewportContainer.new()
+	container.stretch = true
+	container.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	view = SubViewport.new()
+	view.size = Vector2i(320, 200)
+	view.own_world_3d = true
+	view.handle_input_locally = false
+	view.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	container.add_child(view)
+	add_child(container)
 
 
 func _build_environment() -> void:
@@ -88,7 +117,7 @@ func _build_environment() -> void:
 	env.fog_depth_end = 150.0
 	var we := WorldEnvironment.new()
 	we.environment = env
-	add_child(we)
+	view.add_child(we)
 
 
 ## Phase G2: palette-quantize + Bayer-dither the finished frame (3D + HUD, not the
@@ -110,7 +139,8 @@ func _build_dither_layer() -> void:
 	mat.set_shader_parameter("palette_size", Palette.ALL.size())
 	rect.material = mat
 	layer.add_child(rect)
-	add_child(layer)
+	view.add_child(layer)
+	dither_layer = layer
 
 
 # ---------- level lifecycle ----------
@@ -134,7 +164,7 @@ func _load_level_world(index: int) -> void:
 		if arena.door_ring < 0:
 			continue
 		for ring_idx in arena.spawn_rings:
-			enemy_mgr.spawn(ring_idx, arena.id)
+			enemy_mgr.spawn(ring_idx, arena.id, _pick_enemy_type(level))
 		_arena_spawned[arena.id] = arena.spawn_rings.size()
 		_arena_kills[arena.id] = 0
 		if arena.spawn_rings.is_empty():
@@ -146,6 +176,7 @@ func _launch_level() -> void:
 	GameState.heat = 0.0
 	GameState.is_overheated = false
 	GameState.weapon_index = 0
+	GameState.missiles = GameState.MISSILES_PER_LEVEL   # I2: refill ammo each level start
 	_overheat_t = 0.0
 	_fire_cd = 0.0
 	_load_level_world(GameState.level_index)
@@ -251,17 +282,37 @@ func _update_heat(delta: float) -> void:
 
 func _update_firing(delta: float) -> void:
 	_fire_cd -= delta
+	_lowfire_cd -= delta
 	if not Input.is_action_pressed("fire") or _fire_cd > 0.0 or GameState.is_overheated:
 		return
 	var w := weapons[GameState.weapon_index]
+	# --- ammo / energy gates (I2 / I1) — checked before the shot so a blocked
+	# trigger can fire the instant reserves return, without eating the cooldown ---
+	if w.uses_ammo and GameState.missiles <= 0:
+		_notify_cant_fire("NO MISSILES")
+		return
+	if w.energy_cost > 0.0 and GameState.energy < w.energy_cost:
+		_notify_cant_fire("LOW ENERGY")
+		return
 	_fire_cd = w.cooldown
 	shot_mgr.fire_player(w)
+	if w.uses_ammo:
+		GameState.missiles -= 1
+	if w.energy_cost > 0.0:
+		GameState.energy -= w.energy_cost   # shared afterburner pool; regens in player.gd
 	GameState.heat += w.heat
 	if GameState.heat >= 100.0:
 		GameState.is_overheated = true
 		_overheat_t = OVERHEAT_LOCK
 		hud.show_message("WEAPONS OVERHEAT")
 		AudioSys.play_overheat()
+
+
+func _notify_cant_fire(msg: String) -> void:
+	if _lowfire_cd > 0.0:
+		return
+	_lowfire_cd = 1.0
+	hud.show_message(msg)
 
 
 func _update_arena_lock() -> void:
@@ -291,7 +342,14 @@ func _on_tunnel_spawn(ring_idx: int) -> void:
 	if state == State.MENU:
 		return
 	if randf() < levels[GameState.level_index].spawn_tunnel:
-		enemy_mgr.spawn(ring_idx, -1)
+		enemy_mgr.spawn(ring_idx, -1, _pick_enemy_type(levels[GameState.level_index]))
+
+
+## I3: weighted pick from a level's enemy_types pool (repeated ids act as weights).
+func _pick_enemy_type(level: LevelDef) -> String:
+	if level.enemy_types.is_empty():
+		return "drone"
+	return level.enemy_types[randi() % level.enemy_types.size()]
 
 
 # ---------- input ----------
@@ -304,6 +362,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		_toggle_pause()
 		return
 	if state != State.PLAYING:
+		return
+	# I4: the player lives inside the SubViewport, which doesn't receive unhandled
+	# input — mouse look is forwarded from here (root viewport) instead.
+	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		player.apply_mouse_look(event.relative)
 		return
 	if event is InputEventMouseButton and event.pressed \
 			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:

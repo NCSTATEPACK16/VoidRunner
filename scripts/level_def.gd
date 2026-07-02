@@ -15,3 +15,6 @@ extends Resource
 @export var enemy_fire := 2.8   # seconds between enemy shots (scaled ±)
 @export var theme_id := "tech"
 @export var level_seed := 101   # deterministic layout per level
+## Phase I3: weighted spawn pool — both tunnel and arena spawns pick a type from
+## here (repeat an id to weight it). L1 is drone-only; later levels mix in variants.
+@export var enemy_types := PackedStringArray(["drone"])

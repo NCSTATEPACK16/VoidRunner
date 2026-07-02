@@ -45,6 +45,80 @@ static func _draw_drone(frame: int, flash: bool) -> Image:
 	return img
 
 
+## 32x32 weaver: small fast interceptor — swept-back grey wings, slim green
+## fuselage, cyan cockpit glow, twin thrusters. Reads as agile/darty next to the
+## round drone. Frames: 2 idle (wing bob) + 1 hit-flash. (I3)
+static func weaver_frames() -> Array[ImageTexture]:
+	var frames: Array[ImageTexture] = []
+	for f in 2:
+		frames.append(ImageTexture.create_from_image(_draw_weaver(f, false)))
+	frames.append(ImageTexture.create_from_image(_draw_weaver(0, true)))
+	return frames
+
+
+static func _draw_weaver(frame: int, flash: bool) -> Image:
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	var hull := Palette.WHITE if flash else Palette.GREEN_2
+	var hull_dk := Palette.GREY_7 if flash else Palette.GREEN_1
+	var wing := Palette.WHITE if flash else Palette.GREY_5
+	var wing_dk := Palette.GREY_7 if flash else Palette.GREY_3
+	# swept-back wings forming a shallow V (bob 1 px between frames)
+	var wy := 13 + frame
+	for i in 12:
+		_px(img, 15 - i, wy + i, wing)
+		_px(img, 15 - i, wy + i - 1, wing_dk)
+		_px(img, 16 + i, wy + i, wing)
+		_px(img, 16 + i, wy + i - 1, wing_dk)
+	# slim vertical fuselage
+	_ellipse(img, 16, 15, 2, 10, hull_dk)
+	_ellipse(img, 16, 14, 1, 8, hull)
+	# cockpit / eye glow
+	_rect(img, 15, 9, 2, 4, Palette.CYAN_3 if not flash else Palette.WHITE)
+	# twin tail thrusters (flicker between frames)
+	_px(img, 14, 25, Palette.ORANGE_2 if frame == 0 else Palette.ORANGE_3)
+	_px(img, 17, 25, Palette.ORANGE_3 if frame == 0 else Palette.ORANGE_2)
+	return img
+
+
+## 32x32 hulk: heavy armored brute — broad navy torso, shoulder plates, a wide red
+## eye slit, stubby legs. Reads as slow/tanky. Frames: 2 idle (leg bob) + hit-flash. (I3)
+static func hulk_frames() -> Array[ImageTexture]:
+	var frames: Array[ImageTexture] = []
+	for f in 2:
+		frames.append(ImageTexture.create_from_image(_draw_hulk(f, false)))
+	frames.append(ImageTexture.create_from_image(_draw_hulk(0, true)))
+	return frames
+
+
+static func _draw_hulk(frame: int, flash: bool) -> Image:
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	var plate := Palette.WHITE if flash else Palette.NAVY_2
+	var plate_dk := Palette.GREY_7 if flash else Palette.NAVY_1
+	var edge := Palette.WHITE if flash else Palette.GREY_5
+	var core := Palette.WHITE if flash else Palette.RED_3
+	# broad rectangular torso
+	_rect(img, 6, 8, 20, 16, plate_dk)
+	_rect(img, 8, 10, 16, 12, plate)
+	# shoulder plates (heavier top corners)
+	_rect(img, 3, 9, 5, 8, plate_dk)
+	_rect(img, 24, 9, 5, 8, plate_dk)
+	_rect(img, 3, 9, 5, 2, edge)
+	_rect(img, 24, 9, 5, 2, edge)
+	# armored brow + wide red eye slit
+	_rect(img, 9, 12, 14, 2, Palette.GREY_2)
+	_rect(img, 11, 14, 10, 3, core)
+	_rect(img, 13, 15, 6, 1, Palette.ORANGE_3 if not flash else Palette.WHITE)
+	# plate rivets
+	for rx in [10, 16, 22]:
+		_px(img, rx, 11, edge)
+		_px(img, rx, 21, edge)
+	# heavy legs (bob 1 px)
+	var ly := 24 + frame
+	_rect(img, 8, ly, 4, 4, plate_dk)
+	_rect(img, 20, ly, 4, 4, plate_dk)
+	return img
+
+
 ## 16x16 four-point star (the enemy-shot shape from the research; also used for
 ## player bolts in weapon colors).
 static func star_texture(core: Color, glow: Color, size: int = 16) -> ImageTexture:

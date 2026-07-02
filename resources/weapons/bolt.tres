@@ -17,3 +17,4 @@ freq = 300.0
 fuse = 0.0
 splash = 0.0
 splash_damage = 0
+energy_cost = 12.0

@@ -19,3 +19,4 @@ enemy_speed = 6.0
 enemy_fire = 2.8
 theme_id = "tech"
 level_seed = 101
+enemy_types = PackedStringArray("drone")

@@ -19,3 +19,4 @@ enemy_speed = 8.4
 enemy_fire = 1.9
 theme_id = "hive"
 level_seed = 404
+enemy_types = PackedStringArray("drone", "weaver", "hulk", "hulk")

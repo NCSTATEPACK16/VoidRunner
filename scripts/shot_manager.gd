@@ -74,6 +74,7 @@ func fire_player(w: WeaponDef) -> void:
 			"node": sprite, "vel": dir * w.speed, "dmg": w.damage,
 			"life": (w.fuse + 0.5) if w.fuse > 0.0 else 1.4,
 			"fuse": w.fuse, "splash": w.splash, "splash_dmg": w.splash_damage,
+			"homing": w.homing, "homing_turn": w.homing_turn,
 		}
 		_pshots.append(shot)
 	player.flash_muzzle(w.color)
@@ -115,12 +116,36 @@ func spawn_explosion(pos: Vector3, big: bool) -> void:
 	AudioSys.play_boom(big)
 
 
+## Rotate a heat-seeking shot's velocity toward the nearest enemy by a capped angle,
+## preserving speed (I2b). Uses rotated() rather than slerp so a missile that
+## overshoots and has to U-turn stays stable near the 180° case. No enemies → flies
+## straight; retargets automatically since the nearest is re-queried each frame.
+func _steer_homing(s: Dictionary, delta: float) -> void:
+	var target := enemy_mgr.nearest_enemy(s.node.position)
+	if target == null:
+		return
+	var to_target: Vector3 = target.position - s.node.position
+	if to_target.length_squared() < 0.0001:
+		return
+	var cur: Vector3 = s.vel.normalized()
+	var des := to_target.normalized()
+	var ang := cur.angle_to(des)
+	if ang < 0.0001:
+		return
+	var axis := cur.cross(des)
+	if axis.length_squared() < 1e-8:
+		axis = Vector3.UP   # near-opposite target: any perpendicular starts the turn
+	s.vel = cur.rotated(axis.normalized(), minf(ang, s.homing_turn * delta)) * s.vel.length()
+
+
 func update_shots(delta: float) -> void:
 	for light in _boom_lights:
 		light.light_energy *= pow(0.002, delta)
 	# --- player shots ---
 	for i in range(_pshots.size() - 1, -1, -1):
 		var s: Dictionary = _pshots[i]
+		if s.homing:
+			_steer_homing(s, delta)
 		s.node.position += s.vel * delta
 		s.life -= delta
 		var boom := false

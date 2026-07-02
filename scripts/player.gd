@@ -77,13 +77,15 @@ func reset_to_start() -> void:
 	camera.position = Vector3.ZERO
 
 
-func _unhandled_input(event: InputEvent) -> void:
+## Called by game.gd from root-viewport input — the ship sits inside the 320x200
+## SubViewport (I4), which unhandled input doesn't reach.
+func apply_mouse_look(relative: Vector2) -> void:
 	if not active:
 		return
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		yaw -= event.relative.x * MOUSE_SENS
-		pitch = clampf(pitch - event.relative.y * MOUSE_SENS, -PITCH_LIMIT, PITCH_LIMIT)
-		_turn_sm += -event.relative.x * MOUSE_SENS
+	var sens := MOUSE_SENS * GameState.mouse_sens_mult   # Phase H settings
+	yaw -= relative.x * sens
+	pitch = clampf(pitch - relative.y * sens, -PITCH_LIMIT, PITCH_LIMIT)
+	_turn_sm += -relative.x * sens
 
 
 func forward() -> Vector3:

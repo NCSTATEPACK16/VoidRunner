@@ -17,6 +17,8 @@ const TEXT_COL := Color("8fb8cc")
 const KEY_COL := Color("ffd34d")
 
 var _panels := {}
+var _settings_labels := {}       # H: setting key -> its value Label/Button
+var _settings_return := "start"  # where the settings BACK button returns to
 
 
 func _ready() -> void:
@@ -27,6 +29,7 @@ func _ready() -> void:
 	_build_game_over()
 	_build_level_clear()
 	_build_victory()
+	_build_settings()
 	show_only("start")
 
 
@@ -75,14 +78,17 @@ func _build_start() -> void:
 	var p := _panel("start")
 	_title(p, "VOID RUNNER", 24, TITLE_COL)
 	_line(p, 58, "5-LEVEL CAMPAIGN · SECTOR RUN", 8, Color("5fb6d8"))
-	_line(p, 76, "Your fighter is locked in the labyrinth at constant burn.", 8, TEXT_COL)
-	_line(p, 86, "Clear the tunnels. Survive the arenas. Watch the radar.", 8, TEXT_COL)
-	_line(p, 100, "Cannons build HEAT — redline and weapons lock for 3 s.", 8, TEXT_COL)
-	_line(p, 110, "Wall impacts drain shields. Shields at zero = hull breach.", 8, TEXT_COL)
+	_line(p, 76, "Your fighter runs the labyrinth at constant burn.", 8, TEXT_COL)
+	_line(p, 86, "Clear tunnels, survive arenas, watch the radar.", 8, TEXT_COL)
+	_line(p, 100, "Cannons build HEAT — redline locks them 3 s.", 8, TEXT_COL)
+	_line(p, 110, "Wall hits drain shields. At zero: hull breach.", 8, TEXT_COL)
 	_button(p, Vector2(88, 136), "> START", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
 	_button(p, Vector2(168, 136), "? CONTROLS", func() -> void: show_only("help"))
+	_button(p, Vector2(122, 158), "* SETTINGS", func() -> void:
+		_settings_return = "start"
+		show_only("settings"))
 
 
 func _build_help() -> void:
@@ -117,7 +123,7 @@ func _build_briefing() -> void:
 	var b := _line(p, 76, "", 8, TEXT_COL)
 	b.name = "Body"
 	b.position.x = 30
-	b.size = Vector2(260, 80)
+	b.size = Vector2(260, 80) * 2  # _line labels are 2x-size, 0.5-scale (see _line)
 	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_button(p, Vector2(128, 164), "> LAUNCH", func() -> void:
@@ -149,7 +155,7 @@ func _build_level_clear() -> void:
 	b.name = "Body"
 	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.position.x = 0
-	b.size.x = 320
+	b.size = Vector2(320, 24) * 2  # _line labels are 2x-size, 0.5-scale (see _line)
 	_button(p, Vector2(120, 136), "> NEXT LEVEL", func() -> void: next_level_requested.emit())
 
 
@@ -160,6 +166,49 @@ func _build_victory() -> void:
 	var s := _line(p, 96, "SCORE 0", 10, KEY_COL)
 	s.name = "Score"
 	_button(p, Vector2(112, 136), "@ NEW CAMPAIGN", func() -> void: new_campaign_requested.emit())
+
+
+## H: volume + mouse sensitivity (stepper rows) and a dither on/off toggle. All
+## values live on GameState, which applies + persists them; rows just adjust + refresh.
+func _build_settings() -> void:
+	var p := _panel("settings")
+	_title(p, "SETTINGS", 16, TITLE_COL)
+	_setting_row(p, 74, "VOLUME", "volume")
+	_setting_row(p, 98, "MOUSE SENS", "sens")
+	_at(p, Vector2(60, 124), "DITHER (DOS LOOK)", 8, TEXT_COL)
+	var dbtn := _button(p, Vector2(214, 122), "ON", func() -> void:
+		GameState.dither_enabled = not GameState.dither_enabled
+		GameState.apply_settings()
+		_refresh_settings())
+	_settings_labels["dither"] = dbtn
+	_button(p, Vector2(130, 164), "< BACK", func() -> void: show_only(_settings_return))
+	_refresh_settings()
+
+
+func _setting_row(p: Control, y: float, label: String, key: String) -> void:
+	_at(p, Vector2(60, y + 2), label, 8, TEXT_COL)
+	_button(p, Vector2(184, y), "-", func() -> void: _adjust_setting(key, -1))
+	var val := _at(p, Vector2(216, y + 2), "", 8, KEY_COL)
+	_settings_labels[key] = val
+	_button(p, Vector2(246, y), "+", func() -> void: _adjust_setting(key, 1))
+
+
+func _adjust_setting(key: String, dir: int) -> void:
+	if key == "volume":
+		GameState.master_volume = clampf(GameState.master_volume + dir * 0.1, 0.0, 1.0)
+	elif key == "sens":
+		GameState.mouse_sens_mult = clampf(GameState.mouse_sens_mult + dir * 0.1, 0.3, 2.5)
+	GameState.apply_settings()
+	_refresh_settings()
+
+
+func _refresh_settings() -> void:
+	if _settings_labels.has("volume"):
+		(_settings_labels["volume"] as Label).text = "%d%%" % roundi(GameState.master_volume * 100.0)
+	if _settings_labels.has("sens"):
+		(_settings_labels["sens"] as Label).text = "%d%%" % roundi(GameState.mouse_sens_mult * 100.0)
+	if _settings_labels.has("dither"):
+		(_settings_labels["dither"] as Button).text = "ON" if GameState.dither_enabled else "OFF"
 
 
 # ---------- widget helpers ----------
@@ -176,13 +225,18 @@ func _title(p: Control, text: String, font_size: int, color: Color) -> Label:
 	return l
 
 
+## Body-text lines render at double font size scaled 0.5: at size 8 the default
+## font's advances carry half-pixel fractions that snap during painting, so long
+## centered lines drift right ~0.5 design px per glyph; size-16 advances are
+## integer-exact. Anyone overriding a _line label's size must use 2x local units.
 func _line(p: Control, y: float, text: String, font_size: int, color: Color) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.position = Vector2(0, y)
-	l.size = Vector2(320, 12)
+	l.size = Vector2(640, 24)
+	l.scale = Vector2(0.5, 0.5)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.add_theme_font_size_override("font_size", font_size)
+	l.add_theme_font_size_override("font_size", font_size * 2)
 	l.add_theme_color_override("font_color", color)
 	p.add_child(l)
 	return l

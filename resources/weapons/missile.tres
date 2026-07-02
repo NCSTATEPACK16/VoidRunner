@@ -17,3 +17,7 @@ freq = 480.0
 fuse = 2.0
 splash = 16.0
 splash_damage = 3
+energy_cost = 0.0
+uses_ammo = true
+homing = true
+homing_turn = 2.8
