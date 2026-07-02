@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="WeaponDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapon_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "BOLT"
+heat = 22.0
+cooldown = 0.55
+speed = 120.0
+damage = 3
+count = 1
+spread = 0.0
+sprite_scale = 2.0
+color = Color(1, 0.667, 0.188, 1)
+freq = 300.0
+fuse = 0.0
+splash = 0.0
+splash_damage = 0

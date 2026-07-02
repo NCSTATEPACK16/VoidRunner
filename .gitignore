@@ -1,0 +1,20 @@
+# Godot 4 cache/imported files
+.godot/
+
+# Web export output (built by Netlify / locally, never committed)
+dist/
+
+# Local Godot binaries downloaded by build.sh
+bin/
+
+# Research material must never enter this repo (see CLAUDE.md)
+# Belt-and-suspenders: the 1995 shareware originals live outside this repo,
+# but these patterns guarantee they can never be committed even by accident.
+reference/
+**/originals/
+RADIX*
+radix*
+*.tpz
+
+# macOS
+.DS_Store

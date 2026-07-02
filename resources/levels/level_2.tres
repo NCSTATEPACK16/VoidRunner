@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/level_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "L2 · SUPPLY ARTERY"
+briefing = "The station's main supply artery feeds every deck. The swarm is using
+it as a highway — and they have had time to dig in.
+
+Expect heavier patrols. Watch the radar and keep moving; a still ship
+is an easy target."
+objective = "PUNCH THROUGH THE ARTERY"
+rings = 130
+spawn_tunnel = 0.08
+spawn_arena = 0.36
+enemy_hp = 2
+enemy_speed = 6.8
+enemy_fire = 2.5
+theme_id = "navy"
+level_seed = 202

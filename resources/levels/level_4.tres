@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/level_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "L4 · HIVE TRENCHES"
+briefing = "This is where the swarm nests. The trench walls run red and the
+chambers are packed — every bulkhead here is kill-locked.
+
+The MISSILE detonates on a two-second fuse. You do not need a direct
+hit; put it in the middle of a cluster and let the blast work."
+objective = "BURN OUT THE NEST"
+rings = 180
+spawn_tunnel = 0.12
+spawn_arena = 0.48
+enemy_hp = 3
+enemy_speed = 8.4
+enemy_fire = 1.9
+theme_id = "hive"
+level_seed = 404

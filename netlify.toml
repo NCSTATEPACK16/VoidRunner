@@ -1,0 +1,18 @@
+[build]
+  command = "./build.sh"
+  publish = "dist"
+
+[build.environment]
+  # Pinned Godot version used ONLY for the Netlify-side headless export.
+  # build.sh downloads this exact binary + matching web export templates,
+  # so the deploy is self-consistent regardless of the local editor version.
+  GODOT_VERSION = "4.7"
+
+# COOP/COEP are not required while the Web export preset has thread_support=false
+# (that's what keeps iPad Safari working), but shipping them makes a future
+# threads-enabled build a one-flag change.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
