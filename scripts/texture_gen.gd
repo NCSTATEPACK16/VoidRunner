@@ -27,6 +27,10 @@ static var THEMES := {
 		"base": Palette.GREY_1, "dark": Palette.VOID_0, "mid": Palette.NAVY_1,
 		"light": Palette.GREY_4, "accent": Palette.CYAN_3, "accent2": Palette.RED_3,
 	},
+	"ice": {
+		"base": Palette.CYAN_0, "dark": Palette.VOID_1, "mid": Palette.NAVY_1,
+		"light": Palette.BLUE_1, "accent": Palette.CYAN_3, "accent2": Palette.ORANGE_2,
+	},
 }
 
 

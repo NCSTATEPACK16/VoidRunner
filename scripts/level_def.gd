@@ -18,3 +18,14 @@ extends Resource
 ## Phase I3: weighted spawn pool — both tunnel and arena spawns pick a type from
 ## here (repeat an id to weight it). L1 is drone-only; later levels mix in variants.
 @export var enemy_types := PackedStringArray(["drone"])
+
+# --- Phase J: boss levels + score ranking ---
+## "tunnel" = the classic winding run; "boss" = short entry tunnel into one large
+## straight room holding a single boss whose death activates the exit portal.
+@export var kind := "tunnel"
+@export var boss_name := ""
+@export var boss_hp := 0              # absolute HP — bosses skip the mul/add formula
+@export var boss_size := 16.0         # billboard world-size (drones are 4.2)
+@export var boss_tint := Color(1, 1, 1)
+## Par time in seconds for the end-of-level rank; 0 derives it from ring count.
+@export var par_time := 0.0

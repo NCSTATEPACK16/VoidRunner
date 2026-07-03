@@ -4,20 +4,19 @@
 
 [resource]
 script = ExtResource("1")
-display_name = "L5 · THE RIFT GATE"
-briefing = "The longest run of the campaign, straight into the anomaly. Whatever
-opened the Rift is on the other side of this final gate, and the swarm
-will throw everything it has to keep you away from it.
+display_name = "L5 · HIVE TRENCHES"
+briefing = "This is where the swarm nests. The trench walls run red and the
+chambers are packed — every bulkhead here is kill-locked.
 
-Fly through the exit portal in the last chamber and shut the Rift
-for good. Good hunting, Runner."
-objective = "SHUT THE RIFT"
-rings = 210
-spawn_tunnel = 0.14
-spawn_arena = 0.55
-enemy_hp = 4
-enemy_speed = 9.2
-enemy_fire = 1.6
-theme_id = "void"
-level_seed = 505
-enemy_types = PackedStringArray("weaver", "weaver", "hulk", "hulk", "drone")
+The MISSILE detonates on a two-second fuse. You do not need a direct
+hit; put it in the middle of a cluster and let the blast work."
+objective = "BURN OUT THE NEST"
+rings = 180
+spawn_tunnel = 0.12
+spawn_arena = 0.48
+enemy_hp = 3
+enemy_speed = 8.4
+enemy_fire = 1.9
+theme_id = "hive"
+level_seed = 404
+enemy_types = PackedStringArray("drone", "weaver", "hulk", "hulk")

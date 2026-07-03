@@ -3,6 +3,8 @@ extends Node
 ## Boots the real game scene, forces the briefing->launch flow, then steps the
 ## simulation with a fixed delta while holding the fire action — exercising flight,
 ## wall bounce, chunk streaming, enemies, shots, heat/overheat, and arena locks.
+## Phase J adds: probe-loop over all 9 levels, boss-room PathGen invariants, and a
+## scripted boss kill that must wake the exit portal.
 
 
 func _ready() -> void:
@@ -10,28 +12,38 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	# PathGen unit pass over all five levels first
-	for i in 5:
-		var level: LevelDef = load("res://resources/levels/level_%d.tres" % (i + 1))
+	# PathGen unit pass over every campaign level (probe loop = level count check)
+	var count := 0
+	var i := 1
+	while ResourceLoader.exists("res://resources/levels/level_%d.tres" % i):
+		var level: LevelDef = load("res://resources/levels/level_%d.tres" % i)
 		var path := PathGen.new()
-		path.generate(level.rings, level.level_seed, level.spawn_arena)
+		var is_boss := level.kind == "boss"
+		path.generate(level.rings, level.level_seed, level.spawn_arena, is_boss)
 		assert(path.rings.size() == level.rings)
 		var locked := 0
-		var final_count := 0
 		for arena in path.arenas:
-			if arena.is_final:
-				final_count += 1
-			elif arena.door_ring >= 0:
+			if arena.door_ring >= 0:
 				locked += 1
 				assert(not arena.spawn_rings.is_empty())
-		assert(final_count == 1)
-		print("L%d: rings=%d arenas=%d locked=%d" % [
-			i + 1, path.rings.size(), path.arenas.size(), locked])
+		if is_boss:
+			# one clean room: no bulkheads, no random pre-spawns, full width
+			assert(path.arenas.size() == 1)
+			assert(locked == 0)
+			var room: Dictionary = path.arenas[0]
+			assert(room.end - room.start >= 20)
+			assert(path.rings[path.rings.size() - 1].hw > 40.0)
+			assert(level.boss_hp > 0)
+		print("L%d(%s): rings=%d arenas=%d locked=%d" % [
+			i, level.kind, path.rings.size(), path.arenas.size(), locked])
+		i += 1
+		count += 1
+	assert(count == 9)
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	await get_tree().process_frame
-	print("boot ok — state=%d" % game.state)
+	print("boot ok — state=%d levels=%d" % [game.state, game.levels.size()])
 	game._on_launch()   # MENU -> BRIEFING
 	game._on_launch()   # BRIEFING -> PLAYING
 	await get_tree().process_frame
@@ -51,5 +63,22 @@ func _run() -> void:
 	print("end state=%d ring=%d/%d shields=%.0f score=%d peak_enemies=%d overheat=%s" % [
 		game.state, game.player.ring_idx, game.path.rings.size(),
 		GameState.shields, GameState.score, peak_enemies, overheated_seen])
+	# --- Phase J: boss level — spawn, dormant portal, kill wakes the exit ring ---
+	GameState.reset_run()
+	GameState.level_index = 2   # L3 · DOCK SENTINEL
+	game._launch_level()
+	await get_tree().process_frame
+	assert(not game.enemy_mgr.boss.is_empty())
+	assert(not game.world.portal_active)
+	var b: Dictionary = game.enemy_mgr.boss
+	var hp0: int = b.hp
+	game.enemy_mgr.splash_damage(b.node.position, 5.0, 60)
+	assert(game.enemy_mgr.boss.hp == hp0 - 60)
+	game._process(dt)   # lets the phase transition emit
+	game.enemy_mgr.splash_damage(b.node.position, 5.0, 9999)
+	await get_tree().process_frame
+	assert(game.enemy_mgr.boss.is_empty())
+	assert(game.world.portal_active)
+	print("boss ok — hp %d -> dead, portal awake, score=%d" % [hp0, GameState.score])
 	print("SMOKE TEST COMPLETE")
 	get_tree().quit()

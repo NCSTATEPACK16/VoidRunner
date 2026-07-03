@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/level_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "L9 · THE RIFT MAW"
+briefing = "This is it. The thing that opened the Rift is coiled in the maw at
+the end of this run — bigger, faster, and angrier than anything before it.
+
+Everything you have learned applies here. Watch the volleys, use the
+whole chamber, and do not stop moving. Shut the Rift for good, Runner."
+objective = "SLAY THE RIFT MAW · SHUT THE RIFT"
+rings = 58
+spawn_tunnel = 0.11
+spawn_arena = 0.3
+enemy_hp = 4
+enemy_speed = 9.2
+enemy_fire = 1.6
+theme_id = "void"
+level_seed = 999
+enemy_types = PackedStringArray("weaver", "hulk")
+kind = "boss"
+boss_name = "THE RIFT MAW"
+boss_hp = 260
+boss_size = 20.0
+boss_tint = Color(0.75, 0.6, 1, 1)
+par_time = 220.0

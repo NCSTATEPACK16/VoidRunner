@@ -18,6 +18,7 @@ var world: WorldBuilder
 var player: PlayerShip
 var enemy_mgr: EnemyManager
 var shot_mgr: ShotManager
+var pickup_mgr: PickupManager
 var hud: Hud
 var overlays: Overlays
 var view: SubViewport
@@ -28,14 +29,23 @@ var _lowfire_cd := 0.0   # rate-limits the "LOW ENERGY"/"NO MISSILES" nag (I1/I2
 var _overheat_t := 0.0
 var _arena_spawned := {}
 var _arena_kills := {}
+var _boss_arena_start := -1   # Phase J: first ring of the boss room (-1 = no boss)
+var _boss_announced := false
+var _low_shield_warned := false
 
 
 func _ready() -> void:
 	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
+	GameState.load_records()    # Phase J: high score / best ranks / unlocked sector
 	for w in ["neutron", "scatter", "bolt", "missile"]:
 		weapons.append(load("res://resources/weapons/%s.tres" % w))
-	for i in 5:
-		levels.append(load("res://resources/levels/level_%d.tres" % (i + 1)))
+	# Phase J: probe rather than hardcode the count — adding level_N.tres extends
+	# the campaign. ResourceLoader.exists also matches the .remap files a web export
+	# converts .tres references into.
+	var li := 1
+	while ResourceLoader.exists("res://resources/levels/level_%d.tres" % li):
+		levels.append(load("res://resources/levels/level_%d.tres" % li))
+		li += 1
 	_build_game_view()
 	_build_environment()
 	world = WorldBuilder.new()
@@ -46,6 +56,8 @@ func _ready() -> void:
 	view.add_child(enemy_mgr)
 	shot_mgr = ShotManager.new()
 	view.add_child(shot_mgr)
+	pickup_mgr = PickupManager.new()
+	view.add_child(pickup_mgr)
 	hud = Hud.new()
 	hud.layer = 1
 	view.add_child(hud)
@@ -61,6 +73,11 @@ func _ready() -> void:
 	enemy_mgr.enemy_fired.connect(shot_mgr.fire_enemy)
 	enemy_mgr.exploded.connect(shot_mgr.spawn_explosion)
 	enemy_mgr.enemy_killed.connect(_on_enemy_killed)
+	enemy_mgr.boss_killed.connect(_on_boss_killed)
+	enemy_mgr.boss_phase.connect(_on_boss_phase)
+	pickup_mgr.player = player
+	enemy_mgr.drop_spawned.connect(pickup_mgr.spawn_drop)
+	pickup_mgr.collected.connect(_on_pickup_collected)
 	shot_mgr.player_hit.connect(func(dmg: float) -> void: player.take_damage(dmg, "SHIELD HIT"))
 	player.damaged.connect(func(_a: float, msg: String) -> void: hud.show_message(msg))
 	GameState.player_died.connect(_on_player_died)
@@ -72,6 +89,10 @@ func _ready() -> void:
 	for w in weapons:
 		names.append(w.display_name)
 	hud.setup(player, enemy_mgr, shot_mgr, names)
+	var level_names: Array[String] = []
+	for l in levels:
+		level_names.append(l.display_name)
+	overlays.set_campaign(level_names)   # Phase J sector select
 	# Phase H: dither layer follows the settings toggle; apply saved settings now
 	GameState.dither_toggled.connect(func(on: bool) -> void: dither_layer.visible = on)
 	GameState.apply_settings()
@@ -149,15 +170,17 @@ func _load_level_world(index: int) -> void:
 	GameState.level_index = index
 	var level := levels[index]
 	path = PathGen.new()
-	path.generate(level.rings, level.level_seed, level.spawn_arena)
+	path.generate(level.rings, level.level_seed, level.spawn_arena, level.kind == "boss")
 	player.path = path
 	enemy_mgr.path = path
 	enemy_mgr.level = level
+	pickup_mgr.path = path
 	var theme: Dictionary = TextureGen.THEMES[level.theme_id]
 	world.rebuild(path, TextureGen.theme_set(level.theme_id, level.level_seed), theme.accent)
 	player.world = world
 	enemy_mgr.clear_all()
 	shot_mgr.clear_all()
+	pickup_mgr.clear_all()
 	_arena_spawned.clear()
 	_arena_kills.clear()
 	for arena in path.arenas:
@@ -169,6 +192,16 @@ func _load_level_world(index: int) -> void:
 		_arena_kills[arena.id] = 0
 		if arena.spawn_rings.is_empty():
 			world.open_door(arena.id)
+	# Phase J: boss levels put a single boss deep in the final room and keep the
+	# exit ring dark until it falls (no bulkheads on boss levels — see PathGen).
+	_boss_arena_start = -1
+	_boss_announced = false
+	hud.set_boss_name(level.boss_name if level.kind == "boss" else "")
+	if level.kind == "boss":
+		var room: Dictionary = path.arenas.back()
+		enemy_mgr.spawn_boss(room.end - 8, level)
+		world.set_portal_active(false)
+		_boss_arena_start = room.start
 
 
 func _launch_level() -> void:
@@ -179,6 +212,7 @@ func _launch_level() -> void:
 	GameState.missiles = GameState.MISSILES_PER_LEVEL   # I2: refill ammo each level start
 	_overheat_t = 0.0
 	_fire_cd = 0.0
+	GameState.reset_level_stats()
 	_load_level_world(GameState.level_index)
 	player.reset_to_start()
 	player.active = true
@@ -198,15 +232,48 @@ func _level_complete() -> void:
 	var idx := GameState.level_index
 	var bonus := 500 + idx * 250
 	GameState.score += bonus
+	# Phase J: rank the run, remember progress
+	var level := levels[idx]
+	var acc := 0
+	if GameState.level_shots > 0:
+		acc = roundi(100.0 * GameState.level_hits / GameState.level_shots)
+	var par := level.par_time
+	if par <= 0.0:
+		# level length at cruise speed, with generous slack for fighting
+		par = level.rings * PathGen.SEG / PlayerShip.BASE_SPEED * 1.9
+	var rank := _compute_rank(acc, player.elapsed, par)
+	GameState.unlocked_level = mini(
+		maxi(GameState.unlocked_level, idx + 1), levels.size() - 1)
+	var new_record := GameState.record_progress(rank)
 	if idx >= levels.size() - 1:
 		state = State.VICTORY
-		overlays.set_final_score("victory", GameState.score)
+		overlays.set_final_score("victory", GameState.score, new_record)
 		overlays.show_only("victory")
 	else:
 		state = State.LEVEL_CLEAR
 		overlays.set_level_clear(
-			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name)
+			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
+			GameState.level_kills, acc, player.elapsed, rank)
 		overlays.show_only("level_clear")
+
+
+## 5-point rank: accuracy 30/50/70% and finishing under par / well under par.
+func _compute_rank(acc: int, time: float, par: float) -> String:
+	var pts := 0
+	for gate in [30, 50, 70]:
+		if acc >= gate:
+			pts += 1
+	if time <= par:
+		pts += 1
+	if time <= par * 0.7:
+		pts += 1
+	if pts >= 5:
+		return "S"
+	if pts >= 4:
+		return "A"
+	if pts >= 2:
+		return "B"
+	return "C"
 
 
 func _on_player_died() -> void:
@@ -215,7 +282,8 @@ func _on_player_died() -> void:
 	shot_mgr.spawn_explosion(player.position, true)
 	AudioSys.stop_engine()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	overlays.set_final_score("game_over", GameState.score)
+	var new_record := GameState.record_progress()
+	overlays.set_final_score("game_over", GameState.score, new_record)
 	overlays.show_only("game_over")
 
 
@@ -223,6 +291,10 @@ func _on_player_died() -> void:
 
 func _on_launch() -> void:
 	if state == State.MENU:
+		# Phase J sector select: campaigns can start at any unlocked level
+		GameState.level_index = overlays.selected_sector()
+		GameState.level_start_score = 0
+		GameState.score = 0
 		_show_briefing()
 	else:
 		_launch_level()
@@ -257,11 +329,25 @@ func _process(delta: float) -> void:
 		return
 	player.update_flight(delta)
 	world.ensure_world(player.ring_idx)
+	GameState.tick_combo(delta)
 	_update_heat(delta)
 	_update_firing(delta)
 	enemy_mgr.update_enemies(delta)
 	shot_mgr.update_shots(delta)
+	pickup_mgr.update_pickups(delta)
 	_update_arena_lock()
+	if _boss_arena_start >= 0 and not _boss_announced \
+			and player.ring_idx >= _boss_arena_start - 4:
+		_boss_announced = true
+		hud.show_message("WARNING · CLASS-X SIGNATURE", 3.0)
+		AudioSys.play_overheat()
+	# Phase J: one-shot shields-critical callout with hysteresis
+	if GameState.shields < 25.0 and not _low_shield_warned:
+		_low_shield_warned = true
+		hud.show_message("SHIELDS CRITICAL", 2.0)
+		AudioSys.play_hit()
+	elif GameState.shields > 30.0:
+		_low_shield_warned = false
 	if world.portal_active \
 			and player.position.distance_squared_to(world.portal_position) < PORTAL_TRIGGER_SQ:
 		_level_complete()
@@ -323,6 +409,32 @@ func _update_arena_lock() -> void:
 			hud.set_kill_counter(_arena_kills.get(arena.id, 0), _arena_spawned.get(arena.id, 0))
 			return
 	hud.set_kill_counter(0, 0)
+
+
+func _on_pickup_collected(kind: String) -> void:
+	match kind:
+		"shield":
+			hud.show_message("SHIELD CELL +20")
+		"energy":
+			hud.show_message("ENERGY CORE +30")
+		"missile":
+			hud.show_message("MISSILE PACK +3")
+	AudioSys.play_select()
+
+
+func _on_boss_killed() -> void:
+	world.set_portal_active(true)
+	hud.show_message("SIGNATURE ELIMINATED — GATE OPEN", 3.0)
+	AudioSys.play_portal()
+	player.shake = 0.6
+
+
+func _on_boss_phase(phase: int) -> void:
+	if phase == 2:
+		hud.show_message("SIGNATURE SHIFTING — VOLLEY PATTERN", 2.5)
+	elif phase == 3:
+		hud.show_message("SIGNATURE CRITICAL — STAY MOBILE", 2.5)
+	AudioSys.play_overheat()
 
 
 func _on_enemy_killed(arena_id: int) -> void:

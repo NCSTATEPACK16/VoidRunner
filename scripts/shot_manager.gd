@@ -6,9 +6,10 @@ extends Node3D
 
 signal player_hit(damage: float)
 
-const HIT_RANGE_SQ := 13.0        # player shot vs enemy
 const PLAYER_HIT_RANGE_SQ := 5.5  # enemy shot vs player
-const ENEMY_SHOT_DMG := 9.0
+const ENEMY_SHOT_DMG := 9.0       # fallback; each enemy shot now carries its own dmg
+# player-shot-vs-enemy hit radius² is per-enemy (e.hit_r2) — a 4 u drone and a
+# 20 u boss cannot share one collision sphere (Phase J)
 
 var player: PlayerShip
 var enemy_mgr: EnemyManager
@@ -77,15 +78,17 @@ func fire_player(w: WeaponDef) -> void:
 			"homing": w.homing, "homing_turn": w.homing_turn,
 		}
 		_pshots.append(shot)
+	GameState.level_shots += w.count   # accuracy is per-projectile (Phase J)
 	player.flash_muzzle(w.color)
 	AudioSys.play_laser(w.freq)
 
 
-func fire_enemy(origin: Vector3, velocity: Vector3) -> void:
-	var sprite := SpriteGen.make_sprite(_enemy_shot_tex, 1.7)
+func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
+		shot_size := 1.7) -> void:
+	var sprite := SpriteGen.make_sprite(_enemy_shot_tex, shot_size)
 	sprite.position = origin
 	add_child(sprite)
-	_eshots.append({"node": sprite, "vel": velocity, "life": 5.0})
+	_eshots.append({"node": sprite, "vel": velocity, "life": 5.0, "dmg": dmg})
 
 
 func detonate(pos: Vector3, radius: float, dmg: int) -> void:
@@ -156,12 +159,15 @@ func update_shots(delta: float) -> void:
 		var dead: bool = s.life <= 0.0
 		if not dead and not boom:
 			for j in range(enemy_mgr.enemies.size() - 1, -1, -1):
-				var epos: Vector3 = enemy_mgr.enemies[j].node.position
-				if s.node.position.distance_squared_to(epos) < HIT_RANGE_SQ:
+				var ene: Dictionary = enemy_mgr.enemies[j]
+				if s.node.position.distance_squared_to(ene.node.position) \
+						< ene.get("hit_r2", 13.0):
+					# a contact hit always lands its direct damage; splash shots
+					# then detonate on top (Phase J — makes MISSILE matter vs bosses)
+					enemy_mgr.hit_enemy(j, s.dmg)
+					GameState.level_hits += 1
 					if s.splash > 0.0:
-						boom = true  # contact detonation
-					else:
-						enemy_mgr.hit_enemy(j, s.dmg)
+						boom = true
 					dead = true
 					break
 		if boom:
@@ -177,7 +183,7 @@ func update_shots(delta: float) -> void:
 		es.life -= delta
 		var kill: bool = es.life <= 0.0
 		if not kill and es.node.position.distance_squared_to(player.position) < PLAYER_HIT_RANGE_SQ:
-			player_hit.emit(ENEMY_SHOT_DMG)
+			player_hit.emit(es.get("dmg", ENEMY_SHOT_DMG))
 			kill = true
 		if kill:
 			es.node.queue_free()

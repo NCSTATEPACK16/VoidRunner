@@ -4,19 +4,26 @@
 
 [resource]
 script = ExtResource("1")
-display_name = "L3 · REACTOR MAZE"
-briefing = "The reactor galleries were carved straight into the asteroid rock.
-Tight turns, deep shadow, and drones that hit harder than the last sector.
+display_name = "L3 · DOCK SENTINEL"
+briefing = "Something big is parked in the old docking bay at the end of this
+approach — a Sentinel-class guardian, the first of its kind we have seen.
+Standard cannons will hurt it, but slowly. Save your missiles.
 
-The BOLT cannon one-shots a standard drone — but mind your heat gauge
-in the long dark stretches."
-objective = "CROSS THE REACTOR GALLERIES"
-rings = 155
-spawn_tunnel = 0.1
-spawn_arena = 0.42
-enemy_hp = 3
-enemy_speed = 7.6
-enemy_fire = 2.2
-theme_id = "rock"
-level_seed = 303
-enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk")
+It gets meaner as it takes damage. When it finally goes down, the exit
+gate will light up. Fly through the ring and get clear."
+objective = "DESTROY THE DOCK SENTINEL"
+rings = 54
+spawn_tunnel = 0.07
+spawn_arena = 0.3
+enemy_hp = 2
+enemy_speed = 7.0
+enemy_fire = 2.4
+theme_id = "navy"
+level_seed = 333
+enemy_types = PackedStringArray("drone", "weaver")
+kind = "boss"
+boss_name = "DOCK SENTINEL"
+boss_hp = 150
+boss_size = 16.0
+boss_tint = Color(1, 1, 1, 1)
+par_time = 180.0

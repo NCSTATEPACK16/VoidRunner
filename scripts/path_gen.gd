@@ -13,6 +13,11 @@ const TUNNEL_HW := 9.0
 const TUNNEL_HH := 6.0
 const ARENA_HW := 30.0
 const ARENA_HH := 15.0
+## Phase J boss rooms: one straight oversized chamber at the end of a short entry
+## tunnel. 46/22 is near the ceiling before fog (150) and camera.far (400) eat it.
+const BOSS_HW := 46.0
+const BOSS_HH := 22.0
+const BOSS_ROOM_RINGS := 24
 
 var rings: Array[Dictionary] = []
 ## Arena runs: { id, start, end, door_ring (-1 = unlocked), spawn_rings: Array[int], is_final }
@@ -29,6 +34,7 @@ var _arena_in := 0
 var _hw := TUNNEL_HW
 var _hh := TUNNEL_HH
 var _total := 999999
+var _boss := false
 var _rng := RandomNumberGenerator.new()
 
 
@@ -37,7 +43,8 @@ static func forward_from(yaw: float, pitch: float) -> Vector3:
 	return Vector3(-cp * sin(yaw), sin(pitch), -cp * cos(yaw))
 
 
-func generate(total_rings: int, level_seed: int, arena_spawn_chance: float) -> void:
+func generate(total_rings: int, level_seed: int, arena_spawn_chance: float,
+		boss := false) -> void:
 	rings.clear()
 	arenas.clear()
 	_rng.seed = level_seed
@@ -47,7 +54,9 @@ func generate(total_rings: int, level_seed: int, arena_spawn_chance: float) -> v
 	_yaw_v = 0.0
 	_pitch_v = 0.0
 	_count = 0
-	_next_arena = 32
+	_boss = boss
+	# boss levels have exactly one arena — the room itself; no mid-run arenas/doors
+	_next_arena = 999999 if boss else 32
 	_arena_in = 0
 	_hw = TUNNEL_HW
 	_hh = TUNNEL_HH
@@ -60,20 +69,26 @@ func generate(total_rings: int, level_seed: int, arena_spawn_chance: float) -> v
 
 func _gen_ring() -> void:
 	_count += 1
-	if _count > 14:
+	var final_len := BOSS_ROOM_RINGS if _boss else 14
+	if _boss and _count >= _total - final_len:
+		# a curving boss room sweeps its walls oddly — hold it straight and level
+		_yaw_v = 0.0
+		_pitch_v = 0.0
+		_pitch *= 0.8
+	elif _count > 14:
 		_yaw_v += (_rng.randf() - 0.5) * 0.05
 		_yaw_v = clampf(_yaw_v, -0.12, 0.12) * 0.985
 		_pitch_v += (_rng.randf() - 0.5) * 0.02 - _pitch * 0.02
 		_pitch_v = clampf(_pitch_v, -0.04, 0.04)
 	_yaw += _yaw_v
 	_pitch = clampf(_pitch + _pitch_v, -0.22, 0.22)
-	if _count == _total - 14:
-		_arena_in = 14  # guaranteed final arena holding the exit portal
+	if _count == _total - final_len:
+		_arena_in = final_len  # guaranteed final arena holding the exit portal
 	elif _count == _next_arena and _count < _total - 34:
 		_arena_in = 10
 		_next_arena += 30 + _rng.randi_range(0, 17)
-	var t_hw := ARENA_HW if _arena_in > 0 else TUNNEL_HW
-	var t_hh := ARENA_HH if _arena_in > 0 else TUNNEL_HH
+	var t_hw := (BOSS_HW if _boss else ARENA_HW) if _arena_in > 0 else TUNNEL_HW
+	var t_hh := (BOSS_HH if _boss else ARENA_HH) if _arena_in > 0 else TUNNEL_HH
 	if _arena_in > 0:
 		_arena_in -= 1
 	_hw += (t_hw - _hw) * 0.3
@@ -86,9 +101,11 @@ func _push_ring() -> void:
 	var d := forward_from(_yaw, _pitch)
 	var r := d.cross(Vector3.UP).normalized()
 	var u := r.cross(d).normalized()
+	# arena_center rings get ceiling lights; a boss room is long enough to need three
+	var center := (_arena_in in [20, 12, 4]) if _boss else _arena_in == 5
 	rings.append({
 		"p": _pos, "d": d, "r": r, "u": u, "hw": _hw, "hh": _hh,
-		"arena": _arena_in > 0, "arena_center": _arena_in == 5, "arena_id": -1,
+		"arena": _arena_in > 0, "arena_center": center, "arena_id": -1,
 	})
 
 
@@ -108,6 +125,10 @@ func _find_arenas(arena_spawn_chance: float) -> void:
 
 
 func _add_arena(start: int, end: int, is_final: bool, spawn_chance: float) -> void:
+	# Phase J: a boss level's only arena is the room itself — always final, so it
+	# never gets a bulkhead or random pre-spawns (the boss is placed by game.gd).
+	if _boss:
+		is_final = true
 	var id := arenas.size()
 	for i in range(start, end + 1):
 		rings[i].arena_id = id
