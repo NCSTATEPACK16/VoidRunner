@@ -4,19 +4,19 @@
 
 [resource]
 script = ExtResource("1")
-display_name = "L4 · HIVE TRENCHES"
-briefing = "This is where the swarm nests. The trench walls run red and the
-chambers are packed — every bulkhead here is kill-locked.
+display_name = "L4 · REACTOR MAZE"
+briefing = "The reactor galleries were carved straight into the asteroid rock.
+Tight turns, deep shadow, and drones that hit harder than the last sector.
 
-The MISSILE detonates on a two-second fuse. You do not need a direct
-hit; put it in the middle of a cluster and let the blast work."
-objective = "BURN OUT THE NEST"
-rings = 180
-spawn_tunnel = 0.12
-spawn_arena = 0.48
+The BOLT cannon one-shots a standard drone — but mind your heat gauge
+in the long dark stretches."
+objective = "CROSS THE REACTOR GALLERIES"
+rings = 155
+spawn_tunnel = 0.1
+spawn_arena = 0.42
 enemy_hp = 3
-enemy_speed = 8.4
-enemy_fire = 1.9
-theme_id = "hive"
-level_seed = 404
-enemy_types = PackedStringArray("drone", "weaver", "hulk", "hulk")
+enemy_speed = 7.6
+enemy_fire = 2.2
+theme_id = "rock"
+level_seed = 303
+enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk")

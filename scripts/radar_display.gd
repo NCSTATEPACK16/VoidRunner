@@ -43,10 +43,20 @@ func _draw() -> void:
 		var dz: float = e.node.position.z - player.position.z
 		var lat := dx * rx + dz * rz
 		var ahead := dx * fx + dz * fz
-		if lat * lat + ahead * ahead > RANGE * RANGE:
+		var is_boss: bool = e.get("is_boss", false)
+		var out_of_range := lat * lat + ahead * ahead > RANGE * RANGE
+		if out_of_range and not is_boss:
 			continue
 		var p := c + Vector2(lat / RANGE * radius, -ahead / RANGE * radius)
-		draw_rect(Rect2(p - Vector2(1, 1), Vector2(2, 2)), Color("ff3838"))
+		if is_boss:
+			# the boss room is longer than radar range — pin the blip to the rim
+			# so the signature is findable from the room mouth, blinking at ~2 Hz
+			if out_of_range:
+				p = c + Vector2(lat, -ahead).normalized() * radius
+			if int(Time.get_ticks_msec() / 250) % 2 == 0:
+				draw_rect(Rect2(p - Vector2(2, 2), Vector2(4, 4)), Color("ff9a30"))
+		else:
+			draw_rect(Rect2(p - Vector2(1, 1), Vector2(2, 2)), Color("ff3838"))
 	for shot_pos in shot_mgr.enemy_shot_positions():
 		var ex: float = shot_pos.x - player.position.x
 		var ez: float = shot_pos.z - player.position.z

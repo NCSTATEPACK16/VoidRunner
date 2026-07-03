@@ -50,6 +50,8 @@ var _console_draw: Control
 var _kills := 0
 var _kill_target := 0
 var _threat := false
+var _boss_name: Label
+var _combo: Label
 var radar: RadarDisplay
 
 
@@ -76,8 +78,16 @@ func _ready() -> void:
 	_msg = _label(root, Vector2(0, 30), "", Color("ff7b5a"), 8)
 	_msg.size = Vector2(W, 10)
 	_msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# Phase J: boss name over the boss health bar (the 3x5 font is digits-only)
+	_boss_name = _label(root, Vector2(0, 22), "", Color("ff7050"), 8)
+	_boss_name.size = Vector2(W, 10)
+	_boss_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_boss_name.visible = false
 	_level_speed = _label(root, Vector2(8, 6), "LVL 1 · VEL 18", Color("5fb6d8"), 8)
 	_score = _label(root, Vector2(8, 16), "SCORE 0", Color("ffd34d"), 8)
+	# Phase J: kill-streak multiplier readout
+	_combo = _label(root, Vector2(8, 26), "", Color("ff9a30"), 8)
+	_combo.visible = false
 	# ---- bottom console ----
 	_console_draw = Control.new()
 	_console_draw.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -102,6 +112,9 @@ func _ready() -> void:
 	GameState.heat_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.score_changed.connect(func(v: int) -> void: _score.text = "SCORE %d" % v)
 	GameState.weapon_changed.connect(func(_i: int) -> void: _update_weapons())
+	GameState.combo_changed.connect(func(_count: int, mult: int) -> void:
+		_combo.visible = mult >= 2
+		_combo.text = "COMBO x%d" % mult)
 
 
 func setup(p: PlayerShip, em: EnemyManager, sm: ShotManager, names: Array[String]) -> void:
@@ -116,9 +129,9 @@ func setup(p: PlayerShip, em: EnemyManager, sm: ShotManager, names: Array[String
 	_update_bars()
 
 
-func show_message(text: String) -> void:
+func show_message(text: String, t := 1.2) -> void:
 	_msg.text = text
-	_msg_t = 1.2
+	_msg_t = t
 
 
 func set_kill_counter(kills: int, target: int) -> void:
@@ -126,11 +139,19 @@ func set_kill_counter(kills: int, target: int) -> void:
 	_kill_target = target
 
 
+func set_boss_name(text: String) -> void:
+	_boss_name.text = text
+
+
 func _process(delta: float) -> void:
 	_msg_t -= delta
 	_msg.visible = _msg_t > 0.0
 	if player:
-		_flash.color.a = minf(1.0, player.shake * 1.6) * 0.3
+		var a := minf(1.0, player.shake * 1.6) * 0.3
+		# Phase J: low-shield warning pulse under everything else
+		if GameState.shields < 25.0 and not GameState.is_dead:
+			a = maxf(a, (sin(Time.get_ticks_msec() / 160.0) * 0.5 + 0.5) * 0.14)
+		_flash.color.a = a
 		_level_speed.text = "LVL %d · VEL %d" % [GameState.level_index + 1, int(player.speed)]
 	_threat = false
 	if shot_mgr and player:
@@ -138,6 +159,7 @@ func _process(delta: float) -> void:
 			if p.distance_squared_to(player.position) < THREAT_RANGE_SQ:
 				_threat = true
 				break
+	_boss_name.visible = enemy_mgr != null and not enemy_mgr.boss.is_empty()
 	_crosshair.queue_redraw()
 	_canopy.queue_redraw()
 	_console_draw.queue_redraw()
@@ -185,6 +207,17 @@ func _draw_canopy() -> void:
 	_draw_text3x5(c, Vector2(W / 2.0 - 6, 3), "-", 1, DIGIT_DIM)  # spacer tick
 	var threat_col := Color("ff5030") if _threat else Color(0.36, 0.20, 0.16)
 	c.draw_rect(Rect2(W / 2.0 - 4, 4, 22, 3), threat_col)
+	# Phase J: boss health bar under the THREAT panel — chunky rect, white damage
+	# flash, tick marks at the 66%/33% phase gates
+	if enemy_mgr and not enemy_mgr.boss.is_empty():
+		var b: Dictionary = enemy_mgr.boss
+		c.draw_rect(Rect2(100, 13, 120, 8), PANEL_DARK)
+		c.draw_rect(Rect2(100, 13, 120, 8), PANEL_EDGE, false)
+		var frac: float = b.hp / float(b.max_hp)
+		var fill_col := Color("e8ecf4") if b.flash_t > 0.0 else Color("ff3838")
+		c.draw_rect(Rect2(102, 15, maxf(0.0, 116.0 * frac), 4), fill_col)
+		for gate in [0.66, 0.33]:
+			c.draw_rect(Rect2(102 + int(116 * gate), 14, 1, 6), PANEL_EDGE)
 
 
 ## G4: sculpted console plate — bevel lines, weapon slot row, MISL ammo digits,

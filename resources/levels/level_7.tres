@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/level_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "L7 · GLACIAL CONDUITS"
+briefing = "Coolant conduits on the dark side of the station, frozen over for
+years. The ice plays tricks with your radar and the swarm loves the cold.
+
+Long stretches, fast patrols. Manage your energy — the afterburner is
+your best way out when a chamber gets crowded."
+objective = "TRAVERSE THE CONDUITS"
+rings = 195
+spawn_tunnel = 0.13
+spawn_arena = 0.52
+enemy_hp = 4
+enemy_speed = 8.8
+enemy_fire = 1.75
+theme_id = "ice"
+level_seed = 707
+enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk", "hulk")

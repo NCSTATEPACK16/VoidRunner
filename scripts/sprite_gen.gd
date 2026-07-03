@@ -119,6 +119,69 @@ static func _draw_hulk(frame: int, flash: bool) -> Image:
 	return img
 
 
+## 64x64 boss: Sentinel-class guardian (Phase J) — broad layered warship hull,
+## wide red eye bank, mantis-claw side pylons, orange belly vents that pulse
+## between idle frames. Same 3-frame contract as every enemy (2 idle + hit
+## flash); per-boss identity comes from Sprite3D.modulate (level.boss_tint).
+static func boss_frames() -> Array[ImageTexture]:
+	var frames: Array[ImageTexture] = []
+	for f in 2:
+		frames.append(ImageTexture.create_from_image(_draw_boss(f, false)))
+	frames.append(ImageTexture.create_from_image(_draw_boss(0, true)))
+	return frames
+
+
+static func _draw_boss(frame: int, flash: bool) -> Image:
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	var plate := Palette.WHITE if flash else Palette.GREY_5
+	var plate_dk := Palette.GREY_7 if flash else Palette.GREY_3
+	var hull_dk := Palette.GREY_7 if flash else Palette.GREY_1
+	var under := Palette.GREY_6 if flash else Palette.NAVY_1
+	var trim := Palette.WHITE if flash else Palette.GREY_6
+	var eye := Palette.WHITE if flash else Palette.RED_3
+	var eye_hot := Palette.WHITE if flash else Palette.RED_4
+	var vent_a := Palette.ORANGE_2 if frame == 0 else Palette.ORANGE_3
+	var vent_b := Palette.ORANGE_3 if frame == 0 else Palette.ORANGE_2
+	# under-hull shadow mass
+	_ellipse(img, 32, 36, 26, 14, under)
+	# main hull: wide armored wedge, layered plates
+	_rect(img, 12, 22, 40, 18, plate_dk)
+	_rect(img, 16, 18, 32, 10, plate)
+	_rect(img, 8, 26, 48, 8, plate)
+	_rect(img, 8, 26, 48, 2, trim)
+	# top spine + command dome + antenna
+	_ellipse(img, 32, 16, 10, 6, plate_dk)
+	_ellipse(img, 32, 14, 6, 3, plate)
+	_rect(img, 31, 6, 2, 6, hull_dk)
+	_px(img, 31, 5, eye_hot)
+	_px(img, 32, 5, eye_hot)
+	# mantis-claw side pylons, drooping forward (tip glow bobs 1 px between frames)
+	for s in [-1, 1]:
+		var cx: int = 32 + s * 26
+		_rect(img, cx - 2, 24, 4, 16, plate_dk)
+		_rect(img, cx - 2, 38, 4, 6, hull_dk)
+		_rect(img, (cx - 3) if s < 0 else (cx - 1), 44, 4, 4, hull_dk)
+		_px(img, cx, 46 + frame, vent_b)
+	# wide eye bank across the brow
+	_rect(img, 18, 28, 28, 4, Palette.GREY_7 if flash else Palette.RED_1)
+	_rect(img, 20, 29, 24, 2, eye)
+	for ex in [24, 32, 40]:
+		_px(img, ex, 29, eye_hot)
+		_px(img, ex, 30, eye_hot)
+	# armored jaw + intake grill
+	_rect(img, 22, 34, 20, 4, hull_dk)
+	for gx in range(24, 40, 3):
+		_rect(img, gx, 35, 1, 2, plate_dk)
+	# belly thruster vents (pulse between frames)
+	for i in 4:
+		_rect(img, 20 + i * 7, 42, 4, 3, vent_a if i % 2 == 0 else vent_b)
+	# plate rivets
+	for rx in range(12, 52, 8):
+		_px(img, rx, 26, hull_dk)
+		_px(img, rx, 33, hull_dk)
+	return img
+
+
 ## 16x16 four-point star (the enemy-shot shape from the research; also used for
 ## player bolts in weapon colors).
 static func star_texture(core: Color, glow: Color, size: int = 16) -> ImageTexture:
@@ -157,6 +220,38 @@ static func missile_texture() -> ImageTexture:
 	_rect(img, 6, 13, 4, 2, Palette.ORANGE_2)
 	_px(img, 7, 15, Palette.ORANGE_3)
 	_px(img, 8, 15, Palette.ORANGE_3)
+	return ImageTexture.create_from_image(img)
+
+
+## 16x16 pickup icons (Phase J): shield = green cross, energy = cyan bolt,
+## missile = grey dart — each on a dark disc so it reads against any wall.
+static func pickup_texture(kind: String) -> ImageTexture:
+	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	match kind:
+		"shield":
+			_ellipse(img, 8, 8, 7, 7, Palette.GREEN_0)
+			_ellipse(img, 8, 8, 6, 6, Palette.GREEN_1)
+			_rect(img, 6, 3, 4, 10, Palette.GREEN_2)
+			_rect(img, 3, 6, 10, 4, Palette.GREEN_2)
+			_rect(img, 7, 7, 2, 2, Palette.WHITE)
+		"energy":
+			_ellipse(img, 8, 8, 7, 7, Palette.CYAN_0)
+			_ellipse(img, 8, 8, 6, 6, Palette.CYAN_1)
+			for i in 5:  # zigzag bolt
+				_px(img, 9 - i, 3 + i, Palette.CYAN_3)
+				_px(img, 10 - i, 3 + i, Palette.CYAN_3)
+			for i in 5:
+				_px(img, 8 - i + 3, 8 + i, Palette.CYAN_3)
+				_px(img, 9 - i + 3, 8 + i, Palette.CYAN_3)
+			_rect(img, 6, 7, 5, 2, Palette.WHITE)
+		"missile":
+			_ellipse(img, 8, 8, 7, 7, Palette.GREY_1)
+			_ellipse(img, 8, 8, 6, 6, Palette.GREY_3)
+			_rect(img, 6, 4, 4, 7, Palette.GREY_6)
+			_rect(img, 7, 2, 2, 3, Palette.RED_3)
+			_rect(img, 5, 10, 2, 2, Palette.GREY_5)
+			_rect(img, 9, 10, 2, 2, Palette.GREY_5)
+			_rect(img, 7, 11, 2, 2, Palette.ORANGE_2)
 	return ImageTexture.create_from_image(img)
 
 

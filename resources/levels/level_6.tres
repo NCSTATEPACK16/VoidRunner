@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="LevelDef" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/level_def.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "L6 · BROOD MOTHER"
+briefing = "The heart of the nest. The thing that has been building all those
+drones is waiting in the brood chamber, and it is not happy to see you.
+
+It fires in spreads — keep moving sideways and the volleys will miss.
+Drop it, then take the ring out before the nest wakes up."
+objective = "DESTROY THE BROOD MOTHER"
+rings = 56
+spawn_tunnel = 0.09
+spawn_arena = 0.3
+enemy_hp = 3
+enemy_speed = 8.4
+enemy_fire = 1.9
+theme_id = "hive"
+level_seed = 666
+enemy_types = PackedStringArray("weaver", "hulk")
+kind = "boss"
+boss_name = "BROOD MOTHER"
+boss_hp = 200
+boss_size = 18.0
+boss_tint = Color(1, 0.55, 0.45, 1)
+par_time = 200.0

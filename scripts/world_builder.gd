@@ -107,6 +107,14 @@ func is_door_open(arena_id: int) -> bool:
 	return _doors.has(arena_id) and _doors[arena_id].open
 
 
+## Phase J: boss levels keep the exit ring dormant (dark and inert) until the boss
+## falls — the reveal IS the level-complete gate, so no bulkhead is needed.
+func set_portal_active(on: bool) -> void:
+	portal_active = on
+	if _portal:
+		_portal.visible = on
+
+
 # ---------- geometry ----------
 
 func _build_chunk(s: int, e: int) -> void:

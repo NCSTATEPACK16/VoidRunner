@@ -20,6 +20,12 @@ var _panels := {}
 var _settings_labels := {}       # H: setting key -> its value Label/Button
 var _settings_return := "start"  # where the settings BACK button returns to
 
+# Phase J: sector select + records on the start screen
+var _sector := 0
+var _sector_names: Array[String] = []
+var _sector_label: Label
+var _high_label: Label
+
 
 func _ready() -> void:
 	_build_start()
@@ -36,8 +42,39 @@ func _ready() -> void:
 func show_only(panel_name: String) -> void:
 	for key in _panels:
 		_panels[key].visible = key == panel_name
+	if panel_name == "start":
+		_refresh_start()
 	if panel_name != "":
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+## Phase J: called once by game.gd with all level display names; the picker is
+## clamped to what the player has unlocked and defaults to their furthest sector.
+func set_campaign(names: Array[String]) -> void:
+	_sector_names = names
+	_sector = mini(GameState.unlocked_level, names.size() - 1)
+	_refresh_start()
+
+
+func selected_sector() -> int:
+	return _sector
+
+
+func _adjust_sector(dir: int) -> void:
+	var max_sector: int = mini(GameState.unlocked_level, _sector_names.size() - 1)
+	_sector = clampi(_sector + dir, 0, max_sector)
+	AudioSys.play_select()
+	_refresh_start()
+
+
+func _refresh_start() -> void:
+	if _sector_names.is_empty() or _sector_label == null:
+		return
+	var max_sector: int = mini(GameState.unlocked_level, _sector_names.size() - 1)
+	_sector = clampi(_sector, 0, max_sector)
+	_sector_label.text = "SECTOR: %s" % _sector_names[_sector]
+	_high_label.text = "HIGH SCORE %d" % GameState.high_score \
+		if GameState.high_score > 0 else ""
 
 
 func hide_all() -> void:
@@ -51,15 +88,39 @@ func set_briefing(level: LevelDef) -> void:
 	(p.get_node("Body") as Label).text = level.briefing
 
 
-func set_level_clear(level_name: String, bonus: int, score: int, next_name: String) -> void:
+func set_level_clear(level_name: String, bonus: int, score: int, next_name: String,
+		kills: int, acc: int, time: float, rank: String) -> void:
 	var p: Control = _panels.level_clear
 	(p.get_node("Title") as Label).text = level_name + " CLEAR"
 	(p.get_node("Body") as Label).text = \
-		"EXIT BONUS +%d · SCORE %d\nNEXT: %s" % [bonus, score, next_name]
+		"KILLS %d · ACCURACY %d%% · TIME %s\nEXIT BONUS +%d · SCORE %d\nNEXT: %s" % [
+			kills, acc, _fmt_time(time), bonus, score, next_name]
+	var r := p.get_node("Rank") as Label
+	r.text = "RANK " + rank
+	r.add_theme_color_override("font_color", _rank_color(rank))
 
 
-func set_final_score(panel_name: String, score: int) -> void:
+func set_final_score(panel_name: String, score: int, new_record := false) -> void:
 	(_panels[panel_name].get_node("Score") as Label).text = "SCORE %d" % score
+	var rec := _panels[panel_name].get_node_or_null("Record") as Label
+	if rec:
+		rec.text = "*** NEW RECORD ***" if new_record \
+			else "HIGH SCORE %d" % GameState.high_score
+
+
+func _fmt_time(t: float) -> String:
+	return "%d:%02d" % [int(t) / 60, int(t) % 60]
+
+
+func _rank_color(rank: String) -> Color:
+	match rank:
+		"S":
+			return Color("ffd34d")
+		"A":
+			return Color("55ffee")
+		"B":
+			return Color("4a90d8")
+	return TEXT_COL
 
 
 # ---------- builders ----------
@@ -77,16 +138,20 @@ func _panel(panel_name: String) -> Control:
 func _build_start() -> void:
 	var p := _panel("start")
 	_title(p, "VOID RUNNER", 24, TITLE_COL)
-	_line(p, 58, "5-LEVEL CAMPAIGN · SECTOR RUN", 8, Color("5fb6d8"))
-	_line(p, 76, "Your fighter runs the labyrinth at constant burn.", 8, TEXT_COL)
-	_line(p, 86, "Clear tunnels, survive arenas, watch the radar.", 8, TEXT_COL)
-	_line(p, 100, "Cannons build HEAT — redline locks them 3 s.", 8, TEXT_COL)
-	_line(p, 110, "Wall hits drain shields. At zero: hull breach.", 8, TEXT_COL)
-	_button(p, Vector2(88, 136), "> START", func() -> void:
+	_line(p, 58, "9-LEVEL CAMPAIGN · SECTOR RUN", 8, Color("5fb6d8"))
+	_high_label = _line(p, 70, "", 8, KEY_COL)
+	_line(p, 82, "Your fighter runs the labyrinth at constant burn.", 8, TEXT_COL)
+	_line(p, 92, "Clear tunnels, survive arenas, watch the radar.", 8, TEXT_COL)
+	_line(p, 102, "Cannons build HEAT — redline locks them 3 s.", 8, TEXT_COL)
+	_line(p, 112, "Wall hits drain shields. At zero: hull breach.", 8, TEXT_COL)
+	_button(p, Vector2(84, 126), "<", func() -> void: _adjust_sector(-1))
+	_sector_label = _line(p, 132, "", 8, KEY_COL)
+	_button(p, Vector2(216, 126), ">", func() -> void: _adjust_sector(1))
+	_button(p, Vector2(88, 152), "> START", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
-	_button(p, Vector2(168, 136), "? CONTROLS", func() -> void: show_only("help"))
-	_button(p, Vector2(122, 158), "* SETTINGS", func() -> void:
+	_button(p, Vector2(168, 152), "? CONTROLS", func() -> void: show_only("help"))
+	_button(p, Vector2(122, 174), "* SETTINGS", func() -> void:
 		_settings_return = "start"
 		show_only("settings"))
 
@@ -142,29 +207,35 @@ func _build_pause() -> void:
 func _build_game_over() -> void:
 	var p := _panel("game_over")
 	_title(p, "HULL BREACH", 20, Color("ff5040"))
-	var s := _line(p, 90, "SCORE 0", 10, KEY_COL)
+	var s := _line(p, 88, "SCORE 0", 10, KEY_COL)
 	s.name = "Score"
-	_button(p, Vector2(120, 130), "@ RETRY LEVEL", func() -> void: retry_requested.emit())
+	var rec := _line(p, 104, "", 8, Color("5fb6d8"))
+	rec.name = "Record"
+	_button(p, Vector2(120, 132), "@ RETRY LEVEL", func() -> void: retry_requested.emit())
 
 
 func _build_level_clear() -> void:
 	var p := _panel("level_clear")
 	var t := _title(p, "LEVEL CLEAR", 16, TITLE_COL)
 	t.name = "Title"
-	var b := _line(p, 84, "", 8, TEXT_COL)
+	var b := _line(p, 70, "", 8, TEXT_COL)
 	b.name = "Body"
 	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.position.x = 0
-	b.size = Vector2(320, 24) * 2  # _line labels are 2x-size, 0.5-scale (see _line)
-	_button(p, Vector2(120, 136), "> NEXT LEVEL", func() -> void: next_level_requested.emit())
+	b.size = Vector2(320, 40) * 2  # _line labels are 2x-size, 0.5-scale (see _line)
+	var r := _line(p, 108, "", 14, KEY_COL)
+	r.name = "Rank"
+	_button(p, Vector2(120, 142), "> NEXT LEVEL", func() -> void: next_level_requested.emit())
 
 
 func _build_victory() -> void:
 	var p := _panel("victory")
 	_title(p, "CAMPAIGN COMPLETE", 16, TITLE_COL)
-	_line(p, 78, "ALL 5 SECTORS CLEARED · THE RIFT IS SHUT", 8, Color("5fb6d8"))
-	var s := _line(p, 96, "SCORE 0", 10, KEY_COL)
+	_line(p, 74, "ALL 9 SECTORS CLEARED · THE RIFT IS SHUT", 8, Color("5fb6d8"))
+	var s := _line(p, 92, "SCORE 0", 10, KEY_COL)
 	s.name = "Score"
+	var rec := _line(p, 108, "", 8, Color("5fb6d8"))
+	rec.name = "Record"
 	_button(p, Vector2(112, 136), "@ NEW CAMPAIGN", func() -> void: new_campaign_requested.emit())
 
 
