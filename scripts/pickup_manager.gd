@@ -23,6 +23,7 @@ var player: PlayerShip
 var path: PathGen
 
 var _pickups: Array[Dictionary] = []
+var _stations: Array[Dictionary] = []   # boss resupply: {kind, pos, bob_p, node|null}
 var _textures := {}
 
 
@@ -35,6 +36,36 @@ func clear_all() -> void:
 	for p in _pickups:
 		p.node.queue_free()
 	_pickups.clear()
+	for s in _stations:
+		if s.node:
+			s.node.queue_free()
+	_stations.clear()
+
+
+func warmup_textures() -> Array:
+	return _textures.values()
+
+
+## Boss resupply station: a fixed pickup on the boss room's back wall. Never
+## expires; collecting it empties the slot until replenish_stations() (called on
+## each boss phase transition) respawns it at its anchor position.
+func add_station(pos: Vector3, kind: String) -> void:
+	var station := {"kind": kind, "pos": pos, "bob_p": randf() * TAU, "node": null}
+	_stations.append(station)
+	_respawn_station(station)
+
+
+func replenish_stations() -> void:
+	for s in _stations:
+		if s.node == null:
+			_respawn_station(s)
+
+
+func _respawn_station(s: Dictionary) -> void:
+	var sprite := SpriteGen.make_sprite(_textures[s.kind], 3.2)
+	sprite.position = s.pos
+	add_child(sprite)
+	s.node = sprite
 
 
 func spawn_drop(pos: Vector3, ring: int, kind: String) -> void:
@@ -67,6 +98,16 @@ func update_pickups(delta: float) -> void:
 		if d2 < MAGNET_RANGE_SQ:
 			node.position += to_player.normalized() * (MAGNET_SPEED * delta)
 		node.visible = p.life > BLINK_AT or int(p.life * 6.0) % 2 == 0
+	for s in _stations:
+		if s.node == null:
+			continue
+		var node: Sprite3D = s.node
+		s.bob_p += delta * 2.4
+		node.position = s.pos + Vector3.UP * sin(s.bob_p) * 0.5
+		if player.position.distance_squared_to(node.position) < COLLECT_RANGE_SQ:
+			_collect(s.kind)
+			node.queue_free()
+			s.node = null
 
 
 func _collect(kind: String) -> void:

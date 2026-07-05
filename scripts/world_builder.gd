@@ -107,6 +107,38 @@ func is_door_open(arena_id: int) -> bool:
 	return _doors.has(arena_id) and _doors[arena_id].open
 
 
+## Small meshes carrying every material class this level can draw that isn't in
+## view from the start ring — door (emissive wall variant), portal torus (unshaded)
+## and portal disc (transparent) — added to the briefing warm-up rig so their
+## shader variants compile behind the briefing overlay, not mid-flight.
+func warmup_meshes(rig: Node3D, pos: Vector3) -> void:
+	var door_mat: StandardMaterial3D = mats.wall.duplicate()
+	door_mat.albedo_color = Color(0.7, 0.7, 0.75)
+	door_mat.emission_enabled = true
+	door_mat.emission = accent_color
+	door_mat.emission_energy_multiplier = 0.25
+	var torus_mat := StandardMaterial3D.new()
+	torus_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	torus_mat.albedo_color = Color("55ffee")
+	var disc_mat := StandardMaterial3D.new()
+	disc_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	disc_mat.albedo_color = Color(0.05, 0.2, 0.27, 0.6)
+	disc_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var x := -1.4
+	for mat: StandardMaterial3D in [door_mat, torus_mat, disc_mat]:
+		# cull off so orientation can't hide the quad from the camera; cull mode is
+		# rasterizer state, not a shader variant, so the same GL program compiles
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		var mi := MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2(1.2, 1.2)
+		mi.mesh = quad
+		mi.material_override = mat
+		mi.position = pos + Vector3(x, 0, 0)
+		x += 1.4
+		rig.add_child(mi)
+
+
 ## Phase J: boss levels keep the exit ring dormant (dark and inert) until the boss
 ## falls — the reveal IS the level-complete gate, so no bulkhead is needed.
 func set_portal_active(on: bool) -> void:

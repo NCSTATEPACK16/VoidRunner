@@ -32,6 +32,8 @@ var _arena_kills := {}
 var _boss_arena_start := -1   # Phase J: first ring of the boss room (-1 = no boss)
 var _boss_announced := false
 var _low_shield_warned := false
+var _built_level := -1        # level index the world is currently built for (-1 = dirty)
+var _warmup_rig: Node3D
 
 
 func _ready() -> void:
@@ -202,6 +204,26 @@ func _load_level_world(index: int) -> void:
 		enemy_mgr.spawn_boss(room.end - 8, level)
 		world.set_portal_active(false)
 		_boss_arena_start = room.start
+		_place_boss_stations(room, level)
+	_built_level = index
+
+
+## Resupply stations spread across the boss room's back wall, behind the boss —
+## crossing the open chamber to restock is the intended risk/reward. They respawn
+## at each boss phase transition (see _on_boss_phase).
+func _place_boss_stations(room: Dictionary, level: LevelDef) -> void:
+	var kinds: Array[String] = []
+	for i in level.boss_shield_cells:
+		kinds.append("shield")
+	for i in level.boss_missile_cells:
+		kinds.append("missile")
+	if kinds.is_empty():
+		return
+	var ring: Dictionary = path.rings[room.end - 2]
+	for i in kinds.size():
+		var frac := 0.0 if kinds.size() == 1 \
+			else lerpf(-0.55, 0.55, float(i) / (kinds.size() - 1))
+		pickup_mgr.add_station(ring.p + ring.r * (frac * ring.hw), kinds[i])
 
 
 func _launch_level() -> void:
@@ -213,7 +235,12 @@ func _launch_level() -> void:
 	_overheat_t = 0.0
 	_fire_cd = 0.0
 	GameState.reset_level_stats()
-	_load_level_world(GameState.level_index)
+	_end_warmup()
+	# the briefing screen already built this level's world (and warmed its shaders);
+	# only rebuild when launched directly without a briefing (tests, dirty world)
+	if _built_level != GameState.level_index:
+		_load_level_world(GameState.level_index)
+	_built_level = -1   # once play starts the world is dirty (doors, kills)
 	player.reset_to_start()
 	player.active = true
 	GameState.is_dead = false
@@ -304,6 +331,47 @@ func _show_briefing() -> void:
 	state = State.BRIEFING
 	overlays.set_briefing(levels[GameState.level_index])
 	overlays.show_only("briefing")
+	# Build the level world NOW, behind the briefing overlay, and park a warm-up rig
+	# in front of the camera so every shader variant compiles while the player reads.
+	# First-use shader compilation is the level-1 stutter cause — it is synchronous
+	# and very slow on the WebGL export (profiled 100-130ms even on desktop GL).
+	_load_level_world(GameState.level_index)
+	player.reset_to_start()
+	player.active = false
+	_start_warmup()
+
+
+## One small instance of every material the level can draw — enemy/boss sprites,
+## shots, explosions, sparks, pickups, door + portal meshes — plus energized
+## muzzle/boom lights, visible to the camera for a few frames during the briefing.
+func _start_warmup() -> void:
+	_end_warmup()
+	_warmup_rig = Node3D.new()
+	view.add_child(_warmup_rig)
+	var fwd := player.forward()
+	var right := fwd.cross(Vector3.UP).normalized()
+	var base: Vector3 = player.position + fwd * 9.0
+	var texes: Array = []
+	texes.append_array(enemy_mgr.warmup_textures())
+	texes.append_array(shot_mgr.warmup_textures(weapons))
+	texes.append_array(pickup_mgr.warmup_textures())
+	for i in texes.size():
+		var s := SpriteGen.make_sprite(texes[i], 0.7)
+		s.position = base + right * ((i % 6) - 2.5) * 1.1 \
+			+ Vector3.UP * (float(i / 6) - 1.0) * 1.1
+		_warmup_rig.add_child(s)
+	world.warmup_meshes(_warmup_rig, base + Vector3.UP * 2.4)
+	player.muzzle_light.light_energy = 0.6
+	shot_mgr.warmup_boom_light(base, true)
+	get_tree().create_timer(0.5).timeout.connect(_end_warmup)
+
+
+func _end_warmup() -> void:
+	if _warmup_rig and is_instance_valid(_warmup_rig):
+		_warmup_rig.queue_free()
+		player.muzzle_light.light_energy = 0.0
+		shot_mgr.warmup_boom_light(Vector3.ZERO, false)
+	_warmup_rig = null
 
 
 func _on_next_level() -> void:
@@ -435,6 +503,7 @@ func _on_boss_phase(phase: int) -> void:
 	elif phase == 3:
 		hud.show_message("SIGNATURE CRITICAL — STAY MOBILE", 2.5)
 	AudioSys.play_overheat()
+	pickup_mgr.replenish_stations()   # back-wall resupply respawns each phase
 
 
 func _on_enemy_killed(arena_id: int) -> void:

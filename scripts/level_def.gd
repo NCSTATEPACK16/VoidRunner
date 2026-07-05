@@ -29,3 +29,7 @@ extends Resource
 @export var boss_tint := Color(1, 1, 1)
 ## Par time in seconds for the end-of-level rank; 0 derives it from ring count.
 @export var par_time := 0.0
+## Resupply stations on the boss room's back wall (behind the boss). They appear
+## at fight start and any collected ones respawn at each boss phase transition.
+@export var boss_shield_cells := 0
+@export var boss_missile_cells := 0

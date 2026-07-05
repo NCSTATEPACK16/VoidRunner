@@ -26,3 +26,5 @@ boss_hp = 200
 boss_size = 18.0
 boss_tint = Color(1, 0.55, 0.45, 1)
 par_time = 200.0
+boss_shield_cells = 2
+boss_missile_cells = 1

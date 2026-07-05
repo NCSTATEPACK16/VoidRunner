@@ -12,6 +12,10 @@ func _ready() -> void:
 
 
 func _run() -> void:
+	# the test completes levels — snapshot and restore the player's real records
+	var saved := {}
+	for f in ["user://records.cfg", "user://settings.cfg"]:
+		saved[f] = FileAccess.get_file_as_bytes(f) if FileAccess.file_exists(f) else null
 	# PathGen unit pass over every campaign level (probe loop = level count check)
 	var count := 0
 	var i := 1
@@ -70,6 +74,15 @@ func _run() -> void:
 	await get_tree().process_frame
 	assert(not game.enemy_mgr.boss.is_empty())
 	assert(not game.world.portal_active)
+	# boss resupply stations: L3 = 1 shield + 1 missile on the back wall, and a
+	# collected one respawns on replenish (wired to boss phase transitions)
+	assert(game.pickup_mgr._stations.size() == 2)
+	var st: Dictionary = game.pickup_mgr._stations[0]
+	st.node.queue_free()
+	st.node = null
+	game.pickup_mgr.replenish_stations()
+	assert(st.node != null)
+	print("stations ok — %d placed, replenish respawns" % game.pickup_mgr._stations.size())
 	var b: Dictionary = game.enemy_mgr.boss
 	var hp0: int = b.hp
 	game.enemy_mgr.splash_damage(b.node.position, 5.0, 60)
@@ -81,4 +94,11 @@ func _run() -> void:
 	assert(game.world.portal_active)
 	print("boss ok — hp %d -> dead, portal awake, score=%d" % [hp0, GameState.score])
 	print("SMOKE TEST COMPLETE")
+	for f in saved:
+		if saved[f] == null:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(f))
+		else:
+			var fh := FileAccess.open(f, FileAccess.WRITE)
+			fh.store_buffer(saved[f])
+			fh.close()
 	get_tree().quit()
