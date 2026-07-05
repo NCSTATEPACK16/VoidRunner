@@ -48,6 +48,26 @@ func clear_all() -> void:
 		arr.clear()
 
 
+## Every texture a fight can draw, for the briefing-screen shader warm-up.
+## Also pre-populates the per-weapon bolt cache so no texture is built mid-flight.
+func warmup_textures(weapon_list: Array[WeaponDef]) -> Array:
+	var texes: Array = [_explosion_frames[0], _enemy_shot_tex, _spark_tex, _missile_tex]
+	for w in weapon_list:
+		if w.fuse > 0.0:
+			continue
+		if not _bolt_cache.has(w.display_name):
+			_bolt_cache[w.display_name] = SpriteGen.bolt_texture(w.color, w.color.darkened(0.4))
+		texes.append(_bolt_cache[w.display_name])
+	return texes
+
+
+## Briefly energize one boom light during warm-up so lit shader variants compile
+## before the first explosion; off again when the rig is freed.
+func warmup_boom_light(pos: Vector3, on: bool) -> void:
+	_boom_lights[0].position = pos
+	_boom_lights[0].light_energy = 1.0 if on else 0.0
+
+
 func fire_player(w: WeaponDef) -> void:
 	var fwd := player.forward()
 	var right := fwd.cross(Vector3.UP).normalized()

@@ -59,6 +59,14 @@ func clear_all() -> void:
 	boss = {}
 
 
+## First frame of every enemy type (incl. boss), for the briefing shader warm-up.
+func warmup_textures() -> Array:
+	var texes: Array = []
+	for type_id in _type_frames:
+		texes.append(_type_frames[type_id][0])
+	return texes
+
+
 func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 	if enemies.size() >= ENEMY_CAP and arena_id < 0:
 		return
