@@ -38,8 +38,28 @@ func _run() -> void:
 			assert(room.end - room.start >= 20)
 			assert(path.rings[path.rings.size() - 1].hw > 40.0)
 			assert(level.boss_hp > 0)
-		print("L%d(%s): rings=%d arenas=%d locked=%d" % [
-			i, level.kind, path.rings.size(), path.arenas.size(), locked])
+		# --- K2/V-08 geometry invariants ---
+		var hard_corners := 0
+		var min_dot := 1.0
+		for ri in path.rings.size():
+			var ring: Dictionary = path.rings[ri]
+			assert(ring.fo >= 0.0 and ring.co >= 0.0)
+			# flyable vertical span never pinches below the player's margins
+			assert(2.0 * ring.hh - ring.fo - ring.co >= 6.0)
+			if ring.arena_center:
+				assert(ring.fo < 0.5 and ring.co < 0.5)  # combat spaces stay flat
+			if ri > 0:
+				var dot: float = path.rings[ri - 1].d.dot(ring.d)
+				min_dot = minf(min_dot, dot)
+				if dot < 0.95:
+					hard_corners += 1
+		assert(min_dot > 0.7)  # corners turn hard but never fold the tunnel back
+		if is_boss:
+			assert(hard_corners == 0)  # boss approach stays smooth
+			for ri in range(path.arenas[0].start, path.rings.size()):
+				assert(path.rings[ri].fo < 0.5 and path.rings[ri].co < 0.5)
+		print("L%d(%s): rings=%d arenas=%d locked=%d corners=%d" % [
+			i, level.kind, path.rings.size(), path.arenas.size(), locked, hard_corners])
 		i += 1
 		count += 1
 	assert(count == 9)

@@ -6,6 +6,7 @@ extends RefCounted
 ##
 ## Each ring is a Dictionary:
 ##   p: Vector3 center · d/r/u: forward/right/up basis · hw/hh: half-width/height
+##   fo/co: floor-raise / ceiling-drop offsets (K2/V-08 — 0 in arenas & boss rooms)
 ##   arena: bool · arena_center: bool · arena_id: int (-1 outside arenas)
 
 const SEG := 12.0            # metres per ring
@@ -22,6 +23,7 @@ const BOSS_ROOM_RINGS := 24
 var rings: Array[Dictionary] = []
 ## Arena runs: { id, start, end, door_ring (-1 = unlocked), spawn_rings: Array[int], is_final }
 var arenas: Array[Dictionary] = []
+var is_boss := false
 
 var _pos := Vector3.ZERO
 var _yaw := 0.0
@@ -33,6 +35,11 @@ var _next_arena := 32
 var _arena_in := 0
 var _hw := TUNNEL_HW
 var _hh := TUNNEL_HH
+var _fo := 0.0               # K2: floor raised above -hh by this much
+var _co := 0.0               # K2: ceiling dropped below +hh by this much
+var _next_corner := 0
+var _corner_in := 0
+var _corner_dir := 1.0
 var _total := 999999
 var _boss := false
 var _rng := RandomNumberGenerator.new()
@@ -55,11 +62,17 @@ func generate(total_rings: int, level_seed: int, arena_spawn_chance: float,
 	_pitch_v = 0.0
 	_count = 0
 	_boss = boss
+	is_boss = boss
 	# boss levels have exactly one arena — the room itself; no mid-run arenas/doors
 	_next_arena = 999999 if boss else 32
 	_arena_in = 0
 	_hw = TUNNEL_HW
 	_hh = TUNNEL_HH
+	_fo = 0.0
+	_co = 0.0
+	# K2/V-08: hard ~90° corners are a tunnel-level feature; boss approach stays smooth
+	_next_corner = 999999 if boss else 40 + _rng.randi_range(0, 25)
+	_corner_in = 0
 	_total = total_rings
 	_push_ring()
 	for k in total_rings - 1:
@@ -75,11 +88,26 @@ func _gen_ring() -> void:
 		_yaw_v = 0.0
 		_pitch_v = 0.0
 		_pitch *= 0.8
+	elif _corner_in > 0:
+		# K2/V-08: mid-corner — hold a hard constant turn rate, level the pitch
+		_corner_in -= 1
+		_yaw_v = _corner_dir * 0.36
+		_pitch_v = 0.0
+		_pitch *= 0.85
+		if _corner_in == 0:
+			_yaw_v = 0.0
 	elif _count > 14:
 		_yaw_v += (_rng.randf() - 0.5) * 0.05
 		_yaw_v = clampf(_yaw_v, -0.12, 0.12) * 0.985
 		_pitch_v += (_rng.randf() - 0.5) * 0.02 - _pitch * 0.02
 		_pitch_v = clampf(_pitch_v, -0.04, 0.04)
+		# K2/V-08: schedule an occasional hard corner (~82° over 4 rings), only in
+		# plain tunnel and clear of arena mouths and the guaranteed final arena
+		if _arena_in == 0 and _count >= _next_corner \
+				and _count + 16 < _next_arena and _count < _total - 34:
+			_corner_in = 4
+			_corner_dir = 1.0 if _rng.randf() < 0.5 else -1.0
+			_next_corner = _count + 45 + _rng.randi_range(0, 30)
 	_yaw += _yaw_v
 	_pitch = clampf(_pitch + _pitch_v, -0.22, 0.22)
 	if _count == _total - final_len:
@@ -93,6 +121,18 @@ func _gen_ring() -> void:
 		_arena_in -= 1
 	_hw += (t_hw - _hw) * 0.3
 	_hh += (t_hh - _hh) * 0.3
+	# K2/V-08: floor/ceiling height variation — a slow random walk in plain tunnel,
+	# decayed to flat inside arenas (combat spaces stay clean). A boss room snaps
+	# exactly flat at its mouth — its dimensions are a Phase J invariant.
+	if _boss and _count >= _total - final_len:
+		_fo = 0.0
+		_co = 0.0
+	elif _arena_in > 0 or _count <= 14:
+		_fo *= 0.5
+		_co *= 0.5
+	else:
+		_fo = clampf(_fo + (_rng.randf() - 0.5) * 0.8, 0.0, 2.4)
+		_co = clampf(_co + (_rng.randf() - 0.5) * 0.8, 0.0, 2.4)
 	_pos += forward_from(_yaw, _pitch) * SEG
 	_push_ring()
 
@@ -105,6 +145,7 @@ func _push_ring() -> void:
 	var center := (_arena_in in [20, 12, 4]) if _boss else _arena_in == 5
 	rings.append({
 		"p": _pos, "d": d, "r": r, "u": u, "hw": _hw, "hh": _hh,
+		"fo": _fo, "co": _co,
 		"arena": _arena_in > 0, "arena_center": center, "arena_id": -1,
 	})
 
@@ -163,23 +204,26 @@ func nearest_ring(pos: Vector3, start: int) -> int:
 
 
 ## Returns pos pushed back inside the flyable cross-section of ring idx.
+## K2: the vertical bounds are asymmetric — fo raises the floor, co drops the ceiling.
 func clamp_to_ring(pos: Vector3, idx: int, margin: float) -> Vector3:
 	var ring: Dictionary = rings[idx]
 	var rel: Vector3 = pos - ring.p
 	var lat: float = rel.dot(ring.r)
 	var vert: float = rel.dot(ring.u)
 	var m_l: float = ring.hw - margin
-	var m_v: float = ring.hh - margin
+	var m_top: float = ring.hh - ring.co - margin
+	var m_bot: float = ring.hh - ring.fo - margin
 	if lat > m_l:
 		pos += ring.r * (m_l - lat)
 	elif lat < -m_l:
 		pos += ring.r * (-m_l - lat)
-	if vert > m_v:
-		pos += ring.u * (m_v - vert)
-	elif vert < -m_v:
-		pos += ring.u * (-m_v - vert)
+	if vert > m_top:
+		pos += ring.u * (m_top - vert)
+	elif vert < -m_bot:
+		pos += ring.u * (-m_bot - vert)
 	return pos
 
 
 func corner(ring: Dictionary, sr: float, su: float) -> Vector3:
-	return ring.p + ring.r * (sr * ring.hw) + ring.u * (su * ring.hh)
+	var v: float = su * ring.hh + (ring.fo if su < 0.0 else -ring.co)
+	return ring.p + ring.r * (sr * ring.hw) + ring.u * v

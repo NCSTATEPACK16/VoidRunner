@@ -150,7 +150,9 @@ func _wall_collide() -> void:
 	var lat: float = rel.dot(ring.r)
 	var vert: float = rel.dot(ring.u)
 	var max_l: float = ring.hw - 1.6
-	var max_v: float = ring.hh - 1.3
+	# K2/V-08: floor can be raised (fo) and ceiling dropped (co) per ring
+	var max_top: float = ring.hh - ring.co - 1.3
+	var max_bot: float = ring.hh - ring.fo - 1.3
 	var hit := false
 	if lat > max_l:
 		position += ring.r * (max_l - lat)
@@ -160,12 +162,12 @@ func _wall_collide() -> void:
 		position += ring.r * (-max_l - lat)
 		bounce += ring.r * 16.0
 		hit = true
-	if vert > max_v:
-		position += ring.u * (max_v - vert)
+	if vert > max_top:
+		position += ring.u * (max_top - vert)
 		bounce += ring.u * -16.0
 		hit = true
-	elif vert < -max_v:
-		position += ring.u * (-max_v - vert)
+	elif vert < -max_bot:
+		position += ring.u * (-max_bot - vert)
 		bounce += ring.u * 16.0
 		hit = true
 	if hit and wall_hurt_t <= 0.0:

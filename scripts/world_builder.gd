@@ -205,6 +205,32 @@ func _build_chunk(s: int, e: int) -> void:
 	_chunks.append({"node": chunk_node, "start": s, "end": e})
 	for ri in range(s, e):
 		var ring: Dictionary = path.rings[ri]
+		# K2/V-08: sector-style wall relief in arenas — pilasters and ceiling beams.
+		# Everything protrudes at most 1.0 u, safely inside every collision margin
+		# (player 1.6, enemy clamp ≥2.2, pickups 2.0), so it is purely visual and
+		# needs no collision support. Boss rooms stay untouched (Phase J invariants).
+		if ring.arena_id >= 0 and not path.is_boss and not ring.arena_center:
+			if ri % 3 == 0:
+				for side in [-1.0, 1.0]:
+					var pilaster := MeshInstance3D.new()
+					var pbox := BoxMesh.new()
+					pbox.size = Vector3(1.0, ring.hh * 2.0, 2.2)
+					pilaster.mesh = pbox
+					pilaster.material_override = mats.wall
+					pilaster.transform = Transform3D(
+						Basis(ring.r, ring.u, -ring.d),
+						ring.p + ring.r * (side * (ring.hw - 0.5)))
+					chunk_node.add_child(pilaster)
+			if ri % 9 == 4:
+				var beam := MeshInstance3D.new()
+				var bbox := BoxMesh.new()
+				bbox.size = Vector3(ring.hw * 2.0, 1.0, 1.6)
+				beam.mesh = bbox
+				beam.material_override = mats.ceil
+				beam.transform = Transform3D(
+					Basis(ring.r, ring.u, -ring.d),
+					ring.p + ring.u * (ring.hh - 0.5))
+				chunk_node.add_child(beam)
 		if ring.arena_center and _lights.size() < MAX_ARENA_LIGHTS:
 			# K1/V-10: every 4th arena stays unlit — a shadow pocket where only the
 			# fog-to-black ambient reads and lurking enemies are radar-first contacts
