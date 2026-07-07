@@ -23,6 +23,7 @@ var hud: Hud
 var overlays: Overlays
 var view: SubViewport
 var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
+var env: Environment            # K1: per-level fog/ambient moods retune this
 
 var _fire_cd := 0.0
 var _lowfire_cd := 0.0   # rate-limits the "LOW ENERGY"/"NO MISSILES" nag (I1/I2)
@@ -126,21 +127,35 @@ func _build_game_view() -> void:
 	add_child(container)
 
 
+## K1/G3: light diminishing — surfaces dissolve into PURE black with distance (no
+## blue tint anywhere), low ambient so unlit pockets read as real shadow. Per-theme
+## fog distance and ambient tint are applied on top in _apply_theme_mood.
 func _build_environment() -> void:
-	var env := Environment.new()
+	env = Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("02030a")
+	env.background_color = Color.BLACK
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("2a3140")
-	env.ambient_light_energy = 0.9
+	env.ambient_light_color = Color("16181e")
+	env.ambient_light_energy = 0.75
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
-	env.fog_light_color = Color("02030a")
-	env.fog_depth_begin = 12.0
-	env.fog_depth_end = 150.0
+	env.fog_light_color = Color.BLACK
+	env.fog_depth_begin = 10.0
+	env.fog_depth_end = 100.0
 	var we := WorldEnvironment.new()
 	we.environment = env
 	view.add_child(we)
+
+
+## K1/V-10: sector lighting mood — each zone theme can tighten the fog and tint
+## the ambient floor. Boss rooms are wider than most fog ranges, so boss levels
+## get a slack floor to keep the far wall (and the boss) readable.
+func _apply_theme_mood(theme: Dictionary, level: LevelDef) -> void:
+	var fog_end: float = theme.get("fog_end", 100.0)
+	if level.kind == "boss":
+		fog_end = maxf(fog_end, 110.0)
+	env.fog_depth_end = fog_end
+	env.ambient_light_color = theme.get("amb", Color("16181e"))
 
 
 ## Phase G2: palette-quantize + Bayer-dither the finished frame (3D + HUD, not the
@@ -178,7 +193,9 @@ func _load_level_world(index: int) -> void:
 	enemy_mgr.level = level
 	pickup_mgr.path = path
 	var theme: Dictionary = TextureGen.THEMES[level.theme_id]
-	world.rebuild(path, TextureGen.theme_set(level.theme_id, level.level_seed), theme.accent)
+	_apply_theme_mood(theme, level)
+	world.rebuild(path, TextureGen.theme_set(level.theme_id, level.level_seed),
+		theme.accent, theme.accent2)
 	player.world = world
 	enemy_mgr.clear_all()
 	shot_mgr.clear_all()
