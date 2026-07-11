@@ -182,6 +182,18 @@ func _run() -> void:
 	assert(GameState.gauntlet_best_dist >= gdist)
 	print("gauntlet ok — dist=%dm rings=%d arenas=%d tier=%d" % [
 		gdist, game.path.rings.size(), game.path.arenas.size(), game._gauntlet_tier])
+	# --- K6: opt-in gamepad — joy bindings appear and disappear with the toggle ---
+	var is_joy := func(e: InputEvent) -> bool:
+		return e is InputEventJoypadButton or e is InputEventJoypadMotion
+	assert(not Array(InputMap.action_get_events("fire")).any(is_joy))
+	GameState.gamepad_enabled = true
+	GameState.apply_settings()
+	assert(Array(InputMap.action_get_events("fire")).any(is_joy))
+	assert(Array(InputMap.action_get_events("pause_game")).any(is_joy))
+	GameState.gamepad_enabled = false
+	GameState.apply_settings()
+	assert(not Array(InputMap.action_get_events("fire")).any(is_joy))
+	print("gamepad ok — joy bindings toggle with the setting")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

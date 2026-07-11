@@ -26,6 +26,7 @@ var _sector := 0
 var _sector_names: Array[String] = []
 var _sector_label: Label
 var _high_label: Label
+var _help_pad: Label   # K6: gamepad line on the controls screen, shown only when enabled
 
 
 func _ready() -> void:
@@ -45,6 +46,9 @@ func show_only(panel_name: String) -> void:
 		_panels[key].visible = key == panel_name
 	if panel_name == "start":
 		_refresh_start()
+	if panel_name == "help" and _help_pad:
+		_help_pad.text = "PAD  stick · A/RT fire · X/B roll" \
+			if GameState.gamepad_enabled else ""
 	if panel_name != "":
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
@@ -194,6 +198,7 @@ func _build_help() -> void:
 	for i in left.size():
 		_at(p, Vector2(36, 52 + i * 11), left[i], 8,
 			TITLE_COL if left[i] in ["FLIGHT", "SYSTEM"] else TEXT_COL)
+	_help_pad = _at(p, Vector2(36, 52 + left.size() * 11), "", 8, TEXT_COL)
 	for i in right.size():
 		_at(p, Vector2(172, 52 + i * 11), right[i], 8,
 			TITLE_COL if right[i] == "WEAPONS" else TEXT_COL)
@@ -276,7 +281,14 @@ func _build_settings() -> void:
 		GameState.apply_settings()
 		_refresh_settings())
 	_settings_labels["dither"] = dbtn
-	_button(p, Vector2(130, 164), "< BACK", func() -> void: show_only(_settings_return))
+	# K6: gamepad stays opt-in — flying with a pad is a choice, never a surprise
+	_at(p, Vector2(60, 144), "GAMEPAD", 8, TEXT_COL)
+	var gbtn := _button(p, Vector2(214, 142), "OFF", func() -> void:
+		GameState.gamepad_enabled = not GameState.gamepad_enabled
+		GameState.apply_settings()
+		_refresh_settings())
+	_settings_labels["gamepad"] = gbtn
+	_button(p, Vector2(130, 168), "< BACK", func() -> void: show_only(_settings_return))
 	_refresh_settings()
 
 
@@ -304,6 +316,8 @@ func _refresh_settings() -> void:
 		(_settings_labels["sens"] as Label).text = "%d%%" % roundi(GameState.mouse_sens_mult * 100.0)
 	if _settings_labels.has("dither"):
 		(_settings_labels["dither"] as Button).text = "ON" if GameState.dither_enabled else "OFF"
+	if _settings_labels.has("gamepad"):
+		(_settings_labels["gamepad"] as Button).text = "ON" if GameState.gamepad_enabled else "OFF"
 
 
 # ---------- widget helpers ----------

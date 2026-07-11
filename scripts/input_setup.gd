@@ -27,6 +27,52 @@ func _init() -> void:
 	_add_key("pause_game", KEY_ESCAPE)
 
 
+## K6: opt-in gamepad bindings — a settings toggle, OFF by default (John's call).
+## Left stick steers via the analog read in player.gd (no steer-action bindings,
+## which would double-apply); buttons ride the Input Map: A/RT fire, RB/LT boost,
+## LB brake, X/B dodge left/right, d-pad = weapons 1-4, Start = pause.
+var _gamepad_events: Array = []   # [action, event] pairs, for clean removal
+
+
+func set_gamepad(enabled: bool) -> void:
+	if enabled == (not _gamepad_events.is_empty()):
+		return
+	if not enabled:
+		for pair in _gamepad_events:
+			InputMap.action_erase_event(pair[0], pair[1])
+		_gamepad_events.clear()
+		return
+	_pad_button("fire", JOY_BUTTON_A)
+	_pad_axis("fire", JOY_AXIS_TRIGGER_RIGHT, 1.0)
+	_pad_button("boost", JOY_BUTTON_RIGHT_SHOULDER)
+	_pad_axis("boost", JOY_AXIS_TRIGGER_LEFT, 1.0)
+	_pad_button("brake", JOY_BUTTON_LEFT_SHOULDER)
+	_pad_button("dodge_left", JOY_BUTTON_X)
+	_pad_button("dodge_right", JOY_BUTTON_B)
+	_pad_button("weapon_1", JOY_BUTTON_DPAD_UP)
+	_pad_button("weapon_2", JOY_BUTTON_DPAD_RIGHT)
+	_pad_button("weapon_3", JOY_BUTTON_DPAD_DOWN)
+	_pad_button("weapon_4", JOY_BUTTON_DPAD_LEFT)
+	_pad_button("pause_game", JOY_BUTTON_START)
+	if InputMap.has_action("plasma_bomb"):
+		_pad_button("plasma_bomb", JOY_BUTTON_Y)
+
+
+func _pad_button(action: StringName, button: JoyButton) -> void:
+	var ev := InputEventJoypadButton.new()
+	ev.button_index = button
+	InputMap.action_add_event(action, ev)
+	_gamepad_events.append([action, ev])
+
+
+func _pad_axis(action: StringName, axis: JoyAxis, direction: float) -> void:
+	var ev := InputEventJoypadMotion.new()
+	ev.axis = axis
+	ev.axis_value = direction
+	InputMap.action_add_event(action, ev)
+	_gamepad_events.append([action, ev])
+
+
 func _key_action(action: StringName, key: Key) -> void:
 	if not InputMap.has_action(action):
 		InputMap.add_action(action)

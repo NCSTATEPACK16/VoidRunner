@@ -188,6 +188,7 @@ signal dither_toggled(on: bool)
 var master_volume := 0.8
 var mouse_sens_mult := 1.0
 var dither_enabled := true
+var gamepad_enabled := false   # K6: opt-in, never default
 
 
 ## Push current settings to the engine (audio bus + dither layer via signal) and save.
@@ -195,6 +196,7 @@ func apply_settings() -> void:
 	var db := linear_to_db(master_volume) if master_volume > 0.001 else -80.0
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), db)
 	dither_toggled.emit(dither_enabled)
+	InputSetup.set_gamepad(gamepad_enabled)
 	_save_settings()
 
 
@@ -204,6 +206,7 @@ func load_settings() -> void:
 		master_volume = cfg.get_value("settings", "volume", master_volume)
 		mouse_sens_mult = cfg.get_value("settings", "sens", mouse_sens_mult)
 		dither_enabled = cfg.get_value("settings", "dither", dither_enabled)
+		gamepad_enabled = cfg.get_value("settings", "gamepad", gamepad_enabled)
 
 
 func _save_settings() -> void:
@@ -211,6 +214,7 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "volume", master_volume)
 	cfg.set_value("settings", "sens", mouse_sens_mult)
 	cfg.set_value("settings", "dither", dither_enabled)
+	cfg.set_value("settings", "gamepad", gamepad_enabled)
 	cfg.save("user://settings.cfg")
 
 

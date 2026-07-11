@@ -131,6 +131,16 @@ func update_flight(delta: float) -> void:
 		pitch = minf(PITCH_LIMIT, pitch + ps)
 	if Input.is_action_pressed("steer_down"):
 		pitch = maxf(-PITCH_LIMIT, pitch - ps)
+	# --- K6: opt-in gamepad — analog left-stick steer (buttons ride the Input Map;
+	# no pad connected reads 0, so this is inert unless the setting is on) ---
+	if GameState.gamepad_enabled:
+		var jx := Input.get_joy_axis(0, JOY_AXIS_LEFT_X)
+		var jy := Input.get_joy_axis(0, JOY_AXIS_LEFT_Y)
+		if absf(jx) > 0.15:
+			yaw -= jx * KB_YAW_RATE * delta
+			_turn_sm -= jx * ts * 0.6
+		if absf(jy) > 0.15:
+			pitch = clampf(pitch - jy * KB_PITCH_RATE * delta, -PITCH_LIMIT, PITCH_LIMIT)
 	# --- K4 dodge roll: A/D keys, or a double-tap on the steer keys ---
 	dodge_cd = maxf(0.0, dodge_cd - delta)
 	iframes_t = maxf(0.0, iframes_t - delta)
