@@ -24,6 +24,7 @@ var rings: Array[Dictionary] = []
 ## Arena runs: { id, start, end, door_ring (-1 = unlocked), spawn_rings: Array[int], is_final }
 var arenas: Array[Dictionary] = []
 var is_boss := false
+var is_endless := false      # K5 Void Gauntlet: no end cap, no portal, rings grow on demand
 
 var _pos := Vector3.ZERO
 var _yaw := 0.0
@@ -42,6 +43,7 @@ var _corner_in := 0
 var _corner_dir := 1.0
 var _total := 999999
 var _boss := false
+var _scanned_up_to := 0      # K5: ring index arena discovery has processed so far
 var _rng := RandomNumberGenerator.new()
 
 
@@ -51,7 +53,7 @@ static func forward_from(yaw: float, pitch: float) -> Vector3:
 
 
 func generate(total_rings: int, level_seed: int, arena_spawn_chance: float,
-		boss := false) -> void:
+		boss := false, endless := false) -> void:
 	rings.clear()
 	arenas.clear()
 	_rng.seed = level_seed
@@ -63,6 +65,8 @@ func generate(total_rings: int, level_seed: int, arena_spawn_chance: float,
 	_count = 0
 	_boss = boss
 	is_boss = boss
+	is_endless = endless
+	_scanned_up_to = 0
 	# boss levels have exactly one arena — the room itself; no mid-run arenas/doors
 	_next_arena = 999999 if boss else 32
 	_arena_in = 0
@@ -73,11 +77,43 @@ func generate(total_rings: int, level_seed: int, arena_spawn_chance: float,
 	# K2/V-08: hard ~90° corners are a tunnel-level feature; boss approach stays smooth
 	_next_corner = 999999 if boss else 40 + _rng.randi_range(0, 25)
 	_corner_in = 0
-	_total = total_rings
+	# endless: the final-arena/exit logic keys on _total, so park it out of reach —
+	# total_rings is just the initial batch; extend_to() grows the path from there
+	_total = 999999 if endless else total_rings
 	_push_ring()
 	for k in total_rings - 1:
 		_gen_ring()
-	_find_arenas(arena_spawn_chance)
+	if not endless:
+		_find_arenas(arena_spawn_chance)
+
+
+## K5: grow an endless path so rings always exist well ahead of the player.
+## No-op for campaign paths and when the target is already generated.
+func extend_to(target_rings: int) -> void:
+	if not is_endless:
+		return
+	while rings.size() < target_rings:
+		_gen_ring()
+
+
+## K5: scan newly generated rings for COMPLETED arena runs (a run still open at
+## the tail is left for the next call) and register them exactly like the campaign
+## post-pass — locked door, deterministic spawn rings. Returns the new arena dicts
+## so the game can spawn their guards and the world can build their bulkheads.
+func discover_arenas(arena_spawn_chance: float) -> Array[Dictionary]:
+	var found: Array[Dictionary] = []
+	var run_start := -1
+	var i := _scanned_up_to
+	while i < rings.size():
+		if rings[i].arena and run_start < 0:
+			run_start = i
+		elif not rings[i].arena and run_start >= 0:
+			_add_arena(run_start, i - 1, false, arena_spawn_chance)
+			found.append(arenas.back())
+			run_start = -1
+		i += 1
+	_scanned_up_to = rings.size() if run_start < 0 else run_start
+	return found
 
 
 func _gen_ring() -> void:

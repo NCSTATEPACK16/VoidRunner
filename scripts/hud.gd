@@ -153,7 +153,12 @@ func _process(delta: float) -> void:
 		if GameState.shields < 25.0 and not GameState.is_dead:
 			a = maxf(a, (sin(Time.get_ticks_msec() / 160.0) * 0.5 + 0.5) * 0.14)
 		_flash.color.a = a
-		_level_speed.text = "LVL %d · VEL %d" % [GameState.level_index + 1, int(player.speed)]
+		if GameState.gauntlet_mode:   # K5: distance is the score that matters here
+			_level_speed.text = "DIST %dm · VEL %d" % [
+				int(player.ring_idx * PathGen.SEG), int(player.speed)]
+		else:
+			_level_speed.text = "LVL %d · VEL %d" % [
+				GameState.level_index + 1, int(player.speed)]
 	_threat = false
 	if shot_mgr and player:
 		for p in shot_mgr.enemy_shot_positions():

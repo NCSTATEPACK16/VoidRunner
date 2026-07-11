@@ -38,6 +38,13 @@ var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
 var _warmup_rig: Node3D
 
+# K5 Void Gauntlet: endless mode runs on a synthetic LevelDef whose numbers climb
+# with distance (one tier per 60 rings ≈ 720 m); the path extends and its arenas
+# are discovered while flying.
+var _gauntlet := false
+var _gauntlet_def: LevelDef
+var _gauntlet_tier := 0
+
 
 func _ready() -> void:
 	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
@@ -51,6 +58,14 @@ func _ready() -> void:
 	while ResourceLoader.exists("res://resources/levels/level_%d.tres" % li):
 		levels.append(load("res://resources/levels/level_%d.tres" % li))
 		li += 1
+	_gauntlet_def = LevelDef.new()
+	_gauntlet_def.display_name = "VOID GAUNTLET"
+	_gauntlet_def.kind = "endless"
+	_gauntlet_def.objective = "SURVIVE — EVERY METRE SCORES"
+	_gauntlet_def.briefing = "No exit gate on this run. The tunnel goes on for as " \
+		+ "long as you do, and the void keeps sending more. Fly far, fly sharp — " \
+		+ "your distance is the record."
+	_gauntlet_def.rings = 200   # initial batch; extend_to() grows it in flight
 	_build_game_view()
 	_build_environment()
 	world = WorldBuilder.new()
@@ -101,6 +116,7 @@ func _ready() -> void:
 		AudioSys.play_dodge())
 	GameState.player_died.connect(_on_player_died)
 	overlays.launch_requested.connect(_on_launch)
+	overlays.gauntlet_requested.connect(_on_gauntlet)
 	overlays.next_level_requested.connect(_on_next_level)
 	overlays.retry_requested.connect(_on_retry)
 	overlays.new_campaign_requested.connect(_on_new_campaign)
@@ -201,9 +217,16 @@ func _build_dither_layer() -> void:
 
 func _load_level_world(index: int) -> void:
 	GameState.level_index = index
-	var level := levels[index]
+	var level := _current_level()
+	if _gauntlet:
+		# fresh tier-0 numbers, fresh seed, random zone theme — every run reads different
+		_apply_gauntlet_tier(0)
+		_gauntlet_def.level_seed = randi()
+		var theme_ids: Array = TextureGen.THEMES.keys()
+		_gauntlet_def.theme_id = theme_ids[randi() % theme_ids.size()]
 	path = PathGen.new()
-	path.generate(level.rings, level.level_seed, level.spawn_arena, level.kind == "boss")
+	path.generate(level.rings, level.level_seed, level.spawn_arena,
+		level.kind == "boss", _gauntlet)
 	player.path = path
 	enemy_mgr.path = path
 	enemy_mgr.level = level
@@ -244,6 +267,8 @@ func _load_level_world(index: int) -> void:
 		world.set_portal_active(false)
 		_boss_arena_start = room.start
 		_place_boss_stations(room, level)
+	if _gauntlet:
+		_gauntlet_stream()   # discover + wire the arenas in the initial batch
 	_built_level = index
 
 
@@ -270,8 +295,8 @@ func _place_boss_stations(room: Dictionary, level: LevelDef) -> void:
 func _place_props(level: LevelDef) -> void:
 	GameState.level_props_total = 0
 	GameState.level_props = 0
-	if level.kind == "boss":
-		return   # boss rooms stay clean (Phase J invariants)
+	if level.kind == "boss" or _gauntlet:
+		return   # boss rooms stay clean (Phase J); gauntlet arenas stream in later (K5)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = level.level_seed + 555
 	for arena in path.arenas:
@@ -323,6 +348,48 @@ func _on_cell_destroyed() -> void:
 		hud.show_message("SECONDARY COMPLETE — ALL CELLS DESTROYED")
 
 
+## K5: the active tuning source — campaign levels from resources, gauntlet from
+## the synthetic escalating def.
+func _current_level() -> LevelDef:
+	return _gauntlet_def if _gauntlet else levels[GameState.level_index]
+
+
+## K5: keep the endless path generated ahead of the player, and wire in any arena
+## the scan completes — bulkhead door, exact guard count, kill-counter bookkeeping.
+func _gauntlet_stream() -> void:
+	path.extend_to(player.ring_idx + WorldBuilder.BUILD_AHEAD + 40)
+	for arena in path.discover_arenas(_gauntlet_def.spawn_arena):
+		world.build_door(arena)
+		for ring_idx in arena.spawn_rings:
+			enemy_mgr.spawn(ring_idx, arena.id, _pick_enemy_type(_gauntlet_def))
+		_arena_spawned[arena.id] = arena.spawn_rings.size()
+		_arena_kills[arena.id] = 0
+		if arena.spawn_rings.is_empty():
+			world.open_door(arena.id)
+
+
+## K5: one difficulty tier per 60 rings (~720 m). Newly spawned enemies sample the
+## def at spawn time, so raising it escalates the run without touching live ones.
+func _apply_gauntlet_tier(tier: int) -> void:
+	_gauntlet_tier = tier
+	_gauntlet_def.enemy_hp = 2 + tier / 2
+	_gauntlet_def.enemy_speed = minf(13.0, 6.0 + tier * 0.7)
+	_gauntlet_def.enemy_fire = maxf(1.3, 2.8 - tier * 0.16)
+	_gauntlet_def.spawn_tunnel = minf(0.30, 0.08 + tier * 0.025)
+	_gauntlet_def.spawn_arena = minf(0.55, 0.30 + tier * 0.03)
+	var pool := PackedStringArray(["drone", "drone"])
+	if tier >= 1:
+		pool.append("weaver")
+	if tier >= 2:
+		pool.append("hulk")
+	if tier >= 3:
+		pool.append("weaver")
+	if tier >= 5:
+		pool.append("hulk")
+	_gauntlet_def.enemy_types = pool
+	AudioSys.set_music_intensity(tier / 8.0)
+
+
 func _launch_level() -> void:
 	GameState.level_start_score = GameState.score
 	GameState.heat = 0.0
@@ -343,7 +410,7 @@ func _launch_level() -> void:
 	GameState.is_dead = false
 	state = State.PLAYING
 	overlays.hide_all()
-	hud.show_message(levels[GameState.level_index].display_name)
+	hud.show_message(_current_level().display_name)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -411,8 +478,14 @@ func _on_player_died() -> void:
 	shot_mgr.spawn_explosion(player.position, true)
 	AudioSys.stop_engine()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	var new_record := GameState.record_progress()
-	overlays.set_final_score("game_over", GameState.score, new_record)
+	if _gauntlet:
+		# K5: a gauntlet run scores by distance; records stay campaign-separate
+		var dist := int(player.ring_idx * PathGen.SEG)
+		var new_best := GameState.record_gauntlet(dist)
+		overlays.set_final_score("game_over", GameState.score, new_best, dist)
+	else:
+		var new_record := GameState.record_progress()
+		overlays.set_final_score("game_over", GameState.score, new_record)
 	overlays.show_only("game_over")
 
 
@@ -421,6 +494,8 @@ func _on_player_died() -> void:
 func _on_launch() -> void:
 	if state == State.MENU:
 		# Phase J sector select: campaigns can start at any unlocked level
+		_gauntlet = false
+		GameState.gauntlet_mode = false
 		GameState.level_index = overlays.selected_sector()
 		GameState.level_start_score = 0
 		GameState.score = 0
@@ -429,9 +504,20 @@ func _on_launch() -> void:
 		_launch_level()
 
 
+## K5: Void Gauntlet entry from the start screen.
+func _on_gauntlet() -> void:
+	_gauntlet = true
+	GameState.gauntlet_mode = true
+	_built_level = -1
+	GameState.level_index = 0
+	GameState.level_start_score = 0
+	GameState.score = 0
+	_show_briefing()
+
+
 func _show_briefing() -> void:
 	state = State.BRIEFING
-	overlays.set_briefing(levels[GameState.level_index])
+	overlays.set_briefing(_current_level())
 	overlays.show_only("briefing")
 	# Build the level world NOW, behind the briefing overlay, and park a warm-up rig
 	# in front of the camera so every shader variant compiles while the player reads.
@@ -499,6 +585,13 @@ func _process(delta: float) -> void:
 	if state != State.PLAYING:
 		return
 	player.update_flight(delta)
+	if _gauntlet:
+		_gauntlet_stream()
+		var tier := player.ring_idx / 60
+		if tier != _gauntlet_tier:
+			_apply_gauntlet_tier(tier)
+			hud.show_message("VOID PRESSURE RISING", 1.6)
+			AudioSys.play_select()
 	world.ensure_world(player.ring_idx)
 	GameState.tick_combo(delta)
 	_update_heat(delta)
@@ -627,8 +720,9 @@ func _on_tunnel_spawn(ring_idx: int) -> void:
 	# only the menu's idle backdrop stays empty
 	if state == State.MENU:
 		return
-	if randf() < levels[GameState.level_index].spawn_tunnel:
-		enemy_mgr.spawn(ring_idx, -1, _pick_enemy_type(levels[GameState.level_index]))
+	var level := _current_level()
+	if randf() < level.spawn_tunnel:
+		enemy_mgr.spawn(ring_idx, -1, _pick_enemy_type(level))
 
 
 ## I3: weighted pick from a level's enemy_types pool (repeated ids act as weights).

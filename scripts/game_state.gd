@@ -88,6 +88,11 @@ var high_score := 0
 var best_ranks: Array = []  # best rank letter per level index ("" = unranked)
 var unlocked_level := 0     # highest 0-based level reached — feeds sector select
 
+# --- K5 Void Gauntlet: endless survival mode, records separate from the campaign ---
+var gauntlet_mode := false
+var gauntlet_best_dist := 0
+var gauntlet_best_score := 0
+
 
 func combo_mult() -> int:
 	if combo >= 12:
@@ -133,6 +138,8 @@ func load_records() -> void:
 		high_score = cfg.get_value("records", "high_score", 0)
 		best_ranks = cfg.get_value("records", "ranks", [])
 		unlocked_level = cfg.get_value("records", "unlocked", 0)
+		gauntlet_best_dist = cfg.get_value("records", "gauntlet_dist", 0)
+		gauntlet_best_score = cfg.get_value("records", "gauntlet_score", 0)
 
 
 func save_records() -> void:
@@ -142,6 +149,8 @@ func save_records() -> void:
 	cfg.set_value("records", "high_score", high_score)
 	cfg.set_value("records", "ranks", best_ranks)
 	cfg.set_value("records", "unlocked", unlocked_level)
+	cfg.set_value("records", "gauntlet_dist", gauntlet_best_dist)
+	cfg.set_value("records", "gauntlet_score", gauntlet_best_score)
 	cfg.save("user://records.cfg")
 
 
@@ -161,6 +170,16 @@ func record_progress(rank := "") -> bool:
 			best_ranks[level_index] = rank
 	save_records()
 	return new_record
+
+
+## K5: fold a finished gauntlet run into the records (kept separate from the
+## campaign high score — an endless run would swamp it). Returns true on a new best.
+func record_gauntlet(dist: int) -> bool:
+	var new_best := dist > gauntlet_best_dist or score > gauntlet_best_score
+	gauntlet_best_dist = maxi(gauntlet_best_dist, dist)
+	gauntlet_best_score = maxi(gauntlet_best_score, score)
+	save_records()
+	return new_best
 
 
 # --- Phase H: player settings, persisted to user://settings.cfg ---

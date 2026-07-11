@@ -7,6 +7,7 @@ extends CanvasLayer
 ## gesture, exactly like the v2.2 web build's Start click.
 
 signal launch_requested       # from start screen or a briefing's LAUNCH
+signal gauntlet_requested     # K5: endless mode from the start screen
 signal next_level_requested
 signal retry_requested
 signal new_campaign_requested
@@ -73,8 +74,13 @@ func _refresh_start() -> void:
 	var max_sector: int = mini(GameState.unlocked_level, _sector_names.size() - 1)
 	_sector = clampi(_sector, 0, max_sector)
 	_sector_label.text = "SECTOR: %s" % _sector_names[_sector]
-	_high_label.text = "HIGH SCORE %d" % GameState.high_score \
-		if GameState.high_score > 0 else ""
+	var records := ""
+	if GameState.high_score > 0:
+		records = "HIGH SCORE %d" % GameState.high_score
+	if GameState.gauntlet_best_dist > 0:
+		records += ("  ·  " if records != "" else "") \
+			+ "GAUNTLET %dm" % GameState.gauntlet_best_dist
+	_high_label.text = records
 
 
 func hide_all() -> void:
@@ -85,8 +91,8 @@ func set_briefing(level: LevelDef) -> void:
 	var p: Control = _panels.briefing
 	(p.get_node("Title") as Label).text = level.display_name
 	var objective := "PRIMARY: " + level.objective
-	if level.kind != "boss":
-		objective += "\nSECONDARY: DESTROY ALL FUEL CELLS"   # K3
+	if level.kind == "tunnel":
+		objective += "\nSECONDARY: DESTROY ALL FUEL CELLS"   # K3 (not boss/endless)
 	(p.get_node("Objective") as Label).text = objective
 	(p.get_node("Body") as Label).text = level.briefing
 
@@ -104,12 +110,22 @@ func set_level_clear(level_name: String, bonus: int, score: int, next_name: Stri
 	r.add_theme_color_override("font_color", _rank_color(rank))
 
 
-func set_final_score(panel_name: String, score: int, new_record := false) -> void:
-	(_panels[panel_name].get_node("Score") as Label).text = "SCORE %d" % score
+## dist >= 0 marks a gauntlet run (K5): the tally shows distance and compares
+## against the gauntlet bests instead of the campaign high score.
+func set_final_score(panel_name: String, score: int, new_record := false,
+		dist := -1) -> void:
+	var score_line := "SCORE %d" % score
+	if dist >= 0:
+		score_line = "DIST %dm  ·  SCORE %d" % [dist, score]
+	(_panels[panel_name].get_node("Score") as Label).text = score_line
 	var rec := _panels[panel_name].get_node_or_null("Record") as Label
 	if rec:
-		rec.text = "*** NEW RECORD ***" if new_record \
-			else "HIGH SCORE %d" % GameState.high_score
+		if dist >= 0:
+			rec.text = "*** NEW BEST ***" if new_record \
+				else "BEST %dm · %d" % [GameState.gauntlet_best_dist, GameState.gauntlet_best_score]
+		else:
+			rec.text = "*** NEW RECORD ***" if new_record \
+				else "HIGH SCORE %d" % GameState.high_score
 
 
 func _fmt_time(t: float) -> String:
@@ -155,9 +171,13 @@ func _build_start() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
 	_button(p, Vector2(168, 152), "? CONTROLS", func() -> void: show_only("help"))
-	_button(p, Vector2(122, 174), "* SETTINGS", func() -> void:
+	_button(p, Vector2(70, 174), "* SETTINGS", func() -> void:
 		_settings_return = "start"
 		show_only("settings"))
+	# K5: endless survival mode — the button doubles as the audio-unlock gesture
+	_button(p, Vector2(170, 174), "% GAUNTLET", func() -> void:
+		AudioSys.unlock()
+		gauntlet_requested.emit())
 
 
 func _build_help() -> void:

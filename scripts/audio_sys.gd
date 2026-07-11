@@ -71,6 +71,12 @@ func stop_engine() -> void:
 	_engine.volume_db = -80.0
 
 
+## K5: gauntlet pressure ramp — the loop leans in as the run gets deep. Volume
+## only (repitching the tracker loop reads as a bug, not intensity).
+func set_music_intensity(t: float) -> void:
+	_music.volume_db = -13.0 + 4.0 * clampf(t, 0.0, 1.0)
+
+
 func play_laser(freq: float) -> void:
 	if not _laser_cache.has(freq):
 		_laser_cache[freq] = _render_laser(freq)

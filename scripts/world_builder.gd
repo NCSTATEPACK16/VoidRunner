@@ -41,9 +41,12 @@ func rebuild(new_path: PathGen, theme_mats: Dictionary, accent: Color,
 		_build_chunk(_built_up_to, _built_up_to + CHUNK)
 		_built_up_to += CHUNK
 	_build_cap(0)
-	_build_cap(path.rings.size() - 1)
+	# K5 endless: no far cap and no exit portal — the tunnel just runs into the fog;
+	# arenas (and their doors) are discovered and built while streaming instead
+	if not path.is_endless:
+		_build_cap(path.rings.size() - 1)
+		_spawn_portal()
 	_build_doors()
-	_spawn_portal()
 
 
 func clear_world() -> void:
@@ -279,22 +282,28 @@ func _build_cap(idx: int) -> void:
 
 func _build_doors() -> void:
 	for arena in path.arenas:
-		if arena.door_ring < 0:
-			continue
-		var ring: Dictionary = path.rings[arena.door_ring]
-		var mi := MeshInstance3D.new()
-		var quad := QuadMesh.new()
-		quad.size = Vector2(ring.hw * 2.0 + 2.0, ring.hh * 2.0 + 2.0)
-		mi.mesh = quad
-		var door_mat: StandardMaterial3D = mats.wall.duplicate()
-		door_mat.albedo_color = Color(0.7, 0.7, 0.75)
-		door_mat.emission_enabled = true
-		door_mat.emission = accent_color
-		door_mat.emission_energy_multiplier = 0.25
-		mi.material_override = door_mat
-		mi.transform = _ring_transform(ring)
-		add_child(mi)
-		_doors[arena.id] = {"node": mi, "ring": arena.door_ring, "open": false}
+		build_door(arena)
+
+
+## One bulkhead quad. Public because endless mode discovers arenas mid-flight
+## (K5) and needs their doors built as they appear.
+func build_door(arena: Dictionary) -> void:
+	if arena.door_ring < 0 or _doors.has(arena.id):
+		return
+	var ring: Dictionary = path.rings[arena.door_ring]
+	var mi := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2(ring.hw * 2.0 + 2.0, ring.hh * 2.0 + 2.0)
+	mi.mesh = quad
+	var door_mat: StandardMaterial3D = mats.wall.duplicate()
+	door_mat.albedo_color = Color(0.7, 0.7, 0.75)
+	door_mat.emission_enabled = true
+	door_mat.emission = accent_color
+	door_mat.emission_energy_multiplier = 0.25
+	mi.material_override = door_mat
+	mi.transform = _ring_transform(ring)
+	add_child(mi)
+	_doors[arena.id] = {"node": mi, "ring": arena.door_ring, "open": false}
 
 
 func _ring_transform(ring: Dictionary) -> Transform3D:

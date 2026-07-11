@@ -158,6 +158,30 @@ func _run() -> void:
 	assert(game.enemy_mgr.boss.is_empty())
 	assert(game.world.portal_active)
 	print("boss ok — hp %d -> dead, portal awake, score=%d" % [hp0, GameState.score])
+	# --- K5: Void Gauntlet — endless path grows, arenas stream in, chunks stay bounded ---
+	GameState.reset_run()
+	game._on_gauntlet()     # MENU-independent: flips mode + builds behind a briefing
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game.path.is_endless)
+	assert(GameState.gauntlet_mode)
+	assert(not game.world.portal_active)   # no exit gate in the gauntlet
+	var rings_initial: int = game.path.rings.size()
+	for f in 60 * 90:   # 1.5 simulated minutes ≈ 135 rings of travel
+		GameState.shields = 100.0          # the probe flies, it doesn't fight fair
+		if f % 240 == 0:                   # clear arena stands so bulkheads open
+			game.enemy_mgr.splash_damage(game.player.position, 200.0, 999)
+		game._process(dt)
+	assert(game.path.rings.size() > rings_initial)   # extend_to() grew the path
+	assert(game.path.arenas.size() >= 2)             # stands were discovered…
+	assert(game.world._doors.size() == game.path.arenas.size())  # …and got doors
+	assert(game.world._chunks.size() <= 12)          # streaming stays bounded
+	var gdist := int(game.player.ring_idx * PathGen.SEG)
+	assert(gdist > 800)                              # bulkheads never soft-locked the run
+	GameState.record_gauntlet(gdist)
+	assert(GameState.gauntlet_best_dist >= gdist)
+	print("gauntlet ok — dist=%dm rings=%d arenas=%d tier=%d" % [
+		gdist, game.path.rings.size(), game.path.arenas.size(), game._gauntlet_tier])
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
