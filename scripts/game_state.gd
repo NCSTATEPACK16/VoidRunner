@@ -82,6 +82,8 @@ var combo_t := 0.0
 var level_shots := 0        # projectiles fired this level (SCATTER counts 3)
 var level_hits := 0         # projectiles that connected
 var level_kills := 0
+var level_props := 0        # K3: fuel cells destroyed this level
+var level_props_total := 0  # K3: set at world build; all destroyed = secondary bonus
 var high_score := 0
 var best_ranks: Array = []  # best rank letter per level index ("" = unranked)
 var unlocked_level := 0     # highest 0-based level reached — feeds sector select
@@ -121,6 +123,7 @@ func reset_level_stats() -> void:
 	level_shots = 0
 	level_hits = 0
 	level_kills = 0
+	level_props = 0   # level_props_total is owned by game._place_props at world build
 	combo_changed.emit(0, 1)
 
 

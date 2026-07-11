@@ -255,6 +255,24 @@ static func pickup_texture(kind: String) -> ImageTexture:
 	return ImageTexture.create_from_image(img)
 
 
+## 16x16 fuel cell (K3 destructible prop): squat grey canister with hazard
+## stripes and a hot core window — reads as "this explodes" at tunnel distance.
+static func prop_texture() -> ImageTexture:
+	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	_rect(img, 4, 2, 8, 12, Palette.GREY_1)      # body shadow/outline
+	_rect(img, 5, 2, 6, 12, Palette.GREY_3)      # body
+	_rect(img, 5, 1, 6, 1, Palette.GREY_5)       # top cap
+	_rect(img, 5, 14, 6, 1, Palette.GREY_0)      # base
+	_rect(img, 4, 4, 8, 2, Palette.ORANGE_2)     # hazard band
+	_rect(img, 4, 10, 8, 2, Palette.ORANGE_2)
+	for hx in range(4, 12, 3):                   # dashes in the bands
+		_px(img, hx, 4, Palette.VOID_0)
+		_px(img, hx + 1, 11, Palette.VOID_0)
+	_rect(img, 7, 7, 3, 2, Palette.RED_3)        # core window
+	_px(img, 7, 7, Palette.ORANGE_3)             # hot glint
+	return ImageTexture.create_from_image(img)
+
+
 ## 4-frame expanding explosion, 32x32.
 static func explosion_frames() -> Array[ImageTexture]:
 	var frames: Array[ImageTexture] = []

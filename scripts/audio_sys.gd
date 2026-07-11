@@ -20,6 +20,7 @@ var _hit: AudioStreamWAV
 var _select: AudioStreamWAV
 var _overheat: AudioStreamWAV
 var _portal: AudioStreamWAV
+var _clank: AudioStreamWAV
 var _engine_loop: AudioStreamWAV
 
 
@@ -35,6 +36,7 @@ func _ready() -> void:
 	_select = _render_select()
 	_overheat = _render_overheat()
 	_portal = _render_portal()
+	_clank = _render_clank()
 	_engine_loop = _render_engine_loop()
 	_engine = AudioStreamPlayer.new()
 	_engine.stream = _engine_loop
@@ -91,6 +93,10 @@ func play_overheat() -> void:
 
 func play_portal() -> void:
 	_play(_portal)
+
+
+func play_clank() -> void:
+	_play(_clank)
 
 
 func _play(stream: AudioStreamWAV) -> void:
@@ -210,6 +216,29 @@ func _render_portal() -> AudioStreamWAV:
 			phase += notes[k] / SAMPLE_RATE
 			var tri := absf(fmod(phase, 1.0) * 4.0 - 2.0) - 1.0
 			out[i] = clampf(out[i] + tri * 0.14 * exp(-t * 9.0), -1.0, 1.0)
+	return _make_wav(out)
+
+
+func _render_clank() -> AudioStreamWAV:
+	# K3 crusher telegraph: two short metallic knocks — a detuned square pair with
+	# a fast noise transient, repeated once at lower pitch.
+	var n := int(SAMPLE_RATE * 0.3)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 31
+	for k in 2:
+		var start := int(k * SAMPLE_RATE * 0.13)
+		var f0 := 520.0 if k == 0 else 390.0
+		var phase := 0.0
+		for i in int(SAMPLE_RATE * 0.11):
+			var t := float(i) / SAMPLE_RATE
+			phase += f0 * (1.0 - t * 2.0) / SAMPLE_RATE
+			var env := 0.2 * exp(-t * 55.0)
+			var sq := 1.0 if fmod(phase, 1.0) < 0.5 else -1.0
+			var v := sq * env + rng.randf_range(-1.0, 1.0) * env * 0.5
+			if start + i < n:
+				out[start + i] += v
 	return _make_wav(out)
 
 

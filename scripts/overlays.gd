@@ -84,17 +84,21 @@ func hide_all() -> void:
 func set_briefing(level: LevelDef) -> void:
 	var p: Control = _panels.briefing
 	(p.get_node("Title") as Label).text = level.display_name
-	(p.get_node("Objective") as Label).text = "PRIMARY: " + level.objective
+	var objective := "PRIMARY: " + level.objective
+	if level.kind != "boss":
+		objective += "\nSECONDARY: DESTROY ALL FUEL CELLS"   # K3
+	(p.get_node("Objective") as Label).text = objective
 	(p.get_node("Body") as Label).text = level.briefing
 
 
 func set_level_clear(level_name: String, bonus: int, score: int, next_name: String,
-		kills: int, acc: int, time: float, rank: String) -> void:
+		kills: int, acc: int, time: float, rank: String, secondary := false) -> void:
 	var p: Control = _panels.level_clear
 	(p.get_node("Title") as Label).text = level_name + " CLEAR"
+	var secondary_line := "\nSECONDARY COMPLETE +400" if secondary else ""
 	(p.get_node("Body") as Label).text = \
-		"KILLS %d · ACCURACY %d%% · TIME %s\nEXIT BONUS +%d · SCORE %d\nNEXT: %s" % [
-			kills, acc, _fmt_time(time), bonus, score, next_name]
+		"KILLS %d · ACCURACY %d%% · TIME %s%s\nEXIT BONUS +%d · SCORE %d\nNEXT: %s" % [
+			kills, acc, _fmt_time(time), secondary_line, bonus, score, next_name]
 	var r := p.get_node("Rank") as Label
 	r.text = "RANK " + rank
 	r.add_theme_color_override("font_color", _rank_color(rank))

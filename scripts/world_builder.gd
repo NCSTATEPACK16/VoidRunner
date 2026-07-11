@@ -14,12 +14,14 @@ const MAX_ARENA_LIGHTS := 6
 var path: PathGen
 var mats: Dictionary            # {wall, floor, ceil} StandardMaterial3D
 var accent_color := Color("55ffee")
+var accent2_color := Color("ff5533")
 
 var _chunks: Array[Dictionary] = []      # {node, start, end}
 var _built_up_to := 0
 var _caps: Array[MeshInstance3D] = []
 var _doors := {}                          # arena_id -> {node, ring, open}
-var _lights: Array[Dictionary] = []       # {light, idx}
+var _lights: Array[Dictionary] = []       # {light, idx, mode, phase, energy}
+var _light_t := 0.0
 var _portal: Node3D
 var _portal_ring: MeshInstance3D
 var _portal_pulse := 0.0
@@ -27,11 +29,13 @@ var portal_position := Vector3.ZERO
 var portal_active := false
 
 
-func rebuild(new_path: PathGen, theme_mats: Dictionary, accent: Color) -> void:
+func rebuild(new_path: PathGen, theme_mats: Dictionary, accent: Color,
+		accent2: Color = Color("ff5533")) -> void:
 	clear_world()
 	path = new_path
 	mats = theme_mats
 	accent_color = accent
+	accent2_color = accent2
 	var initial: int = mini(CHUNK * 8, path.rings.size() - 1)
 	while _built_up_to + CHUNK <= initial:
 		_build_chunk(_built_up_to, _built_up_to + CHUNK)
@@ -81,6 +85,17 @@ func animate(delta: float) -> void:
 		_portal_pulse += delta * 3.0
 		_portal_ring.rotate_object_local(Vector3(0, 0, 1), delta * 1.6)
 		_portal.scale = Vector3.ONE * (1.0 + sin(_portal_pulse) * 0.05)
+	# K1/V-10: sector light moods — shimmering flicker and hard strobe. Energy-only
+	# animation: no material or shader variant changes, so it's WebGL-safe.
+	_light_t += delta
+	for l in _lights:
+		match l.mode:
+			"flicker":
+				l.light.light_energy = l.energy * (0.72 \
+					+ 0.28 * sin(_light_t * 13.0 + l.phase) * sin(_light_t * 7.3 + l.phase * 2.0))
+			"strobe":
+				l.light.light_energy = l.energy \
+					* (1.0 if fmod(_light_t + l.phase, 0.9) < 0.62 else 0.12)
 
 
 ## True when a closed door blocks travel at or before this ring.
@@ -190,14 +205,51 @@ func _build_chunk(s: int, e: int) -> void:
 	_chunks.append({"node": chunk_node, "start": s, "end": e})
 	for ri in range(s, e):
 		var ring: Dictionary = path.rings[ri]
+		# K2/V-08: sector-style wall relief in arenas — pilasters and ceiling beams.
+		# Everything protrudes at most 1.0 u, safely inside every collision margin
+		# (player 1.6, enemy clamp ≥2.2, pickups 2.0), so it is purely visual and
+		# needs no collision support. Boss rooms stay untouched (Phase J invariants).
+		if ring.arena_id >= 0 and not path.is_boss and not ring.arena_center:
+			if ri % 3 == 0:
+				for side in [-1.0, 1.0]:
+					var pilaster := MeshInstance3D.new()
+					var pbox := BoxMesh.new()
+					pbox.size = Vector3(1.0, ring.hh * 2.0, 2.2)
+					pilaster.mesh = pbox
+					pilaster.material_override = mats.wall
+					pilaster.transform = Transform3D(
+						Basis(ring.r, ring.u, -ring.d),
+						ring.p + ring.r * (side * (ring.hw - 0.5)))
+					chunk_node.add_child(pilaster)
+			if ri % 9 == 4:
+				var beam := MeshInstance3D.new()
+				var bbox := BoxMesh.new()
+				bbox.size = Vector3(ring.hw * 2.0, 1.0, 1.6)
+				beam.mesh = bbox
+				beam.material_override = mats.ceil
+				beam.transform = Transform3D(
+					Basis(ring.r, ring.u, -ring.d),
+					ring.p + ring.u * (ring.hh - 0.5))
+				chunk_node.add_child(beam)
 		if ring.arena_center and _lights.size() < MAX_ARENA_LIGHTS:
+			# K1/V-10: every 4th arena stays unlit — a shadow pocket where only the
+			# fog-to-black ambient reads and lurking enemies are radar-first contacts
+			if ring.arena_id % 4 == 3:
+				continue
 			var light := OmniLight3D.new()
-			light.light_color = Color("ff5533") if (ri % 2 == 0) else Color("3388ff")
+			light.light_color = accent2_color if (ri % 2 == 0) else accent_color
 			light.light_energy = 1.1
 			light.omni_range = 80.0
 			light.position = ring.p + ring.u * (ring.hh * 0.5)
 			add_child(light)
-			_lights.append({"light": light, "idx": ri})
+			# deterministic per-ring mood: most lights steady, some shimmer, a few strobe
+			var mode := "steady"
+			if ri % 3 == 0:
+				mode = "flicker"
+			elif ri % 7 == 0:
+				mode = "strobe"
+			_lights.append({"light": light, "idx": ri, "mode": mode,
+				"phase": float(ri % 13), "energy": 1.1})
 		# tunnel enemies spawn by chance as geometry streams in (arena enemies are
 		# pre-spawned deterministically by the game for exact door kill-counts)
 		if ri > 20 and ring.arena_id < 0:

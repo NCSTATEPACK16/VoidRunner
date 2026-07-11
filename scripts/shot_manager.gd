@@ -13,6 +13,7 @@ const ENEMY_SHOT_DMG := 9.0       # fallback; each enemy shot now carries its ow
 
 var player: PlayerShip
 var enemy_mgr: EnemyManager
+var prop_mgr: PropManager   # K3: fuel cells are shootable + missile splash chains them
 
 var _pshots: Array[Dictionary] = []
 var _eshots: Array[Dictionary] = []
@@ -114,6 +115,8 @@ func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
 func detonate(pos: Vector3, radius: float, dmg: int) -> void:
 	spawn_explosion(pos, true)
 	enemy_mgr.splash_damage(pos, radius, dmg)
+	if prop_mgr:
+		prop_mgr.splash(pos, radius)
 	if pos.distance_squared_to(player.position) < 400.0:
 		player.shake = minf(0.6, player.shake + 0.25)
 
@@ -185,6 +188,16 @@ func update_shots(delta: float) -> void:
 					# a contact hit always lands its direct damage; splash shots
 					# then detonate on top (Phase J — makes MISSILE matter vs bosses)
 					enemy_mgr.hit_enemy(j, s.dmg)
+					GameState.level_hits += 1
+					if s.splash > 0.0:
+						boom = true
+					dead = true
+					break
+		if not dead and not boom and prop_mgr:
+			for k in range(prop_mgr.props.size() - 1, -1, -1):
+				if s.node.position.distance_squared_to(prop_mgr.props[k].node.position) \
+						< PropManager.HIT_R2:
+					prop_mgr.damage_prop(k, s.dmg)
 					GameState.level_hits += 1
 					if s.splash > 0.0:
 						boom = true

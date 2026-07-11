@@ -6,30 +6,38 @@ class_name TextureGen
 const SIZE := 64
 
 ## Zone themes (PLAN.md E6): each campaign level picks one so the sectors read differently.
+## K1/V-10 mood keys: "fog_end" = fog-to-black distance (shorter = more oppressive),
+## "amb" = ambient tint at the low K1 energy floor. Both optional (game.gd defaults).
 static var THEMES := {
 	"tech": {
 		"base": Palette.GREY_2, "dark": Palette.GREY_0, "mid": Palette.GREY_3,
 		"light": Palette.GREY_5, "accent": Palette.CYAN_2, "accent2": Palette.ORANGE_2,
+		"fog_end": 100.0, "amb": Color("16181e"),
 	},
 	"navy": {
 		"base": Palette.NAVY_1, "dark": Palette.NAVY_0, "mid": Palette.NAVY_2,
 		"light": Palette.BLUE_1, "accent": Palette.CYAN_3, "accent2": Palette.RED_3,
+		"fog_end": 95.0, "amb": Color("121527"),
 	},
 	"rock": {
 		"base": Palette.ROCK_1, "dark": Palette.ROCK_0, "mid": Palette.ROCK_2,
 		"light": Palette.ROCK_4, "accent": Palette.ORANGE_2, "accent2": Palette.CYAN_2,
+		"fog_end": 85.0, "amb": Color("1a1710"),
 	},
 	"hive": {
 		"base": Palette.RED_0, "dark": Palette.VOID_1, "mid": Palette.GREY_2,
 		"light": Palette.RED_1, "accent": Palette.RED_3, "accent2": Palette.ORANGE_2,
+		"fog_end": 70.0, "amb": Color("1d0f0f"),
 	},
 	"void": {
 		"base": Palette.GREY_1, "dark": Palette.VOID_0, "mid": Palette.NAVY_1,
 		"light": Palette.GREY_4, "accent": Palette.CYAN_3, "accent2": Palette.RED_3,
+		"fog_end": 75.0, "amb": Color("0e1016"),
 	},
 	"ice": {
 		"base": Palette.CYAN_0, "dark": Palette.VOID_1, "mid": Palette.NAVY_1,
 		"light": Palette.BLUE_1, "accent": Palette.CYAN_3, "accent2": Palette.ORANGE_2,
+		"fog_end": 115.0, "amb": Color("141c26"),
 	},
 }
 
