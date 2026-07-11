@@ -19,6 +19,8 @@ var player: PlayerShip
 var enemy_mgr: EnemyManager
 var shot_mgr: ShotManager
 var pickup_mgr: PickupManager
+var prop_mgr: PropManager       # K3 fuel cells
+var hazard_mgr: HazardManager   # K3 crushers
 var hud: Hud
 var overlays: Overlays
 var view: SubViewport
@@ -61,6 +63,10 @@ func _ready() -> void:
 	view.add_child(shot_mgr)
 	pickup_mgr = PickupManager.new()
 	view.add_child(pickup_mgr)
+	prop_mgr = PropManager.new()
+	view.add_child(prop_mgr)
+	hazard_mgr = HazardManager.new()
+	view.add_child(hazard_mgr)
 	hud = Hud.new()
 	hud.layer = 1
 	view.add_child(hud)
@@ -81,6 +87,12 @@ func _ready() -> void:
 	pickup_mgr.player = player
 	enemy_mgr.drop_spawned.connect(pickup_mgr.spawn_drop)
 	pickup_mgr.collected.connect(_on_pickup_collected)
+	prop_mgr.player = player
+	prop_mgr.enemy_mgr = enemy_mgr
+	prop_mgr.shot_mgr = shot_mgr
+	shot_mgr.prop_mgr = prop_mgr
+	prop_mgr.cell_destroyed.connect(_on_cell_destroyed)
+	hazard_mgr.player = player
 	shot_mgr.player_hit.connect(func(dmg: float) -> void: player.take_damage(dmg, "SHIELD HIT"))
 	player.damaged.connect(func(_a: float, msg: String) -> void: hud.show_message(msg))
 	GameState.player_died.connect(_on_player_died)
@@ -200,6 +212,12 @@ func _load_level_world(index: int) -> void:
 	enemy_mgr.clear_all()
 	shot_mgr.clear_all()
 	pickup_mgr.clear_all()
+	prop_mgr.clear_all()
+	hazard_mgr.clear_all()
+	hazard_mgr.path = path
+	hazard_mgr.setup(world.mats.wall, theme.accent2)
+	_place_props(level)
+	_place_hazards(level)
 	_arena_spawned.clear()
 	_arena_kills.clear()
 	for arena in path.arenas:
@@ -243,6 +261,64 @@ func _place_boss_stations(room: Dictionary, level: LevelDef) -> void:
 		pickup_mgr.add_station(ring.p + ring.r * (frac * ring.hw), kinds[i])
 
 
+## K3: fuel cells sit low in arenas — cover for the player, bait for chain kills.
+## Deterministic per level seed; destroying all of them is the secondary objective.
+func _place_props(level: LevelDef) -> void:
+	GameState.level_props_total = 0
+	GameState.level_props = 0
+	if level.kind == "boss":
+		return   # boss rooms stay clean (Phase J invariants)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = level.level_seed + 555
+	for arena in path.arenas:
+		for i in rng.randi_range(2, 4):
+			var ri := rng.randi_range(arena.start + 1, arena.end - 1)
+			var ring: Dictionary = path.rings[ri]
+			var pos: Vector3 = ring.p \
+				+ ring.r * (rng.randf_range(-0.7, 0.7) * ring.hw) \
+				+ ring.u * (-(ring.hh - ring.fo) + 1.4)
+			prop_mgr.spawn_prop(pos)
+	GameState.level_props_total = prop_mgr.props.size()
+
+
+## K3: crushers go in plain tunnel stretches — never in arenas, never adjacent to
+## a door ring or a hard corner, always ≥15 rings apart. L1 stays trap-free.
+func _place_hazards(level: LevelDef) -> void:
+	if level.kind == "boss" or GameState.level_index == 0:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = level.level_seed + 777
+	var want := clampi(level.rings / 55, 1, 5)
+	var placed: Array[int] = []
+	var side := 1.0
+	for attempt in 60:
+		if placed.size() >= want:
+			break
+		var ri := rng.randi_range(26, level.rings - 24)
+		var ring: Dictionary = path.rings[ri]
+		if ring.arena_id >= 0:
+			continue
+		if path.rings[ri - 1].d.dot(path.rings[ri + 1].d) < 0.98:
+			continue   # mid-corner crushers would be unfair
+		var clear := true
+		for arena in path.arenas:
+			if arena.door_ring >= 0 and absi(ri - arena.door_ring) < 5:
+				clear = false
+		for other in placed:
+			if absi(ri - other) < 15:
+				clear = false
+		if not clear:
+			continue
+		hazard_mgr.spawn_trap(ri, side)
+		side = -side
+		placed.append(ri)
+
+
+func _on_cell_destroyed() -> void:
+	if GameState.level_props >= GameState.level_props_total:
+		hud.show_message("SECONDARY COMPLETE — ALL CELLS DESTROYED")
+
+
 func _launch_level() -> void:
 	GameState.level_start_score = GameState.score
 	GameState.heat = 0.0
@@ -275,6 +351,11 @@ func _level_complete() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	var idx := GameState.level_index
 	var bonus := 500 + idx * 250
+	# K3: secondary objective — every fuel cell destroyed
+	var secondary_done := GameState.level_props_total > 0 \
+		and GameState.level_props >= GameState.level_props_total
+	if secondary_done:
+		bonus += 400
 	GameState.score += bonus
 	# Phase J: rank the run, remember progress
 	var level := levels[idx]
@@ -297,7 +378,7 @@ func _level_complete() -> void:
 		state = State.LEVEL_CLEAR
 		overlays.set_level_clear(
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
-			GameState.level_kills, acc, player.elapsed, rank)
+			GameState.level_kills, acc, player.elapsed, rank, secondary_done)
 		overlays.show_only("level_clear")
 
 
@@ -372,6 +453,7 @@ func _start_warmup() -> void:
 	texes.append_array(enemy_mgr.warmup_textures())
 	texes.append_array(shot_mgr.warmup_textures(weapons))
 	texes.append_array(pickup_mgr.warmup_textures())
+	texes.append_array(prop_mgr.warmup_textures())
 	for i in texes.size():
 		var s := SpriteGen.make_sprite(texes[i], 0.7)
 		s.position = base + right * ((i % 6) - 2.5) * 1.1 \
@@ -420,6 +502,8 @@ func _process(delta: float) -> void:
 	enemy_mgr.update_enemies(delta)
 	shot_mgr.update_shots(delta)
 	pickup_mgr.update_pickups(delta)
+	prop_mgr.update_props(delta)
+	hazard_mgr.update_traps(delta)
 	_update_arena_lock()
 	if _boss_arena_start >= 0 and not _boss_announced \
 			and player.ring_idx >= _boss_arena_start - 4:

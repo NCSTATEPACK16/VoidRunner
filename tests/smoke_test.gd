@@ -68,12 +68,26 @@ func _run() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	print("boot ok — state=%d levels=%d" % [game.state, game.levels.size()])
+	# pin the campaign start to L1: game._ready() loads records.cfg, and the start
+	# screen pre-selects the furthest unlocked sector — on a machine with progress
+	# that would launch a later (even boss) level and break the L1 asserts below
+	GameState.unlocked_level = 0
+	game.overlays._sector = 0
 	game._on_launch()   # MENU -> BRIEFING
 	game._on_launch()   # BRIEFING -> PLAYING
 	await get_tree().process_frame
 	assert(game.state == game.State.PLAYING)
-	Input.action_press("fire")
 	var dt := 1.0 / 60.0
+	# --- K3: L1 has fuel cells (secondary objective) but no crushers ---
+	assert(GameState.level_props_total > 0)
+	assert(game.prop_mgr.props.size() == GameState.level_props_total)
+	assert(game.hazard_mgr._traps.is_empty())
+	game.prop_mgr.damage_prop(0, 99)
+	for f in 30:
+		game._process(dt)
+	assert(GameState.level_props == 1)   # cell exploded and was counted
+	print("props ok — %d cells placed, detonation counted" % GameState.level_props_total)
+	Input.action_press("fire")
 	var peak_enemies := 0
 	var overheated_seen := false
 	for f in 60 * 240:  # up to 4 simulated minutes
@@ -87,6 +101,17 @@ func _run() -> void:
 	print("end state=%d ring=%d/%d shields=%.0f score=%d peak_enemies=%d overheat=%s" % [
 		game.state, game.player.ring_idx, game.path.rings.size(),
 		GameState.shields, GameState.score, peak_enemies, overheated_seen])
+	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
+	GameState.reset_run()
+	GameState.level_index = 1
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game.hazard_mgr._traps.size() >= 1)
+	for t in game.hazard_mgr._traps:
+		assert(game.path.rings[t.ring].arena_id < 0)
+	for f in 200:   # cycle the pistons through a full period
+		game._process(dt)
+	print("hazards ok — %d crushers on L2, cycling" % game.hazard_mgr._traps.size())
 	# --- Phase J: boss level — spawn, dormant portal, kill wakes the exit ring ---
 	GameState.reset_run()
 	GameState.level_index = 2   # L3 · DOCK SENTINEL
@@ -94,6 +119,8 @@ func _run() -> void:
 	await get_tree().process_frame
 	assert(not game.enemy_mgr.boss.is_empty())
 	assert(not game.world.portal_active)
+	assert(GameState.level_props_total == 0)   # K3: boss rooms stay clean
+	assert(game.hazard_mgr._traps.is_empty())
 	# boss resupply stations: L3 = 1 shield + 1 missile on the back wall, and a
 	# collected one respawns on replenish (wired to boss phase transitions)
 	assert(game.pickup_mgr._stations.size() == 2)
