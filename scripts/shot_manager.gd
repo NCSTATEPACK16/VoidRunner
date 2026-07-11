@@ -24,6 +24,7 @@ var _boom_cursor := 0
 var _explosion_frames: Array[ImageTexture] = []
 var _enemy_shot_tex: ImageTexture
 var _spark_tex: ImageTexture
+var _dodge_spark_tex: ImageTexture   # K4: cool blue, reads as thrusters not damage
 var _missile_tex: ImageTexture
 var _bolt_cache := {}
 
@@ -32,6 +33,7 @@ func _ready() -> void:
 	_explosion_frames = SpriteGen.explosion_frames()
 	_enemy_shot_tex = SpriteGen.star_texture(Palette.ORANGE_2, Palette.RED_2)
 	_spark_tex = SpriteGen.star_texture(Palette.ORANGE_3, Palette.ORANGE_1, 8)
+	_dodge_spark_tex = SpriteGen.star_texture(Palette.CYAN_3, Palette.BLUE_2, 8)
 	_missile_tex = SpriteGen.missile_texture()
 	for i in 3:
 		var light := OmniLight3D.new()
@@ -52,7 +54,8 @@ func clear_all() -> void:
 ## Every texture a fight can draw, for the briefing-screen shader warm-up.
 ## Also pre-populates the per-weapon bolt cache so no texture is built mid-flight.
 func warmup_textures(weapon_list: Array[WeaponDef]) -> Array:
-	var texes: Array = [_explosion_frames[0], _enemy_shot_tex, _spark_tex, _missile_tex]
+	var texes: Array = [_explosion_frames[0], _enemy_shot_tex, _spark_tex,
+		_dodge_spark_tex, _missile_tex]
 	for w in weapon_list:
 		if w.fuse > 0.0:
 			continue
@@ -140,6 +143,18 @@ func spawn_explosion(pos: Vector3, big: bool) -> void:
 	light.position = pos
 	light.light_energy = 3.2 if big else 2.2
 	AudioSys.play_boom(big)
+
+
+## K4: blue spark puff at the dodge origin — same lifecycle as explosion sparks.
+func spawn_dodge_burst(pos: Vector3) -> void:
+	for i in 5:
+		var spark := SpriteGen.make_sprite(_dodge_spark_tex, 1.1)
+		spark.position = pos
+		add_child(spark)
+		_sparks.append({
+			"node": spark, "t": 0.6,
+			"vel": Vector3(randf_range(-10, 10), randf_range(-10, 10), randf_range(-10, 10)),
+		})
 
 
 ## Rotate a heat-seeking shot's velocity toward the nearest enemy by a capped angle,

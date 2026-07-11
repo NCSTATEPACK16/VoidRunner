@@ -95,6 +95,10 @@ func _ready() -> void:
 	hazard_mgr.player = player
 	shot_mgr.player_hit.connect(func(dmg: float) -> void: player.take_damage(dmg, "SHIELD HIT"))
 	player.damaged.connect(func(_a: float, msg: String) -> void: hud.show_message(msg))
+	player.notified.connect(func(msg: String) -> void: hud.show_message(msg))
+	player.dodged.connect(func(dir: Vector3) -> void:
+		shot_mgr.spawn_dodge_burst(player.position + dir * 2.0 + Vector3.UP * -0.4)
+		AudioSys.play_dodge())
 	GameState.player_died.connect(_on_player_died)
 	overlays.launch_requested.connect(_on_launch)
 	overlays.next_level_requested.connect(_on_next_level)

@@ -21,6 +21,7 @@ var _select: AudioStreamWAV
 var _overheat: AudioStreamWAV
 var _portal: AudioStreamWAV
 var _clank: AudioStreamWAV
+var _dodge: AudioStreamWAV
 var _engine_loop: AudioStreamWAV
 
 
@@ -37,6 +38,7 @@ func _ready() -> void:
 	_overheat = _render_overheat()
 	_portal = _render_portal()
 	_clank = _render_clank()
+	_dodge = _render_dodge()
 	_engine_loop = _render_engine_loop()
 	_engine = AudioStreamPlayer.new()
 	_engine.stream = _engine_loop
@@ -97,6 +99,10 @@ func play_portal() -> void:
 
 func play_clank() -> void:
 	_play(_clank)
+
+
+func play_dodge() -> void:
+	_play(_dodge)
 
 
 func _play(stream: AudioStreamWAV) -> void:
@@ -239,6 +245,26 @@ func _render_clank() -> AudioStreamWAV:
 			var v := sq * env + rng.randf_range(-1.0, 1.0) * env * 0.5
 			if start + i < n:
 				out[start + i] += v
+	return _make_wav(out)
+
+
+func _render_dodge() -> AudioStreamWAV:
+	# K4 evade whoosh: band-swept noise that rises then falls over 0.26 s.
+	var n := int(SAMPLE_RATE * 0.28)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 19
+	var lp := 0.0
+	var lp2 := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		var sweep := sin(minf(1.0, t / 0.26) * PI)
+		var cutoff := 300.0 + sweep * 2200.0
+		var alpha := clampf(cutoff / (SAMPLE_RATE * 0.5), 0.0, 1.0)
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * alpha * 4.0
+		lp2 += (lp - lp2) * 0.4
+		out[i] = clampf(lp2, -1.0, 1.0) * 0.3 * sweep
 	return _make_wav(out)
 
 

@@ -1,7 +1,8 @@
 extends Node
 ## Autoload: registers the whole Input Map in code at boot.
 ## Mapping mirrors PROJECT.md §11.4 / the v2.2 web build: arrows + mouse steer,
-## LMB/Space/X fire, W/RMB afterburner, S brake, 1-4 weapons, Backspace cycles, P pause.
+## LMB/Space/X fire, W/RMB afterburner, S brake, A/D evade roll (K4), 1-4 weapons,
+## Backspace cycles, P pause.
 
 
 func _init() -> void:
@@ -9,6 +10,8 @@ func _init() -> void:
 	_key_action("steer_right", KEY_RIGHT)
 	_key_action("steer_up", KEY_UP)
 	_key_action("steer_down", KEY_DOWN)
+	_key_action("dodge_left", KEY_A)
+	_key_action("dodge_right", KEY_D)
 	_key_action("fire", KEY_SPACE)
 	_add_key("fire", KEY_X)
 	_add_mouse("fire", MOUSE_BUTTON_LEFT)

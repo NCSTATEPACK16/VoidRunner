@@ -107,6 +107,7 @@ func _ready() -> void:
 	_label(root, Vector2(214, CONSOLE_Y + 24), "HEAT", Color("ffab66"), 8)
 	_heat_bar = _bar(root, Vector2(242, CONSOLE_Y + 26), Color("ff9a30"))
 	_wpn_name = _label(root, Vector2(8, CONSOLE_Y + 24), "", Color("9fe8ff"), 8)
+	_label(root, Vector2(84, CONSOLE_Y + 12), "EVD", Color("2f8a82"), 8)  # K4 lamp
 	GameState.shields_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.energy_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.heat_changed.connect(func(_v: float) -> void: _update_bars())
@@ -244,6 +245,12 @@ func _draw_console() -> void:
 	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 7), "%02d" % GameState.missiles, 2,
 		DIGIT_COL if GameState.missiles > 0 else Color("ff3018"))
 	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 20), "-", 1, DIGIT_DIM)
+	# K4: evade lamp — refills through the cooldown, bright cyan when ready
+	if player:
+		var frac := 1.0 - clampf(player.dodge_cd / PlayerShip.DODGE_CD, 0.0, 1.0)
+		c.draw_rect(Rect2(86, CONSOLE_Y + 22, 14, 5), Color(0.10, 0.11, 0.13))
+		c.draw_rect(Rect2(87, CONSOLE_Y + 23, 12.0 * frac, 3),
+			Color("55ffee") if frac >= 1.0 else Color(0.13, 0.38, 0.36))
 	# TIME clock
 	_draw_text3x5(c, Vector2(114, CONSOLE_Y + 7), _time_string(), 2, DIGIT_COL)
 	# kill counter over the radar (only while an arena lock is active)

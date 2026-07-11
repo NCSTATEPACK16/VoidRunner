@@ -165,7 +165,7 @@ func _build_help() -> void:
 	_title(p, "FLIGHT MANUAL", 14, TITLE_COL)
 	var left := [
 		"FLIGHT", "MOUSE / ARROWS  steer", "W or RMB  afterburner", "S  retro brake",
-		"", "SYSTEM", "P or ESC  pause",
+		"A / D  evade roll", "", "SYSTEM", "P or ESC  pause",
 	]
 	var right := [
 		"WEAPONS", "LMB / SPACE / X  fire", "1 NEUTRON  2 SCATTER", "3 BOLT  4 MISSILE",

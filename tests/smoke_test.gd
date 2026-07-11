@@ -87,6 +87,24 @@ func _run() -> void:
 		game._process(dt)
 	assert(GameState.level_props == 1)   # cell exploded and was counted
 	print("props ok — %d cells placed, detonation counted" % GameState.level_props_total)
+	# --- K4: dodge roll — spends energy, grants brief i-frames, shifts laterally ---
+	var ring0: Dictionary = game.path.rings[game.player.ring_idx]
+	var lat0: float = (game.player.position - ring0.p as Vector3).dot(ring0.r)
+	var energy0: float = GameState.energy
+	game.player._try_dodge(1.0)
+	assert(game.player.iframes_t > 0.0)
+	assert(GameState.energy <= energy0 - PlayerShip.DODGE_COST + 0.01)
+	var sh0: float = GameState.shields
+	game.player.take_damage(10.0, "TEST SHOT")
+	assert(GameState.shields == sh0)   # i-frames absorb non-wall damage
+	for f in 20:
+		game._process(dt)
+	var ring1: Dictionary = game.path.rings[game.player.ring_idx]
+	var lat1: float = (game.player.position - ring1.p as Vector3).dot(ring1.r)
+	assert(lat1 - lat0 > 3.0)          # visibly displaced to the roll side
+	assert(game.player.dodge_cd > 0.0)
+	print("dodge ok — lat %.1f -> %.1f, energy %.0f -> %.0f" % [
+		lat0, lat1, energy0, GameState.energy])
 	Input.action_press("fire")
 	var peak_enemies := 0
 	var overheated_seen := false
