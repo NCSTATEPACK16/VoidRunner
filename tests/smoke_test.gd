@@ -105,6 +105,26 @@ func _run() -> void:
 	assert(game.player.dodge_cd > 0.0)
 	print("dodge ok — lat %.1f -> %.1f, energy %.0f -> %.0f" % [
 		lat0, lat1, energy0, GameState.energy])
+	# --- V2.0 secrets: phantom panel placed, brushing it reveals the cache ---
+	assert(GameState.level_secrets_total >= 1)
+	var sec: Dictionary = game._secrets[0]
+	assert(is_instance_valid(sec.node))
+	var sring: Dictionary = game.path.rings[sec.ring]
+	game.player.ring_idx = sec.ring
+	game.player.position = sring.p + sring.r * (sec.side * (sring.hw - 1.7))
+	var score_before: int = GameState.score
+	var pickups_before: int = game.pickup_mgr._pickups.size()
+	game._update_secrets()
+	assert(sec.found)
+	assert(GameState.level_secrets == 1)
+	assert(GameState.score == score_before + 250)
+	assert(game.pickup_mgr._pickups.size() > pickups_before)   # the cache spilled
+	game._update_secrets()   # re-entering the spot must not double-count
+	assert(GameState.level_secrets == 1)
+	print("secrets ok — %d placed on L1, discovery pays and spills a cache" %
+		GameState.level_secrets_total)
+	# put the probe back at the start so the flight loop runs its usual course
+	game.player.reset_to_start()
 	Input.action_press("fire")
 	var peak_enemies := 0
 	var overheated_seen := false

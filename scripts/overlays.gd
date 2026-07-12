@@ -102,10 +102,16 @@ func set_briefing(level: LevelDef) -> void:
 
 
 func set_level_clear(level_name: String, bonus: int, score: int, next_name: String,
-		kills: int, acc: int, time: float, rank: String, secondary := false) -> void:
+		kills: int, acc: int, time: float, rank: String, secondary := false,
+		secrets := 0, secrets_total := 0) -> void:
 	var p: Control = _panels.level_clear
 	(p.get_node("Title") as Label).text = level_name + " CLEAR"
-	var secondary_line := "\nSECONDARY COMPLETE +400" if secondary else ""
+	var extras: Array[String] = []
+	if secondary:
+		extras.append("SECONDARY COMPLETE +400")
+	if secrets_total > 0:   # V2.0 phantom-wall caches
+		extras.append("SECRETS %d/%d" % [secrets, secrets_total])
+	var secondary_line := ("\n" + " · ".join(extras)) if not extras.is_empty() else ""
 	(p.get_node("Body") as Label).text = \
 		"KILLS %d · ACCURACY %d%% · TIME %s%s\nEXIT BONUS +%d · SCORE %d\nNEXT: %s" % [
 			kills, acc, _fmt_time(time), secondary_line, bonus, score, next_name]

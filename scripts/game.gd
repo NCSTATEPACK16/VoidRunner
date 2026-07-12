@@ -45,6 +45,10 @@ var _gauntlet := false
 var _gauntlet_def: LevelDef
 var _gauntlet_tier := 0
 
+## V2.0 phantom-wall secrets: {ring, side, node, found} — a wall panel you can fly
+## straight through, hiding a pickup cache (the original's holographic walls).
+var _secrets: Array[Dictionary] = []
+
 
 func _ready() -> void:
 	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
@@ -245,6 +249,7 @@ func _load_level_world(index: int) -> void:
 	hazard_mgr.setup(world.mats.wall, theme.accent2)
 	_place_props(level)
 	_place_hazards(level)
+	_place_secrets(level)
 	_arena_spawned.clear()
 	_arena_kills.clear()
 	for arena in path.arenas:
@@ -348,6 +353,89 @@ func _on_cell_destroyed() -> void:
 		hud.show_message("SECONDARY COMPLETE — ALL CELLS DESTROYED")
 
 
+## V2.0 secrets: 1-2 phantom wall panels per tunnel level, on straight plain-tunnel
+## stretches clear of doors, corners, crushers, and each other. Deterministic per
+## level seed, like props and hazards.
+func _place_secrets(level: LevelDef) -> void:
+	for s in _secrets:
+		if is_instance_valid(s.node):
+			s.node.queue_free()
+	_secrets.clear()
+	GameState.level_secrets = 0
+	GameState.level_secrets_total = 0
+	if level.kind != "tunnel":
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = level.level_seed + 999
+	var want := clampi(level.rings / 100, 1, 2)
+	var placed: Array[int] = []
+	for attempt in 80:
+		if placed.size() >= want:
+			break
+		var ri := rng.randi_range(30, level.rings - 30)
+		var ring: Dictionary = path.rings[ri]
+		if ring.arena_id >= 0:
+			continue
+		if path.rings[ri - 2].d.dot(path.rings[ri + 2].d) < 0.985:
+			continue   # panels sit flush only on straight wall runs
+		var clear := true
+		for arena in path.arenas:
+			if arena.door_ring >= 0 and absi(ri - arena.door_ring) < 6:
+				clear = false
+		for other in placed:
+			if absi(ri - other) < 25:
+				clear = false
+		for t in hazard_mgr._traps:
+			if absi(ri - t.ring) < 6:
+				clear = false
+		if not clear:
+			continue
+		_secrets.append(_build_secret(ri, 1.0 if rng.randf() < 0.5 else -1.0))
+		placed.append(ri)
+	GameState.level_secrets_total = _secrets.size()
+
+
+## The panel: a box proud of the wall by ~1 u with a slightly-off wall tint — the
+## manual's "suspicious wall" tell. No collision anywhere in this game is physical,
+## so flying through it just works; discovery is a lateral-depth check per frame.
+func _build_secret(ri: int, side: float) -> Dictionary:
+	var ring: Dictionary = path.rings[ri]
+	var mi := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(2.4, (ring.hh - ring.fo - ring.co) * 2.0 - 0.6, PathGen.SEG * 1.6)
+	mi.mesh = box
+	var mat: StandardMaterial3D = world.mats.wall.duplicate()
+	mat.albedo_color = Color(0.86, 0.86, 0.97)   # cooler than true wall — the tell
+	mi.material_override = mat
+	mi.transform = Transform3D(Basis(ring.r, ring.u, -ring.d),
+		ring.p + ring.r * (side * (ring.hw - 1.2)) + ring.u * ((ring.fo - ring.co) * 0.5))
+	world.add_child(mi)
+	return {"ring": ri, "side": side, "node": mi, "found": false}
+
+
+## Brushing into a phantom panel reveals it: the panel vanishes, the cache spills
+## out, score lands, and the tally remembers. Runs per frame; ≤2 entries, cheap.
+func _update_secrets() -> void:
+	for s in _secrets:
+		if s.found or absi(player.ring_idx - s.ring) > 1:
+			continue
+		var ring: Dictionary = path.rings[s.ring]
+		var lat: float = (player.position - ring.p as Vector3).dot(ring.r) * s.side
+		if lat > ring.hw - 2.4:
+			s.found = true
+			s.node.queue_free()
+			GameState.level_secrets += 1
+			GameState.score += 250
+			hud.show_message("SECRET FOUND +250", 2.0)
+			AudioSys.play_portal()
+			var kinds: Array[String] = ["shield", "energy", "missile"]
+			if randf() < 0.35:
+				kinds.append("bomb")
+			for kind in kinds:
+				pickup_mgr.spawn_drop(
+					player.position + ring.d * randf_range(2.0, 6.0), s.ring, kind)
+
+
 ## K5: the active tuning source — campaign levels from resources, gauntlet from
 ## the synthetic escalating def.
 func _current_level() -> LevelDef:
@@ -449,7 +537,8 @@ func _level_complete() -> void:
 		state = State.LEVEL_CLEAR
 		overlays.set_level_clear(
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
-			GameState.level_kills, acc, player.elapsed, rank, secondary_done)
+			GameState.level_kills, acc, player.elapsed, rank, secondary_done,
+			GameState.level_secrets, GameState.level_secrets_total)
 		overlays.show_only("level_clear")
 
 
@@ -601,6 +690,7 @@ func _process(delta: float) -> void:
 	pickup_mgr.update_pickups(delta)
 	prop_mgr.update_props(delta)
 	hazard_mgr.update_traps(delta)
+	_update_secrets()
 	_update_arena_lock()
 	if _boss_arena_start >= 0 and not _boss_announced \
 			and player.ring_idx >= _boss_arena_start - 4:
