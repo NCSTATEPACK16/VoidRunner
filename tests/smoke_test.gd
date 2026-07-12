@@ -244,6 +244,8 @@ func _run() -> void:
 	assert(game.path.arenas.size() >= 2)             # stands were discovered…
 	assert(game.world._doors.size() == game.path.arenas.size())  # …and got doors
 	assert(game.world._chunks.size() <= 12)          # streaming stays bounded
+	# V2.1: discovery side effects drain within frames — never a same-frame burst
+	assert(game._door_queue.is_empty() and game._spawn_queue.is_empty())
 	var gdist := int(game.player.ring_idx * PathGen.SEG)
 	assert(gdist > 800)                              # bulkheads never soft-locked the run
 	GameState.record_gauntlet(gdist)

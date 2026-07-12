@@ -116,6 +116,12 @@ func discover_arenas(arena_spawn_chance: float) -> Array[Dictionary]:
 	return found
 
 
+## K5/V2.1: cheap guard so the per-frame gauntlet stream can skip the arena scan
+## entirely when extend_to() generated nothing new this frame.
+func has_unscanned() -> bool:
+	return is_endless and _scanned_up_to < rings.size()
+
+
 func _gen_ring() -> void:
 	_count += 1
 	var final_len := BOSS_ROOM_RINGS if _boss else 14

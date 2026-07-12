@@ -119,8 +119,11 @@ func prebuild_all() -> void:
 
 func update_streaming(player_ring: int) -> void:
 	var last := path.rings.size() - 1
-	# endless mode still streams geometry ahead (finite levels are prebuilt)
-	while _built_up_to < last and _built_up_to - player_ring < BUILD_AHEAD:
+	# endless mode still streams geometry ahead (finite levels are prebuilt) —
+	# hard-capped at ONE chunk build per frame: at cruise speed the player crosses
+	# a ring in ~0.67 s, so a 14-ring chunk per frame outruns them ~500× while the
+	# per-frame worst case stays one SurfaceTool commit instead of a burst
+	if _built_up_to < last and _built_up_to - player_ring < BUILD_AHEAD:
 		var end := mini(_built_up_to + CHUNK, last)
 		_build_chunk(_built_up_to, end)
 		_built_up_to = end

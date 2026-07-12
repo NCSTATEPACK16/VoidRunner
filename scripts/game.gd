@@ -45,6 +45,10 @@ var _warmup_rig: Node3D
 var _gauntlet := false
 var _gauntlet_def: LevelDef
 var _gauntlet_tier := 0
+# V2.1: discovery side effects are queued and drained a little per frame so a
+# newly-completed arena can't spike one frame with a door build + spawn burst
+var _door_queue: Array[Dictionary] = []      # arena dicts awaiting build_door
+var _spawn_queue: Array[Dictionary] = []     # {ring, arena_id, type}
 
 ## V2.0 phantom-wall secrets: {ring, side, node, found} — a wall panel you can fly
 ## straight through, hiding a pickup cache (the original's holographic walls).
@@ -266,6 +270,8 @@ func _load_level_world(index: int) -> void:
 	_place_secrets(level)
 	_arena_spawned.clear()
 	_arena_kills.clear()
+	_door_queue.clear()
+	_spawn_queue.clear()
 	for arena in path.arenas:
 		if arena.door_ring < 0:
 			continue
@@ -460,14 +466,31 @@ func _current_level() -> LevelDef:
 ## the scan completes — bulkhead door, exact guard count, kill-counter bookkeeping.
 func _gauntlet_stream() -> void:
 	path.extend_to(player.ring_idx + WorldBuilder.BUILD_AHEAD + 40)
+	if not path.has_unscanned():
+		return
 	for arena in path.discover_arenas(_gauntlet_def.spawn_arena):
-		world.build_door(arena)
-		for ring_idx in arena.spawn_rings:
-			enemy_mgr.spawn(ring_idx, arena.id, _pick_enemy_type(_gauntlet_def))
+		# bookkeeping is immediate (kill counters must exist before any kill can
+		# land) but the door build + guard spawns drain from per-frame queues —
+		# an arena is discovered 110+ rings out, so there's ~70 s of slack
 		_arena_spawned[arena.id] = arena.spawn_rings.size()
 		_arena_kills[arena.id] = 0
+		_door_queue.append(arena)
+		for ring_idx in arena.spawn_rings:
+			_spawn_queue.append({"ring": ring_idx, "arena_id": arena.id,
+				"type": _pick_enemy_type(_gauntlet_def)})
 		if arena.spawn_rings.is_empty():
 			world.open_door(arena.id)
+
+
+## V2.1: drain discovery side effects — 1 door build + 2 enemy spawns per frame.
+func _drain_stream_queues() -> void:
+	if not _door_queue.is_empty():
+		world.build_door(_door_queue.pop_front())
+	for i in 2:
+		if _spawn_queue.is_empty():
+			break
+		var s: Dictionary = _spawn_queue.pop_front()
+		enemy_mgr.spawn(s.ring, s.arena_id, s.type)
 
 
 ## K5: one difficulty tier per 60 rings (~720 m). Newly spawned enemies sample the
@@ -702,6 +725,7 @@ func _process(delta: float) -> void:
 			_apply_gauntlet_tier(tier)
 			hud.show_message("VOID PRESSURE RISING", 1.6)
 			AudioSys.play_select()
+	_drain_stream_queues()
 	world.update_streaming(player.ring_idx)
 	GameState.tick_combo(delta)
 	_update_heat(delta)

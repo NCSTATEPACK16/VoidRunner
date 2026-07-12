@@ -27,6 +27,19 @@ VR_PERF_RAIL=1 VR_PERF_GAUNTLET=1 ...                                           
 Rendered histograms are bimodal (4–6 ms / 10–12 ms — display pacing on this
 Mac); full outputs in the session scratchpad (`probe_*_{headless,rendered}.txt`).
 
+## After Step 1 (briefing prebuild, 9e018da)
+
+| Run | Mode | Worst step | Spikes | Notes |
+|---|---|---|---|---|
+| L8 | headless | 2.5 ms | 0 >8 ms | was 6.7 ms — mid-flight builds gone |
+| L8 | rendered | 213.8 ms | 3 >40 ms | **`built=209->209` the whole flight — zero mid-flight builds, gate met.** Spikes uncorrelated with game state; the ~t=51 s big one has now fired at t≈51 s in three separate runs (machine-periodic event, not game work) |
+
+## After Step 2 (gauntlet throttle)
+
+| Run | Mode | Worst step | Spikes | Notes |
+|---|---|---|---|---|
+| Gauntlet | headless ×2 | 51.0 / 49.4 ms | 6 / 6 >8 ms | spike rings DIFFER entirely between runs (58/173/314 vs 79/228/343), `built=` constant on every spike ⇒ OS preemption noise (Spotlight was indexing ~1 k new reference PNGs), not game cost. One-chunk-per-frame cap + drained queues verified by smoke asserts |
+
 **Interpretation.** On desktop GL, no spike coincides with a chunk build
 (`built=` never changes on a spike frame); the 40–215 ms one-offs are the same
 non-repeating environment-noise class documented 2026-07-05 (desktop has a warm
