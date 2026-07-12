@@ -29,12 +29,16 @@ func _run() -> void:
 	await get_tree().process_frame
 
 	# pin the level (default L1); VR_PERF_LEVEL lets us probe a boss level etc.
+	# VR_PERF_GAUNTLET=1 probes the endless mode's streaming path instead.
 	GameState.unlocked_level = 8   # so a boss-level index isn't clamped away
 	game.overlays._sector = 0
 	GameState.level_index = int(OS.get_environment("VR_PERF_LEVEL"))  # "" -> 0
 	GameState.score = 0
 	var t_brief := Time.get_ticks_usec()
-	game._show_briefing()   # builds the level world + shader warm-up rig
+	if OS.get_environment("VR_PERF_GAUNTLET") == "1":
+		game._on_gauntlet()   # sets gauntlet flags + shows the briefing itself
+	else:
+		game._show_briefing()   # builds the level world + shader warm-up rig
 	print("[perf] briefing (level build + warmup rig): %.1f ms" % [
 		(Time.get_ticks_usec() - t_brief) / 1000.0])
 	for i in 30:   # let the warm-up rig render/compile behind the briefing
