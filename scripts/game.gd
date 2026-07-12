@@ -101,6 +101,8 @@ func _ready() -> void:
 	enemy_mgr.enemy_fired.connect(shot_mgr.fire_enemy)
 	enemy_mgr.exploded.connect(shot_mgr.spawn_explosion)
 	enemy_mgr.enemy_killed.connect(_on_enemy_killed)
+	enemy_mgr.turret_destroyed.connect(
+		func(pos: Vector3) -> void: prop_mgr.splash(pos, PropManager.CHAIN_RADIUS))
 	enemy_mgr.boss_killed.connect(_on_boss_killed)
 	enemy_mgr.boss_phase.connect(_on_boss_phase)
 	pickup_mgr.player = player
@@ -470,10 +472,12 @@ func _apply_gauntlet_tier(tier: int) -> void:
 		pool.append("weaver")
 	if tier >= 2:
 		pool.append("hulk")
+		pool.append("turret")
 	if tier >= 3:
 		pool.append("weaver")
 	if tier >= 5:
 		pool.append("hulk")
+		pool.append("turret")   # tier 5+ turrets fire seekers (enemy_speed >= 9)
 	_gauntlet_def.enemy_types = pool
 	AudioSys.set_music_intensity(tier / 8.0)
 

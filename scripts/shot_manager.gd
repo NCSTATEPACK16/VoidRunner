@@ -108,11 +108,12 @@ func fire_player(w: WeaponDef) -> void:
 
 
 func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
-		shot_size := 1.7) -> void:
+		shot_size := 1.7, seeker := false) -> void:
 	var sprite := SpriteGen.make_sprite(_enemy_shot_tex, shot_size)
 	sprite.position = origin
 	add_child(sprite)
-	_eshots.append({"node": sprite, "vel": velocity, "life": 5.0, "dmg": dmg})
+	_eshots.append({"node": sprite, "vel": velocity, "life": 5.0, "dmg": dmg,
+		"seeker": seeker})
 
 
 func detonate(pos: Vector3, radius: float, dmg: int) -> void:
@@ -227,6 +228,18 @@ func update_shots(delta: float) -> void:
 	# --- enemy shots ---
 	for q in range(_eshots.size() - 1, -1, -1):
 		var es: Dictionary = _eshots[q]
+		if es.get("seeker", false):
+			# V2.0 seeker turret shots: gentle capped turn toward the player —
+			# slow enough that a dodge roll (or a hard bank) beats them
+			var cur: Vector3 = es.vel.normalized()
+			var des: Vector3 = (player.position - es.node.position).normalized()
+			var ang := cur.angle_to(des)
+			if ang > 0.0001:
+				var axis := cur.cross(des)
+				if axis.length_squared() < 1e-8:
+					axis = Vector3.UP
+				es.vel = cur.rotated(axis.normalized(), minf(ang, 1.2 * delta)) \
+					* es.vel.length()
 		es.node.position += es.vel * delta
 		es.life -= delta
 		var kill: bool = es.life <= 0.0

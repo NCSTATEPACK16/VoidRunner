@@ -6,8 +6,10 @@ extends Node3D
 ## drones never despawn, so kill-locked doors can always be opened.
 
 signal enemy_killed(arena_id: int)
-signal enemy_fired(origin: Vector3, velocity: Vector3, dmg: float, shot_size: float)
+signal enemy_fired(origin: Vector3, velocity: Vector3, dmg: float, shot_size: float,
+	seeker: bool)
 signal exploded(pos: Vector3, big: bool)
+signal turret_destroyed(pos: Vector3)   # V2.0: game chains fuel cells off this
 signal boss_killed
 signal boss_phase(phase: int)
 signal drop_spawned(pos: Vector3, ring: int, kind: String)
@@ -31,6 +33,7 @@ const TYPES := {
 	"drone":  {"hp_mul": 1.0, "hp_add": 0,  "speed_mul": 1.0,  "fire_mul": 1.0,  "score": 100, "size": 4.2, "behavior": "chase"},
 	"weaver": {"hp_mul": 1.0, "hp_add": -1, "speed_mul": 1.7,  "fire_mul": 0.85, "score": 150, "size": 3.2, "behavior": "weave"},
 	"hulk":   {"hp_mul": 2.0, "hp_add": 3,  "speed_mul": 0.55, "fire_mul": 0.7,  "score": 300, "size": 5.6, "behavior": "chase"},
+	"turret": {"hp_mul": 1.5, "hp_add": 2,  "speed_mul": 0.0,  "fire_mul": 1.1,  "score": 200, "size": 4.6, "behavior": "turret"},
 }
 
 var path: PathGen
@@ -48,6 +51,7 @@ func _ready() -> void:
 		"drone": SpriteGen.drone_frames(),
 		"weaver": SpriteGen.weaver_frames(),
 		"hulk": SpriteGen.hulk_frames(),
+		"turret": SpriteGen.turret_frames(),
 		"boss": SpriteGen.boss_frames(),
 	}
 
@@ -78,6 +82,11 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 		+ ring.r * (randf_range(-1.0, 1.0) * ring.hw * 0.5) \
 		+ ring.u * (randf_range(-1.0, 1.0) * ring.hh * 0.4)
 	sprite.position = path.clamp_to_ring(pos, ring_idx, 2.5)
+	if t.behavior == "turret":
+		# V2.0 wall turret: anchored flush against one wall, never moves
+		var side := 1.0 if randf() < 0.5 else -1.0
+		sprite.position = ring.p + ring.r * (side * (ring.hw - 1.6)) \
+			+ ring.u * (randf_range(-0.35, 0.25) * (ring.hh - ring.fo - ring.co))
 	add_child(sprite)
 	enemies.append({
 		"node": sprite, "hp": maxi(1, int(round(level.enemy_hp * t.hp_mul)) + int(t.hp_add)),
@@ -88,6 +97,10 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 		"fire": level.enemy_fire * t.fire_mul, "score": int(t.score),
 		"behavior": t.behavior, "weave_p": randf() * TAU, "hit_r2": HIT_R2,
 		"type": type_id,
+		# V2.0: late-campaign (and deep-gauntlet) turrets fire seeking shots —
+		# the manual's seeking missile-wall variant. Dodge roll i-frames beat them.
+		"seeker": t.behavior == "turret" and (GameState.level_index >= 5
+			or (GameState.gauntlet_mode and level.enemy_speed >= 9.0)),
 	})
 
 
@@ -132,6 +145,25 @@ func update_enemies(delta: float) -> void:
 		if e.get("is_boss", false):
 			_update_boss(e, delta)
 			continue  # never despawns, never dies on contact
+		if e.behavior == "turret":
+			# V2.0 wall turret: a fixed gun, not a ram — no drift, no clamp, no
+			# contact damage. Aimed shots inside 110 u; seekers on late levels.
+			var turret_to_player: Vector3 = player.position - node.position
+			var turret_dist := turret_to_player.length()
+			if turret_dist < 110.0:
+				e.fire_t -= delta
+				if e.fire_t <= 0.0:
+					e.fire_t = e.fire * 0.9 + randf() * e.fire * 0.5
+					var taim: Vector3 = player.position \
+						+ player.forward() * (player.speed * turret_dist / 24.0 * 0.35) \
+						- node.position
+					enemy_fired.emit(node.position, taim.normalized() * 24.0,
+						SHOT_DMG + 1.0, 2.1 if e.seeker else 1.8, e.seeker)
+			if e.arena_id < 0 and player.ring_idx > 20 \
+					and node.position.distance_squared_to(player.position) > 90000.0:
+				node.queue_free()
+				enemies.remove_at(k)
+			continue
 		var to_player: Vector3 = player.position - node.position
 		var dist := to_player.length()
 		if dist < 120.0:
@@ -153,7 +185,7 @@ func update_enemies(delta: float) -> void:
 				var aim: Vector3 = player.position \
 					+ player.forward() * (player.speed * dist / 26.0 * 0.4) \
 					- node.position
-				enemy_fired.emit(node.position, aim.normalized() * 26.0, SHOT_DMG, 1.7)
+				enemy_fired.emit(node.position, aim.normalized() * 26.0, SHOT_DMG, 1.7, false)
 			if dist < 4.5 and player.wall_hurt_t <= 0.0:
 				player.wall_hurt_t = 0.45
 				player.take_damage(CONTACT_DMG, "COLLISION")
@@ -207,7 +239,7 @@ func _update_boss(e: Dictionary, delta: float) -> void:
 		e.fire_t = e.fire * 0.9 * (1.4 if phase >= 2 else 1.0)
 		var aim: Vector3 = player.position \
 			+ player.forward() * (player.speed * dist / 32.0 * 0.4) - node.position
-		enemy_fired.emit(node.position, aim.normalized() * 32.0, BOSS_SHOT_DMG, 2.4)
+		enemy_fired.emit(node.position, aim.normalized() * 32.0, BOSS_SHOT_DMG, 2.4, false)
 	# --- spread volleys (phase 2+) ---
 	if phase >= 2:
 		e.volley_t -= delta
@@ -232,7 +264,7 @@ func _boss_volley(origin: Vector3, count: int) -> void:
 	var to_player := (player.position - origin).normalized()
 	for i in count:
 		var ang := -0.35 + i * (0.7 / float(count - 1))
-		enemy_fired.emit(origin, to_player.rotated(Vector3.UP, ang) * 30.0, SHOT_DMG, 1.7)
+		enemy_fired.emit(origin, to_player.rotated(Vector3.UP, ang) * 30.0, SHOT_DMG, 1.7, false)
 
 
 ## Phase 3: the boss ejects escort drones — capped so the room never floods.
@@ -307,6 +339,8 @@ func _kill(index: int, scored: bool) -> void:
 		boss = {}
 	else:
 		exploded.emit(e.node.position, false)
+	if e.get("type", "") == "turret":
+		turret_destroyed.emit(e.node.position)   # V2.0: chains nearby fuel cells
 	# Phase J feedback: nearby kills thump the camera a little
 	if e.node.position.distance_squared_to(player.position) < 2500.0:
 		player.shake = minf(0.6, player.shake + 0.12)

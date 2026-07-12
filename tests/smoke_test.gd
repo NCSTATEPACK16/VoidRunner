@@ -150,6 +150,26 @@ func _run() -> void:
 	for f in 200:   # cycle the pistons through a full period
 		game._process(dt)
 	print("hazards ok — %d crushers on L2, cycling" % game.hazard_mgr._traps.size())
+	# --- V2.0 wall turrets: fixed anchor, fires from the wall, dies to damage ---
+	var t0: int = game.enemy_mgr.enemies.size()
+	game.enemy_mgr.spawn(game.player.ring_idx + 4, -1, "turret")
+	assert(game.enemy_mgr.enemies.size() == t0 + 1)
+	var tur: Dictionary = game.enemy_mgr.enemies.back()
+	assert(tur.type == "turret" and not tur.seeker)   # L2: no seekers yet
+	var tpos: Vector3 = tur.node.position
+	var fired := false
+	for f in 60 * 6:   # max fire_t is ~3.5 s — 6 s guarantees at least one shot
+		game._process(dt)
+		GameState.shields = 100.0
+		if tur.fire_t < 1.4:   # cadence timer moved => the turret is engaging
+			fired = true
+	assert(is_instance_valid(tur.node) and tur.node.position == tpos)  # never moved
+	assert(fired)
+	var ti: int = game.enemy_mgr.enemies.find(tur)
+	assert(ti >= 0)
+	game.enemy_mgr.hit_enemy(ti, 999)
+	assert(game.enemy_mgr.enemies.find(tur) == -1)   # dead and removed
+	print("turret ok — wall-anchored, fireable, killable")
 	# --- Phase J: boss level — spawn, dormant portal, kill wakes the exit ring ---
 	GameState.reset_run()
 	GameState.level_index = 2   # L3 · DOCK SENTINEL
