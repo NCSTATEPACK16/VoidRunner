@@ -74,10 +74,27 @@ func _run() -> void:
 	GameState.unlocked_level = 0
 	game.overlays._sector = 0
 	game._on_launch()   # MENU -> BRIEFING
+	# V2.1: the briefing pump must finish the whole finite level before launch
+	for f in 20:
+		game._process(1.0 / 60.0)
+	assert(game.world.is_prebuilt())
 	game._on_launch()   # BRIEFING -> PLAYING
 	await get_tree().process_frame
 	assert(game.state == game.State.PLAYING)
 	var dt := 1.0 / 60.0
+	var built0: int = game.world._built_up_to
+	# V2.1 draw window: chunks far past the fog stay resident but invisible
+	for f in 3:
+		game._process(dt)
+	var all_far_hidden := true
+	var near_visible := false
+	for c in game.world._chunks:
+		if c.start > game.player.ring_idx + WorldBuilder.VIS_AHEAD:
+			all_far_hidden = all_far_hidden and not c.node.visible
+		elif c.end >= game.player.ring_idx:
+			near_visible = near_visible or c.node.visible
+	assert(all_far_hidden and near_visible)
+	print("prebuild ok — %d rings built at briefing, draw window active" % built0)
 	# --- K3: L1 has fuel cells (secondary objective) but no crushers ---
 	assert(GameState.level_props_total > 0)
 	assert(game.prop_mgr.props.size() == GameState.level_props_total)
@@ -136,6 +153,10 @@ func _run() -> void:
 		if game.state != game.State.PLAYING:
 			break
 	Input.action_release("fire")
+	# V2.1: a finite level never builds a chunk mid-flight (the web-stall cause),
+	# and the spawn cursor keeps tunnel enemies coming past the old ~25-ring wall
+	assert(game.world._built_up_to == built0)
+	assert(peak_enemies > 0)
 	print("end state=%d ring=%d/%d shields=%.0f score=%d peak_enemies=%d overheat=%s" % [
 		game.state, game.player.ring_idx, game.path.rings.size(),
 		GameState.shields, GameState.score, peak_enemies, overheated_seen])

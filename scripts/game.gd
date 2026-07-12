@@ -508,6 +508,7 @@ func _launch_level() -> void:
 	# only rebuild when launched directly without a briefing (tests, dirty world)
 	if _built_level != GameState.level_index:
 		_load_level_world(GameState.level_index)
+	world.prebuild_all()   # no-op unless the launch outran the briefing pump
 	_built_level = -1   # once play starts the world is dirty (doors, kills)
 	player.reset_to_start()
 	player.active = true
@@ -687,6 +688,10 @@ func _on_new_campaign() -> void:
 
 func _process(delta: float) -> void:
 	world.animate(delta)
+	if state == State.BRIEFING:
+		# finish building the whole level behind the briefing overlay, 4 ms/frame —
+		# geometry + buffer uploads land here so flight never builds a chunk
+		world.prebuild_step(4000)
 	if state != State.PLAYING:
 		return
 	player.update_flight(delta)
@@ -697,7 +702,7 @@ func _process(delta: float) -> void:
 			_apply_gauntlet_tier(tier)
 			hud.show_message("VOID PRESSURE RISING", 1.6)
 			AudioSys.play_select()
-	world.ensure_world(player.ring_idx)
+	world.update_streaming(player.ring_idx)
 	GameState.tick_combo(delta)
 	_update_heat(delta)
 	_update_firing(delta)
