@@ -2,7 +2,9 @@ extends Node
 ## Autoload: registers the whole Input Map in code at boot.
 ## Mapping mirrors PROJECT.md §11.4 / the v2.2 web build: arrows + mouse steer,
 ## LMB/Space/X fire, W/RMB afterburner, S brake, A/D evade roll (K4), 1-4 weapons,
-## Backspace cycles, P pause.
+## Backspace cycles, P plasma bomb (V2.0 — the original's spacebar screen-clear,
+## on P since Space stays fire), Enter/ESC pause (P used to pause; Enter is the
+## iPad-reliable replacement).
 
 
 func _init() -> void:
@@ -23,7 +25,8 @@ func _init() -> void:
 	_key_action("weapon_3", KEY_3)
 	_key_action("weapon_4", KEY_4)
 	_key_action("weapon_cycle", KEY_BACKSPACE)
-	_key_action("pause_game", KEY_P)
+	_key_action("plasma_bomb", KEY_P)
+	_key_action("pause_game", KEY_ENTER)
 	_add_key("pause_game", KEY_ESCAPE)
 
 

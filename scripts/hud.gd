@@ -35,6 +35,7 @@ var shot_mgr: ShotManager
 var weapon_names: Array[String] = []
 
 var _flash: ColorRect
+var _bomb_flash: ColorRect   # V2.0 plasma bomb white-out, decays in _process
 var _msg: Label
 var _msg_t := 0.0
 var _level_speed: Label
@@ -65,6 +66,11 @@ func _ready() -> void:
 	_flash.color = Color(1, 0.1, 0.05, 0.0)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_flash)
+	_bomb_flash = ColorRect.new()
+	_bomb_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_bomb_flash.color = Color(0.95, 0.98, 1.0, 0.0)
+	_bomb_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_bomb_flash)
 	# canopy frame under everything else so readouts stay on top
 	_canopy = Control.new()
 	_canopy.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -135,6 +141,11 @@ func show_message(text: String, t := 1.2) -> void:
 	_msg_t = t
 
 
+## V2.0 plasma bomb white-out — bright pop that fades over ~0.4 s.
+func flash_white() -> void:
+	_bomb_flash.color.a = 0.55
+
+
 func set_kill_counter(kills: int, target: int) -> void:
 	_kills = kills
 	_kill_target = target
@@ -147,6 +158,7 @@ func set_boss_name(text: String) -> void:
 func _process(delta: float) -> void:
 	_msg_t -= delta
 	_msg.visible = _msg_t > 0.0
+	_bomb_flash.color.a = maxf(0.0, _bomb_flash.color.a - delta * 1.4)
 	if player:
 		var a := minf(1.0, player.shake * 1.6) * 0.3
 		# Phase J: low-shield warning pulse under everything else
@@ -213,6 +225,14 @@ func _draw_canopy() -> void:
 	_draw_text3x5(c, Vector2(W / 2.0 - 6, 3), "-", 1, DIGIT_DIM)  # spacer tick
 	var threat_col := Color("ff5030") if _threat else Color(0.36, 0.20, 0.16)
 	c.draw_rect(Rect2(W / 2.0 - 4, 4, 22, 3), threat_col)
+	# V2.0 plasma bomb rack, top-right (the original kept its counter there):
+	# one hot pip per bomb held, empty sockets stay dark
+	for i in GameState.PLASMA_MAX:
+		var lit_pip := i < GameState.plasma_bombs
+		c.draw_rect(Rect2(W - 60 + i * 8, 4, 5, 5),
+			Color("ff9a30") if lit_pip else Color(0.16, 0.12, 0.09))
+		if lit_pip:
+			c.draw_rect(Rect2(W - 59 + i * 8, 5, 2, 2), Color("ffe0a0"))
 	# Phase J: boss health bar under the THREAT panel — chunky rect, white damage
 	# flash, tick marks at the 66%/33% phase gates
 	if enemy_mgr and not enemy_mgr.boss.is_empty():

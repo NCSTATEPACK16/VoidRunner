@@ -21,6 +21,8 @@ const MAX_ENERGY := 100.0
 const MAX_HEAT := 100.0
 ## Phase I2: MISSILE is ammo-class — this many per level, no regen.
 const MISSILES_PER_LEVEL := 20
+## V2.0 plasma bomb: rare pickup, carried across levels within a run, hard cap.
+const PLASMA_MAX := 3
 
 var shields := MAX_SHIELDS:
 	set(value):
@@ -49,6 +51,10 @@ var missiles := MISSILES_PER_LEVEL:
 	set(value):
 		missiles = clampi(value, 0, MISSILES_PER_LEVEL)
 		missiles_changed.emit(missiles)
+
+var plasma_bombs := 1:
+	set(value):
+		plasma_bombs = clampi(value, 0, PLASMA_MAX)
 
 ## Score at the start of the current level — death retries the level at this score.
 var level_start_score := 0
@@ -225,6 +231,7 @@ func reset_level() -> void:
 	heat = 0.0
 	score = level_start_score
 	missiles = MISSILES_PER_LEVEL
+	plasma_bombs = maxi(plasma_bombs, 1)   # a retry always has one bomb in the rack
 	weapon_index = 0
 	is_dead = false
 	is_overheated = false
@@ -238,3 +245,4 @@ func reset_run() -> void:
 	level_index = 0
 	level_start_score = 0
 	reset_level()
+	plasma_bombs = 1

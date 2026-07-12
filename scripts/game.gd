@@ -667,6 +667,26 @@ func _notify_cant_fire(msg: String) -> void:
 	hud.show_message(msg)
 
 
+## V2.0 plasma bomb (the original's spacebar screen-clear, on P here): heavy
+## damage to every enemy in visual range, reduced against bosses, and nearby
+## fuel cells cook off. Rare pickup, PLASMA_MAX carried.
+func _fire_plasma_bomb() -> void:
+	if GameState.plasma_bombs <= 0:
+		_notify_cant_fire("NO PLASMA BOMBS")
+		return
+	GameState.plasma_bombs -= 1
+	for k in range(enemy_mgr.enemies.size() - 1, -1, -1):
+		var e: Dictionary = enemy_mgr.enemies[k]
+		if e.node.position.distance_squared_to(player.position) > 120.0 * 120.0:
+			continue
+		enemy_mgr.hit_enemy(k, 25 if e.get("is_boss", false) else 60)
+	prop_mgr.splash(player.position, 60.0)
+	hud.flash_white()
+	player.shake = 0.6
+	AudioSys.play_bomb()
+	hud.show_message("PLASMA BOMB — %d LEFT" % GameState.plasma_bombs, 1.6)
+
+
 func _update_arena_lock() -> void:
 	for arena in path.arenas:
 		if arena.door_ring < 0 or world.is_door_open(arena.id):
@@ -685,6 +705,8 @@ func _on_pickup_collected(kind: String) -> void:
 			hud.show_message("ENERGY CORE +30")
 		"missile":
 			hud.show_message("MISSILE PACK +3")
+		"bomb":
+			hud.show_message("PLASMA BOMB +1")
 	AudioSys.play_select()
 
 
@@ -751,6 +773,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed \
 			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		return
+	if event.is_action_pressed("plasma_bomb"):
+		_fire_plasma_bomb()
 		return
 	for i in 4:
 		if event.is_action_pressed("weapon_%d" % (i + 1)):

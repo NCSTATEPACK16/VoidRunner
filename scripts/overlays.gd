@@ -189,11 +189,12 @@ func _build_help() -> void:
 	_title(p, "FLIGHT MANUAL", 14, TITLE_COL)
 	var left := [
 		"FLIGHT", "MOUSE / ARROWS  steer", "W or RMB  afterburner", "S  retro brake",
-		"A / D  evade roll", "", "SYSTEM", "P or ESC  pause",
+		"A / D  evade roll", "", "SYSTEM", "ENTER or ESC  pause",
 	]
 	var right := [
 		"WEAPONS", "LMB / SPACE / X  fire", "1 NEUTRON  2 SCATTER", "3 BOLT  4 MISSILE",
-		"BACKSPACE  cycle", "", "Locked bulkheads open when", "every hostile is down.",
+		"BACKSPACE  cycle", "P  plasma bomb", "", "Locked bulkheads open when",
+		"every hostile is down.",
 	]
 	for i in left.size():
 		_at(p, Vector2(36, 52 + i * 11), left[i], 8,
@@ -230,7 +231,7 @@ func _build_pause() -> void:
 	# clicks must fall through so game.gd's _unhandled_input can resume
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_title(p, "PAUSED", 16, TITLE_COL)
-	_line(p, 100, "Click or press P to re-engage", 8, TEXT_COL)
+	_line(p, 100, "Click or press ENTER to re-engage", 8, TEXT_COL)
 
 
 func _build_game_over() -> void:

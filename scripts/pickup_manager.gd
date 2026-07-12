@@ -17,6 +17,7 @@ const EFFECT := {
 	"shield": 20.0,   # shields restored
 	"energy": 30.0,   # afterburner/laser energy restored
 	"missile": 3,     # missiles added
+	"bomb": 1,        # V2.0 plasma bomb added (capped at GameState.PLASMA_MAX)
 }
 
 var player: PlayerShip
@@ -118,4 +119,6 @@ func _collect(kind: String) -> void:
 			GameState.energy += EFFECT.energy
 		"missile":
 			GameState.missiles += int(EFFECT.missile)
+		"bomb":
+			GameState.plasma_bombs += int(EFFECT.bomb)
 	collected.emit(kind)

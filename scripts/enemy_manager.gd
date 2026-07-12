@@ -323,6 +323,8 @@ func _kill(index: int, scored: bool) -> void:
 				drop_spawned.emit(e.node.position, e.ring, "energy")
 			elif roll < 0.30 * mult:
 				drop_spawned.emit(e.node.position, e.ring, "missile")
+			elif roll < 0.34 * mult:
+				drop_spawned.emit(e.node.position, e.ring, "bomb")   # V2.0: rare
 	enemy_killed.emit(e.arena_id)
 	e.node.queue_free()
 	enemies.remove_at(index)

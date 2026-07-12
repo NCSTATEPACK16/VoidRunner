@@ -252,6 +252,14 @@ static func pickup_texture(kind: String) -> ImageTexture:
 			_rect(img, 5, 10, 2, 2, Palette.GREY_5)
 			_rect(img, 9, 10, 2, 2, Palette.GREY_5)
 			_rect(img, 7, 11, 2, 2, Palette.ORANGE_2)
+		"bomb":   # V2.0 plasma bomb: hot orb with four spark arms
+			_ellipse(img, 8, 8, 7, 7, Palette.RED_0)
+			_ellipse(img, 8, 8, 6, 6, Palette.RED_1)
+			_ellipse(img, 8, 8, 4, 4, Palette.ORANGE_2)
+			_ellipse(img, 8, 8, 2, 2, Palette.ORANGE_3)
+			_rect(img, 7, 7, 2, 2, Palette.WHITE)
+			for arm in [Vector2i(8, 2), Vector2i(8, 14), Vector2i(2, 8), Vector2i(14, 8)]:
+				_px(img, arm.x, arm.y, Palette.ORANGE_3)
 	return ImageTexture.create_from_image(img)
 
 

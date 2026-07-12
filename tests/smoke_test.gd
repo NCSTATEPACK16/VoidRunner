@@ -160,6 +160,7 @@ func _run() -> void:
 	print("boss ok — hp %d -> dead, portal awake, score=%d" % [hp0, GameState.score])
 	# --- K5: Void Gauntlet — endless path grows, arenas stream in, chunks stay bounded ---
 	GameState.reset_run()
+	seed(20260711)          # pin the run layout — the gauntlet seed comes from randi()
 	game._on_gauntlet()     # MENU-independent: flips mode + builds behind a briefing
 	game._launch_level()
 	await get_tree().process_frame
@@ -169,6 +170,12 @@ func _run() -> void:
 	var rings_initial: int = game.path.rings.size()
 	for f in 60 * 90:   # 1.5 simulated minutes ≈ 135 rings of travel
 		GameState.shields = 100.0          # the probe flies, it doesn't fight fair
+		# rail-steer along the tunnel: a non-steering probe can grind to a stop
+		# against a hard 90° corner and stall the whole run
+		var pd: Vector3 = game.path.rings[mini(game.player.ring_idx + 2,
+			game.path.rings.size() - 1)].d
+		game.player.yaw = atan2(-pd.x, -pd.z)
+		game.player.pitch = clampf(asin(pd.y), -0.6, 0.6)
 		if f % 240 == 0:                   # clear arena stands so bulkheads open
 			game.enemy_mgr.splash_damage(game.player.position, 200.0, 999)
 		game._process(dt)
@@ -194,6 +201,31 @@ func _run() -> void:
 	GameState.apply_settings()
 	assert(not Array(InputMap.action_get_events("fire")).any(is_joy))
 	print("gamepad ok — joy bindings toggle with the setting")
+	# --- V2.0 plasma bomb: P is bomb, Space still fires, Enter pauses ---
+	var has_key := func(action: String, key: Key) -> bool:
+		for ev in InputMap.action_get_events(action):
+			if ev is InputEventKey and ev.physical_keycode == key:
+				return true
+		return false
+	assert(has_key.call("fire", KEY_SPACE))
+	assert(has_key.call("plasma_bomb", KEY_P))
+	assert(has_key.call("pause_game", KEY_ENTER))
+	assert(not has_key.call("pause_game", KEY_P))
+	# room-clear: bombs kill every enemy in range and the counter decrements
+	GameState.plasma_bombs = 2
+	for s in 3:
+		game.enemy_mgr.spawn(game.player.ring_idx, -1, "drone")
+	game._fire_plasma_bomb()
+	assert(GameState.plasma_bombs == 1)
+	var near := 0
+	for e in game.enemy_mgr.enemies:
+		if e.node.position.distance_squared_to(game.player.position) < 120.0 * 120.0:
+			near += 1
+	assert(near == 0)
+	GameState.plasma_bombs = 0
+	game._fire_plasma_bomb()   # empty rack: no crash, stays at zero
+	assert(GameState.plasma_bombs == 0)
+	print("plasma bomb ok — room cleared, counter %d, keys remapped" % GameState.plasma_bombs)
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

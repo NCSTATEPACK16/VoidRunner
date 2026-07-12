@@ -22,6 +22,7 @@ var _overheat: AudioStreamWAV
 var _portal: AudioStreamWAV
 var _clank: AudioStreamWAV
 var _dodge: AudioStreamWAV
+var _bomb: AudioStreamWAV
 var _engine_loop: AudioStreamWAV
 
 
@@ -39,6 +40,7 @@ func _ready() -> void:
 	_portal = _render_portal()
 	_clank = _render_clank()
 	_dodge = _render_dodge()
+	_bomb = _render_bomb()
 	_engine_loop = _render_engine_loop()
 	_engine = AudioStreamPlayer.new()
 	_engine.stream = _engine_loop
@@ -109,6 +111,10 @@ func play_clank() -> void:
 
 func play_dodge() -> void:
 	_play(_dodge)
+
+
+func play_bomb() -> void:
+	_play(_bomb)
 
 
 func _play(stream: AudioStreamWAV) -> void:
@@ -271,6 +277,25 @@ func _render_dodge() -> AudioStreamWAV:
 		lp += (rng.randf_range(-1.0, 1.0) - lp) * alpha * 4.0
 		lp2 += (lp - lp2) * 0.4
 		out[i] = clampf(lp2, -1.0, 1.0) * 0.3 * sweep
+	return _make_wav(out)
+
+
+func _render_bomb() -> AudioStreamWAV:
+	# V2.0 plasma bomb: deep sub thump under a long, bright noise wash — bigger
+	# and rounder than any weapon boom, so a screen-clear FEELS like one.
+	var n := int(SAMPLE_RATE * 0.9)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 23
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		var cutoff := lerpf(2400.0, 80.0, minf(1.0, t / 0.8))
+		var alpha := clampf(cutoff / (SAMPLE_RATE * 0.5), 0.0, 1.0)
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * alpha * 3.0
+		var sub := sin(TAU * lerpf(90.0, 34.0, minf(1.0, t / 0.5)) * t)
+		out[i] = clampf(lp * 0.4 * exp(-t * 4.0) + sub * 0.4 * exp(-t * 6.0), -1.0, 1.0)
 	return _make_wav(out)
 
 
