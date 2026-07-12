@@ -12,7 +12,7 @@ const FREE_BEHIND := 18        # free geometry this many rings behind
 const MAX_ARENA_LIGHTS := 6
 
 var path: PathGen
-var mats: Dictionary            # {wall, floor, ceil} StandardMaterial3D
+var mats: Dictionary            # {wall, floor, ceil, strip, strip_frames} (TextureGen.theme_set)
 var accent_color := Color("55ffee")
 var accent2_color := Color("ff5533")
 
@@ -25,6 +25,8 @@ var _light_t := 0.0
 var _portal: Node3D
 var _portal_ring: MeshInstance3D
 var _portal_pulse := 0.0
+var _strip_t := 0.0        # V2.0 accent floor: frame-swap clock
+var _strip_frame := 0
 var portal_position := Vector3.ZERO
 var portal_active := false
 
@@ -84,6 +86,14 @@ func ensure_world(player_ring: int) -> void:
 
 
 func animate(delta: float) -> void:
+	# V2.0 accent floor: march the light band down the corridor — an albedo
+	# texture swap on ONE shared material, so no shader variants and WebGL-safe
+	if mats.has("strip_frames"):
+		_strip_t += delta
+		var fi := int(_strip_t / 0.12) % (mats.strip_frames as Array).size()
+		if fi != _strip_frame:
+			_strip_frame = fi
+			(mats.strip as StandardMaterial3D).albedo_texture = mats.strip_frames[fi]
 	if _portal and portal_active:
 		_portal_pulse += delta * 3.0
 		_portal_ring.rotate_object_local(Vector3(0, 0, 1), delta * 1.6)
@@ -170,6 +180,7 @@ func set_portal_active(on: bool) -> void:
 func _build_chunk(s: int, e: int) -> void:
 	var surfaces := {
 		"floor": SurfaceTool.new(), "ceil": SurfaceTool.new(), "wall": SurfaceTool.new(),
+		"strip": SurfaceTool.new(),
 	}
 	for key in surfaces:
 		surfaces[key].begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -198,6 +209,16 @@ func _build_chunk(s: int, e: int) -> void:
 			path.corner(r0, 1, -1), path.corner(r0, 1, 1),
 			path.corner(r1, 1, 1), path.corner(r1, 1, -1),
 			[Vector2(u0, 0), Vector2(u0, vw0), Vector2(u1, vw1), Vector2(u1, 0)])
+		# V2.0 accent floor strip: a narrow glowing centreline in plain tunnel only
+		# (arenas/boss rooms keep their own lighting language). UV.y runs along the
+		# tunnel so the marching band in the texture flows with the flight.
+		if r0.arena_id < 0 and r1.arena_id < 0:
+			var sw := 1.2
+			var f0: Vector3 = r0.p + r0.u * (-(r0.hh - r0.fo) + 0.08)
+			var f1: Vector3 = r1.p + r1.u * (-(r1.hh - r1.fo) + 0.08)
+			_quad(surfaces.strip, r0.u,
+				f0 - r0.r * sw, f0 + r0.r * sw, f1 + r1.r * sw, f1 - r1.r * sw,
+				[Vector2(0, u0), Vector2(1, u0), Vector2(1, u1), Vector2(0, u1)])
 	var chunk_node := Node3D.new()
 	for key in surfaces:
 		var mi := MeshInstance3D.new()

@@ -48,7 +48,44 @@ static func theme_set(theme_id: String, seed_base: int = 1) -> Dictionary:
 		"wall": material(wall(t, seed_base)),
 		"floor": material(floor_tex(t, seed_base + 1)),
 		"ceil": material(ceil_tex(t, seed_base + 2)),
+		# V2.0 accent floor strip (the original's "one loud accent per scene" —
+		# its animated glowing floor). One shared unshaded material; WorldBuilder
+		# swaps albedo_texture through the frames (no shader variant churn).
+		"strip": strip_material(t),
+		"strip_frames": strip_frames(t),
 	}
+
+
+## V2.0: 6 frames of a marching light band — tiled along the tunnel they read as
+## energy flowing down the corridor centreline. Palette colors only.
+static func strip_frames(t: Dictionary, frame_count: int = 6) -> Array[ImageTexture]:
+	var frames: Array[ImageTexture] = []
+	for f in frame_count:
+		var img := _base(Palette.VOID_0)
+		# static rail edges
+		_vline(img, 1, t.dark)
+		_vline(img, SIZE - 2, t.dark)
+		# marching bright band + dimmer trail, wrapping per frame
+		var head := int(float(f) / frame_count * SIZE)
+		for row in 10:
+			var y := (head + row) % SIZE
+			var col: Color = t.accent if row < 4 else (t.mid if row < 7 else t.dark)
+			_hline(img, y, col)
+		# faint fixed tick marks so the strip stays readable between pulses
+		for y in range(0, SIZE, 16):
+			_rect(img, 3, y, SIZE - 6, 1, t.dark)
+		frames.append(ImageTexture.create_from_image(img))
+	return frames
+
+
+static func strip_material(t: Dictionary) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = strip_frames(t, 1)[0]
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.texture_repeat = true
+	return m
 
 
 static func material(tex: ImageTexture) -> StandardMaterial3D:
