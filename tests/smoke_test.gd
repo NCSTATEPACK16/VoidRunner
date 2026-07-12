@@ -160,6 +160,21 @@ func _run() -> void:
 	print("end state=%d ring=%d/%d shields=%.0f score=%d peak_enemies=%d overheat=%s" % [
 		game.state, game.player.ring_idx, game.path.rings.size(),
 		GameState.shields, GameState.score, peak_enemies, overheated_seen])
+	# --- V2.1 pooling: hidden free nodes, per-class caps hold under a 50-boom burst,
+	# and every effect returns to the pool (no node is ever freed mid-play) ---
+	for n in game.shot_mgr._pool_free:
+		assert(not n.visible)
+	for b in 50:
+		game.shot_mgr.spawn_explosion(game.player.position + Vector3(b, 0, 0), b % 2 == 0)
+	assert(game.shot_mgr._pool_total <= ShotManager.POOL_HARD_CAP)
+	assert(game.shot_mgr._explosions.size() <= ShotManager.EXPLOSION_CAP)
+	assert(game.shot_mgr._sparks.size() <= ShotManager.SPARK_CAP)
+	assert(game.shot_mgr._eshots.size() <= ShotManager.ESHOT_CAP)
+	for f in 90:   # explosions/sparks live 0.6 s — let the burst drain back
+		game.shot_mgr.update_shots(dt)
+	assert(game.shot_mgr._explosions.is_empty() and game.shot_mgr._sparks.is_empty())
+	print("pool ok — total=%d free=%d after 50-boom burst" % [
+		game.shot_mgr._pool_total, game.shot_mgr._pool_free.size()])
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1

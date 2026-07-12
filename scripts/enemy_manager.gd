@@ -44,6 +44,10 @@ var enemies: Array[Dictionary] = []
 ## The live boss's dict (also present in `enemies`), or {} — HUD/radar poll this.
 var boss := {}
 var _type_frames := {}   # type_id -> Array[ImageTexture]
+# V2.1: small node cache so arena-discovery and boss-summon spawn bursts (and the
+# matching kill bursts) stop churning Sprite3D instantiate/queue_free mid-combat
+const NODE_CACHE_CAP := 16
+var _node_cache: Array[Sprite3D] = []
 
 
 func _ready() -> void:
@@ -58,9 +62,30 @@ func _ready() -> void:
 
 func clear_all() -> void:
 	for e in enemies:
-		e.node.queue_free()
+		_release_node(e.node)   # cache keeps up to NODE_CACHE_CAP across levels
 	enemies.clear()
 	boss = {}
+
+
+func _acquire_node(tex: Texture2D, world_size: float) -> Sprite3D:
+	if _node_cache.is_empty():
+		var s := SpriteGen.make_sprite(tex, world_size)
+		add_child(s)
+		return s
+	var c: Sprite3D = _node_cache.pop_back()
+	c.texture = tex
+	c.pixel_size = world_size / tex.get_width()
+	c.modulate = Color.WHITE   # clears any boss tint from a previous life
+	c.visible = true
+	return c
+
+
+func _release_node(s: Sprite3D) -> void:
+	if _node_cache.size() >= NODE_CACHE_CAP:
+		s.queue_free()
+		return
+	s.visible = false
+	_node_cache.append(s)
 
 
 ## First frame of every enemy type (incl. boss), for the briefing shader warm-up.
@@ -77,7 +102,7 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 	var t: Dictionary = TYPES.get(type_id, TYPES["drone"])
 	var frames: Array = _type_frames.get(type_id, _type_frames["drone"])
 	var ring: Dictionary = path.rings[ring_idx]
-	var sprite := SpriteGen.make_sprite(frames[0], t.size)
+	var sprite := _acquire_node(frames[0], t.size)
 	var pos: Vector3 = ring.p \
 		+ ring.r * (randf_range(-1.0, 1.0) * ring.hw * 0.5) \
 		+ ring.u * (randf_range(-1.0, 1.0) * ring.hh * 0.4)
@@ -87,7 +112,6 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 		var side := 1.0 if randf() < 0.5 else -1.0
 		sprite.position = ring.p + ring.r * (side * (ring.hw - 1.6)) \
 			+ ring.u * (randf_range(-0.35, 0.25) * (ring.hh - ring.fo - ring.co))
-	add_child(sprite)
 	enemies.append({
 		"node": sprite, "hp": maxi(1, int(round(level.enemy_hp * t.hp_mul)) + int(t.hp_add)),
 		"fire_t": 1.5 + randf() * 2.0,
@@ -110,10 +134,9 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 ## matches its sprite, and runs its own brain in _update_boss.
 func spawn_boss(ring_idx: int, lvl: LevelDef) -> void:
 	var ring: Dictionary = path.rings[ring_idx]
-	var sprite := SpriteGen.make_sprite(_type_frames["boss"][0], lvl.boss_size)
+	var sprite := _acquire_node(_type_frames["boss"][0], lvl.boss_size)
 	sprite.modulate = lvl.boss_tint
 	sprite.position = ring.p
-	add_child(sprite)
 	boss = {
 		"node": sprite, "hp": lvl.boss_hp, "max_hp": lvl.boss_hp,
 		"fire_t": 2.0, "bob_p": 0.0, "ring": ring_idx, "arena_id": -1,
@@ -161,7 +184,7 @@ func update_enemies(delta: float) -> void:
 						SHOT_DMG + 1.0, 2.1 if e.seeker else 1.8, e.seeker)
 			if e.arena_id < 0 and player.ring_idx > 20 \
 					and node.position.distance_squared_to(player.position) > 90000.0:
-				node.queue_free()
+				_release_node(node)
 				enemies.remove_at(k)
 			continue
 		var to_player: Vector3 = player.position - node.position
@@ -194,7 +217,7 @@ func update_enemies(delta: float) -> void:
 		# far-behind despawn — never for locked-arena drones (they gate a door)
 		if e.arena_id < 0 and player.ring_idx > 20 \
 				and node.position.distance_squared_to(player.position) > 90000.0:
-			node.queue_free()
+			_release_node(node)
 			enemies.remove_at(k)
 
 
@@ -360,7 +383,7 @@ func _kill(index: int, scored: bool) -> void:
 			elif roll < 0.34 * mult:
 				drop_spawned.emit(e.node.position, e.ring, "bomb")   # V2.0: rare
 	enemy_killed.emit(e.arena_id)
-	e.node.queue_free()
+	_release_node(e.node)
 	enemies.remove_at(index)
 	if e.get("is_boss", false):
 		boss_killed.emit()
