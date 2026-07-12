@@ -89,10 +89,12 @@ func _ready() -> void:
 	_boss_name.size = Vector2(W, 10)
 	_boss_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_boss_name.visible = false
-	_level_speed = _label(root, Vector2(8, 6), "LVL 1 · VEL 18", Color("5fb6d8"), 8)
-	_score = _label(root, Vector2(8, 16), "SCORE 0", Color("ffd34d"), 8)
+	# x=26 clears the left canopy strut (it reaches ~x=22 up top) so SCORE isn't
+	# clipped to "ORE ..." behind the frame
+	_level_speed = _label(root, Vector2(26, 6), "LVL 1 · VEL 18", Color("5fb6d8"), 8)
+	_score = _label(root, Vector2(26, 16), "SCORE 0", Color("ffd34d"), 8)
 	# Phase J: kill-streak multiplier readout
-	_combo = _label(root, Vector2(8, 26), "", Color("ff9a30"), 8)
+	_combo = _label(root, Vector2(26, 26), "", Color("ff9a30"), 8)
 	_combo.visible = false
 	# ---- bottom console ----
 	_console_draw = Control.new()

@@ -66,9 +66,9 @@ func _ready() -> void:
 	add_child(camera)
 	camera.make_current()
 	_headlight = OmniLight3D.new()
-	_headlight.light_color = Color("7fa8ff")
-	_headlight.light_energy = 1.25
-	_headlight.omni_range = 70.0
+	_headlight.light_color = Color("8fb4ff")
+	_headlight.light_energy = 1.7        # a little more reach so the mid tunnel reads
+	_headlight.omni_range = 95.0
 	_headlight.position = Vector3(0, 0, -6)
 	add_child(_headlight)
 	muzzle_light = OmniLight3D.new()

@@ -25,6 +25,7 @@ var hud: Hud
 var overlays: Overlays
 var view: SubViewport
 var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
+var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipped
 var env: Environment            # K1: per-level fog/ambient moods retune this
 
 var _fire_cd := 0.0
@@ -134,8 +135,10 @@ func _ready() -> void:
 	for l in levels:
 		level_names.append(l.display_name)
 	overlays.set_campaign(level_names)   # Phase J sector select
-	# Phase H: dither layer follows the settings toggle; apply saved settings now
-	GameState.dither_toggled.connect(func(on: bool) -> void: dither_layer.visible = on)
+	# Phase H + V2.0: the dither layer hosts both the palette dither and the amber
+	# terminal mode; either being on keeps the layer visible.
+	GameState.dither_toggled.connect(func(_on: bool) -> void: _refresh_view_fx())
+	GameState.amber_toggled.connect(func(_on: bool) -> void: _refresh_view_fx())
 	GameState.apply_settings()
 	# idle backdrop behind the start screen (v2.2 does the same)
 	_load_level_world(0)
@@ -173,8 +176,8 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color.BLACK
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("16181e")
-	env.ambient_light_energy = 0.75
+	env.ambient_light_color = Color("1b1e26")
+	env.ambient_light_energy = 0.95   # lifts the base tunnel a touch; fog still eats the far end
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color.BLACK
@@ -194,6 +197,14 @@ func _apply_theme_mood(theme: Dictionary, level: LevelDef) -> void:
 		fog_end = maxf(fog_end, 110.0)
 	env.fog_depth_end = fog_end
 	env.ambient_light_color = theme.get("amb", Color("16181e"))
+
+
+## Dither layer visibility + amber uniform follow the two view settings. The amber
+## terminal effect lives inside the dither shader, so amber-on forces the layer
+## visible even if plain dither is off.
+func _refresh_view_fx() -> void:
+	dither_layer.visible = GameState.dither_enabled or GameState.amber_mode
+	_dither_mat.set_shader_parameter("amber", 1.0 if GameState.amber_mode else 0.0)
 
 
 ## Phase G2: palette-quantize + Bayer-dither the finished frame (3D + HUD, not the
@@ -217,6 +228,7 @@ func _build_dither_layer() -> void:
 	layer.add_child(rect)
 	view.add_child(layer)
 	dither_layer = layer
+	_dither_mat = mat
 
 
 # ---------- level lifecycle ----------

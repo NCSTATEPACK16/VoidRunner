@@ -12,7 +12,7 @@ signal next_level_requested
 signal retry_requested
 signal new_campaign_requested
 
-const BG := Color(0.008, 0.012, 0.03, 0.92)
+const BG := Color(0.008, 0.012, 0.03, 0.975)   # near-opaque so the HUD (score, canopy) doesn't bleed through result screens
 const TITLE_COL := Color("62ffd0")
 const TEXT_COL := Color("8fb8cc")
 const KEY_COL := Color("ffd34d")
@@ -254,14 +254,16 @@ func _build_level_clear() -> void:
 	var p := _panel("level_clear")
 	var t := _title(p, "LEVEL CLEAR", 16, TITLE_COL)
 	t.name = "Title"
-	var b := _line(p, 70, "", 8, TEXT_COL)
+	# the body grew to 4 lines (KILLS / SECRETS / BONUS+SCORE / NEXT); RANK sits
+	# clearly below it and the button below RANK, so nothing overlaps
+	var b := _line(p, 58, "", 8, TEXT_COL)
 	b.name = "Body"
 	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	b.position.x = 0
-	b.size = Vector2(320, 40) * 2  # _line labels are 2x-size, 0.5-scale (see _line)
-	var r := _line(p, 108, "", 14, KEY_COL)
+	b.size = Vector2(320, 44) * 2  # _line labels are 2x-size, 0.5-scale (see _line)
+	var r := _line(p, 120, "", 14, KEY_COL)
 	r.name = "Rank"
-	_button(p, Vector2(120, 142), "> NEXT LEVEL", func() -> void: next_level_requested.emit())
+	_button(p, Vector2(120, 156), "> NEXT LEVEL", func() -> void: next_level_requested.emit())
 
 
 func _build_victory() -> void:
@@ -289,13 +291,20 @@ func _build_settings() -> void:
 		_refresh_settings())
 	_settings_labels["dither"] = dbtn
 	# K6: gamepad stays opt-in — flying with a pad is a choice, never a surprise
-	_at(p, Vector2(60, 144), "GAMEPAD", 8, TEXT_COL)
-	var gbtn := _button(p, Vector2(214, 142), "OFF", func() -> void:
+	_at(p, Vector2(60, 140), "GAMEPAD", 8, TEXT_COL)
+	var gbtn := _button(p, Vector2(214, 138), "OFF", func() -> void:
 		GameState.gamepad_enabled = not GameState.gamepad_enabled
 		GameState.apply_settings()
 		_refresh_settings())
 	_settings_labels["gamepad"] = gbtn
-	_button(p, Vector2(130, 168), "< BACK", func() -> void: show_only(_settings_return))
+	# V2.0: amber "terminal" look — a black-and-amber monochrome view mode
+	_at(p, Vector2(60, 158), "AMBER TERMINAL", 8, TEXT_COL)
+	var abtn := _button(p, Vector2(214, 156), "OFF", func() -> void:
+		GameState.amber_mode = not GameState.amber_mode
+		GameState.apply_settings()
+		_refresh_settings())
+	_settings_labels["amber"] = abtn
+	_button(p, Vector2(130, 178), "< BACK", func() -> void: show_only(_settings_return))
 	_refresh_settings()
 
 
@@ -325,6 +334,8 @@ func _refresh_settings() -> void:
 		(_settings_labels["dither"] as Button).text = "ON" if GameState.dither_enabled else "OFF"
 	if _settings_labels.has("gamepad"):
 		(_settings_labels["gamepad"] as Button).text = "ON" if GameState.gamepad_enabled else "OFF"
+	if _settings_labels.has("amber"):
+		(_settings_labels["amber"] as Button).text = "ON" if GameState.amber_mode else "OFF"
 
 
 # ---------- widget helpers ----------
