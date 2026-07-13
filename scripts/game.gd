@@ -38,6 +38,12 @@ var _boss_announced := false
 var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
 var _warmup_rig: Node3D
+# V2.1 web loading: on single-threaded WebGL, first-use shader/pipeline compiles
+# block the main thread for seconds. On web we build + warm the level across this
+# many rendered frames under an HTML loading overlay, so the freeze is an honest
+# loading screen instead of a hung browser. _warming gates a launch-during-load race.
+const WARM_FRAMES := 12
+var _warming := false
 
 # K5 Void Gauntlet: endless mode runs on a synthetic LevelDef whose numbers climb
 # with distance (one tier per 60 rings ≈ 720 m); the path extends and its arenas
@@ -149,6 +155,12 @@ func _ready() -> void:
 	player.reset_to_start()
 	player.active = false
 	overlays.show_only("start")
+	# On web the HTML boot overlay is masking the menu backdrop's first-frame shader
+	# compile; drop it once that heavy frame has actually rendered (see web/vr_shell.html).
+	if OS.has_feature("web"):
+		for i in WARM_FRAMES:
+			await get_tree().process_frame
+		_web_hide_loading()
 
 
 ## Phase I4: the whole game frame (3D world + in-flight HUD + dither) renders in a
@@ -518,6 +530,8 @@ func _apply_gauntlet_tier(tier: int) -> void:
 
 
 func _launch_level() -> void:
+	if _warming:
+		return   # a Launch click landed mid warm-up (web); ignore until the rig is done
 	GameState.level_start_score = GameState.score
 	GameState.heat = 0.0
 	GameState.is_overheated = false
@@ -648,14 +662,63 @@ func _show_briefing() -> void:
 	state = State.BRIEFING
 	overlays.set_briefing(_current_level())
 	overlays.show_only("briefing")
-	# Build the level world NOW, behind the briefing overlay, and park a warm-up rig
-	# in front of the camera so every shader variant compiles while the player reads.
-	# First-use shader compilation is the level-1 stutter cause — it is synchronous
-	# and very slow on the WebGL export (profiled 100-130ms even on desktop GL).
+	if OS.has_feature("web"):
+		# WebGL: build + warm under the HTML loading overlay, spread across rendered
+		# frames so the serial, main-thread-blocking shader compiles land here (an
+		# honest loading screen) instead of on the first level frame and the first shot.
+		await _web_load_and_warm()
+	else:
+		# Desktop/headless (warm shader cache): build the level world NOW behind the
+		# briefing overlay and park a warm-up rig in front of the camera so its shader
+		# variants compile while the player reads. Synchronous — unchanged from v2.0.
+		_load_level_world(GameState.level_index)
+		player.reset_to_start()
+		player.active = false
+		_start_warmup()
+		get_tree().create_timer(0.5).timeout.connect(_end_warmup)
+
+
+## Web-only load path. Shows the compositor-animated HTML loading overlay, yields two
+## frames so the browser actually paints it, then builds the level and drives the
+## warm-up across WARM_FRAMES *rendered* frames — long enough that WebGL's serial,
+## blocking shader/pipeline compiles all finish under the overlay. A muted real
+## fire + explosion makes the projectile / explosion / muzzle+boom-light-on-wall
+## variants compile here too, so the first live shot no longer stalls.
+func _web_load_and_warm() -> void:
+	_warming = true
+	_web_show_loading("ENTERING SECTOR")
+	await get_tree().process_frame
+	await get_tree().process_frame            # give the browser a frame to paint the overlay
 	_load_level_world(GameState.level_index)
 	player.reset_to_start()
 	player.active = false
 	_start_warmup()
+	# exercise the actual combat draw path, silently, so its shaders compile now
+	var was_muted := AudioServer.is_bus_mute(0)
+	AudioServer.set_bus_mute(0, true)
+	var shots0 := GameState.level_shots
+	if not weapons.is_empty():
+		shot_mgr.fire_player(weapons[0])
+	shot_mgr.spawn_explosion(player.position + player.forward() * 12.0, true)
+	for i in WARM_FRAMES:
+		await get_tree().process_frame        # compiles happen here; the overlay keeps spinning
+	GameState.level_shots = shots0
+	shot_mgr.clear_all()                       # also zeroes the boom lights (see ShotManager)
+	AudioServer.set_bus_mute(0, was_muted)
+	_end_warmup()
+	await get_tree().process_frame
+	_web_hide_loading()
+	_warming = false
+
+
+func _web_show_loading(msg := "LOADING") -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.vrShowLoading && window.vrShowLoading(%s);" % JSON.stringify(msg), true)
+
+
+func _web_hide_loading() -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.vrHideLoading && window.vrHideLoading();", true)
 
 
 ## One small instance of every material the level can draw — enemy/boss sprites,
@@ -681,7 +744,8 @@ func _start_warmup() -> void:
 	world.warmup_meshes(_warmup_rig, base + Vector3.UP * 2.4)
 	player.muzzle_light.light_energy = 0.6
 	shot_mgr.warmup_boom_light(base, true)
-	get_tree().create_timer(0.5).timeout.connect(_end_warmup)
+	# teardown is owned by the caller: the desktop path arms a 0.5s timer, the web
+	# path frees the rig after WARM_FRAMES rendered frames (see _web_load_and_warm)
 
 
 func _end_warmup() -> void:

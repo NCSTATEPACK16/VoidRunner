@@ -98,6 +98,8 @@ func clear_all() -> void:
 		for s in arr:
 			_release(s.node)   # pooled nodes survive level transitions
 		arr.clear()
+	for l in _boom_lights:   # no explosion light survives a level transition / warm-up
+		l.light_energy = 0.0
 
 
 ## Every texture a fight can draw, for the briefing-screen shader warm-up.
