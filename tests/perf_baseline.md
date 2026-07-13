@@ -51,3 +51,28 @@ emulate. Therefore the Step 1/2 gates are:
    never change while PLAYING a finite level — asserted in the smoke test.
 2. **Statistical:** spike counts / histograms here must not regress.
 3. **Felt:** John's in-browser test on the web export (the binding platform).
+
+## After Step 4 (HUD dirty-cache draw calls + shared enemy-shot cache)
+
+The cockpit was re-emitting the full canopy + console every frame. Now the
+static frame (struts, plates, wells) draws once at boot on its own layer, and
+each dynamic layer redraws only when its inputs change — threat lamp/blink,
+plasma pips, boss HP bar on the canopy; weapon slots, MISL ammo, EVD lamp, TIME
+clock, kills on the console. `shot_manager` fills one `eshot_cache`
+(`PackedVector3Array`) + a `threat_near` bool inside its existing enemy-shot
+loop (which already touches every shot); the HUD threat lamp and the radar both
+read those, replacing the fresh `Array[Vector3]` that `enemy_shot_positions()`
+allocated on every radar `_draw`. That method is removed.
+
+| Run | Mode | Worst step | Spikes | Notes |
+|---|---|---|---|---|
+| L8 | headless | 2.7 ms | 0 >8 ms | completed ring 203/210 — CPU band unchanged vs Step 1 (2.5 ms) |
+
+Headless can't see the win (it measures `game._process` only; HUD `_draw` and
+the per-frame canvas draw-call count live on the render thread). Regression bar
+met (sim cost flat, no new script errors); a red-green smoke run confirmed the
+removed method: reverting the radar to `enemy_shot_positions()` throws
+`Nonexistent function … in base 'ShotManager'` at `radar_display.gd:60` every
+frame, and the cache fix clears it. The **felt** gate stays John's in-browser
+test — fewer canvas draw calls per frame is a single-threaded-WebGL win, the
+same class as the Step 1/2 chunk-build removals.

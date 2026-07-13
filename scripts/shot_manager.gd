@@ -8,6 +8,7 @@ signal player_hit(damage: float)
 
 const PLAYER_HIT_RANGE_SQ := 5.5  # enemy shot vs player
 const ENEMY_SHOT_DMG := 9.0       # fallback; each enemy shot now carries its own dmg
+const THREAT_RANGE_SQ := 70.0 * 70.0   # V2.1: threat lamp radius (was Hud's)
 # player-shot-vs-enemy hit radius² is per-enemy (e.hit_r2) — a 4 u drone and a
 # 20 u boss cannot share one collision sphere (Phase J)
 
@@ -40,6 +41,11 @@ var _missile_tex: ImageTexture
 var _bolt_cache := {}
 var _pool_free: Array[Sprite3D] = []
 var _pool_total := 0
+# V2.1: filled once per frame inside the eshot loop (it already touches every
+# shot) and read by both the HUD threat scan and the radar — replaces the two
+# fresh Array[Vector3] allocations enemy_shot_positions() made every frame
+var eshot_cache := PackedVector3Array()
+var threat_near := false
 
 
 func _ready() -> void:
@@ -294,6 +300,8 @@ func update_shots(delta: float) -> void:
 			_pshots.remove_at(i)
 		i -= 1
 	# --- enemy shots ---
+	eshot_cache.resize(0)
+	threat_near = false
 	var q := _eshots.size() - 1
 	while q >= 0:
 		var es: Dictionary = _eshots[q]
@@ -318,6 +326,10 @@ func update_shots(delta: float) -> void:
 		if kill:
 			_release(es.node)
 			_eshots.remove_at(q)
+		else:
+			eshot_cache.append(es.node.position)
+			if es.node.position.distance_squared_to(player.position) < THREAT_RANGE_SQ:
+				threat_near = true
 		q -= 1
 	# --- explosion animations ---
 	var x := _explosions.size() - 1
@@ -342,10 +354,3 @@ func update_shots(delta: float) -> void:
 			_release(sp.node)
 			_sparks.remove_at(p)
 		p -= 1
-
-
-func enemy_shot_positions() -> Array[Vector3]:
-	var out: Array[Vector3] = []
-	for es in _eshots:
-		out.append(es.node.position)
-	return out
