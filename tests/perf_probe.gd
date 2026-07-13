@@ -28,11 +28,17 @@ func _run() -> void:
 	print("[perf] boot+instantiate: %.1f ms" % ((Time.get_ticks_usec() - t_boot) / 1000.0))
 	await get_tree().process_frame
 
-	# pin to level 1 regardless of what sector the records file would select
-	GameState.level_index = 0
+	# pin the level (default L1); VR_PERF_LEVEL lets us probe a boss level etc.
+	# VR_PERF_GAUNTLET=1 probes the endless mode's streaming path instead.
+	GameState.unlocked_level = 8   # so a boss-level index isn't clamped away
+	game.overlays._sector = 0
+	GameState.level_index = int(OS.get_environment("VR_PERF_LEVEL"))  # "" -> 0
 	GameState.score = 0
 	var t_brief := Time.get_ticks_usec()
-	game._show_briefing()   # builds the level world + shader warm-up rig
+	if OS.get_environment("VR_PERF_GAUNTLET") == "1":
+		game._on_gauntlet()   # sets gauntlet flags + shows the briefing itself
+	else:
+		game._show_briefing()   # builds the level world + shader warm-up rig
 	print("[perf] briefing (level build + warmup rig): %.1f ms" % [
 		(Time.get_ticks_usec() - t_brief) / 1000.0])
 	for i in 30:   # let the warm-up rig render/compile behind the briefing
@@ -55,6 +61,17 @@ func _run() -> void:
 	var t_prev := Time.get_ticks_usec()
 	for f in 60 * 240:
 		GameState.shields = 100.0   # immortal: must traverse the whole level
+		if OS.get_environment("VR_PERF_RAIL") == "1":
+			# rail-steer down the tunnel so the probe actually reaches the arenas,
+			# turrets, and secrets deeper in (straight flight stalls at the first bend),
+			# and force-survive so combat can't cut the traversal short
+			GameState.is_dead = false
+			var pd: Vector3 = game.path.rings[mini(game.player.ring_idx + 2,
+				game.path.rings.size() - 1)].d
+			game.player.yaw = atan2(-pd.x, -pd.z)
+			game.player.pitch = clampf(asin(pd.y), -0.6, 0.6)
+			if f % 30 == 0:   # clear locked-arena guards so bulkheads open and we pass
+				game.enemy_mgr.splash_damage(game.player.position, 60.0, 999)
 		var ring_before: int = game.player.ring_idx
 		var built_before: int = game.world._built_up_to
 		var enemies_before: int = game.enemy_mgr.enemies.size()

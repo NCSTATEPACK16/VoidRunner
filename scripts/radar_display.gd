@@ -57,7 +57,7 @@ func _draw() -> void:
 				draw_rect(Rect2(p - Vector2(2, 2), Vector2(4, 4)), Color("ff9a30"))
 		else:
 			draw_rect(Rect2(p - Vector2(1, 1), Vector2(2, 2)), Color("ff3838"))
-	for shot_pos in shot_mgr.enemy_shot_positions():
+	for shot_pos in shot_mgr.eshot_cache:  # V2.1: shared per-frame cache (no realloc)
 		var ex: float = shot_pos.x - player.position.x
 		var ez: float = shot_pos.z - player.position.z
 		var elat := ex * rx + ez * rz

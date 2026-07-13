@@ -21,6 +21,8 @@ const MAX_ENERGY := 100.0
 const MAX_HEAT := 100.0
 ## Phase I2: MISSILE is ammo-class — this many per level, no regen.
 const MISSILES_PER_LEVEL := 20
+## V2.0 plasma bomb: rare pickup, carried across levels within a run, hard cap.
+const PLASMA_MAX := 3
 
 var shields := MAX_SHIELDS:
 	set(value):
@@ -49,6 +51,10 @@ var missiles := MISSILES_PER_LEVEL:
 	set(value):
 		missiles = clampi(value, 0, MISSILES_PER_LEVEL)
 		missiles_changed.emit(missiles)
+
+var plasma_bombs := 1:
+	set(value):
+		plasma_bombs = clampi(value, 0, PLASMA_MAX)
 
 ## Score at the start of the current level — death retries the level at this score.
 var level_start_score := 0
@@ -84,9 +90,16 @@ var level_hits := 0         # projectiles that connected
 var level_kills := 0
 var level_props := 0        # K3: fuel cells destroyed this level
 var level_props_total := 0  # K3: set at world build; all destroyed = secondary bonus
+var level_secrets := 0        # V2.0: phantom-wall caches found this level
+var level_secrets_total := 0  # set at world build
 var high_score := 0
 var best_ranks: Array = []  # best rank letter per level index ("" = unranked)
 var unlocked_level := 0     # highest 0-based level reached — feeds sector select
+
+# --- K5 Void Gauntlet: endless survival mode, records separate from the campaign ---
+var gauntlet_mode := false
+var gauntlet_best_dist := 0
+var gauntlet_best_score := 0
 
 
 func combo_mult() -> int:
@@ -124,6 +137,7 @@ func reset_level_stats() -> void:
 	level_hits = 0
 	level_kills = 0
 	level_props = 0   # level_props_total is owned by game._place_props at world build
+	level_secrets = 0   # level_secrets_total is owned by game._place_secrets
 	combo_changed.emit(0, 1)
 
 
@@ -133,6 +147,8 @@ func load_records() -> void:
 		high_score = cfg.get_value("records", "high_score", 0)
 		best_ranks = cfg.get_value("records", "ranks", [])
 		unlocked_level = cfg.get_value("records", "unlocked", 0)
+		gauntlet_best_dist = cfg.get_value("records", "gauntlet_dist", 0)
+		gauntlet_best_score = cfg.get_value("records", "gauntlet_score", 0)
 
 
 func save_records() -> void:
@@ -142,6 +158,8 @@ func save_records() -> void:
 	cfg.set_value("records", "high_score", high_score)
 	cfg.set_value("records", "ranks", best_ranks)
 	cfg.set_value("records", "unlocked", unlocked_level)
+	cfg.set_value("records", "gauntlet_dist", gauntlet_best_dist)
+	cfg.set_value("records", "gauntlet_score", gauntlet_best_score)
 	cfg.save("user://records.cfg")
 
 
@@ -163,12 +181,25 @@ func record_progress(rank := "") -> bool:
 	return new_record
 
 
+## K5: fold a finished gauntlet run into the records (kept separate from the
+## campaign high score — an endless run would swamp it). Returns true on a new best.
+func record_gauntlet(dist: int) -> bool:
+	var new_best := dist > gauntlet_best_dist or score > gauntlet_best_score
+	gauntlet_best_dist = maxi(gauntlet_best_dist, dist)
+	gauntlet_best_score = maxi(gauntlet_best_score, score)
+	save_records()
+	return new_best
+
+
 # --- Phase H: player settings, persisted to user://settings.cfg ---
 signal dither_toggled(on: bool)
+signal amber_toggled(on: bool)   # V2.0: amber "terminal" view mode
 
 var master_volume := 0.8
 var mouse_sens_mult := 1.0
 var dither_enabled := true
+var gamepad_enabled := false   # K6: opt-in, never default
+var amber_mode := false        # amber-monochrome terminal look (via the dither shader)
 
 
 ## Push current settings to the engine (audio bus + dither layer via signal) and save.
@@ -176,6 +207,8 @@ func apply_settings() -> void:
 	var db := linear_to_db(master_volume) if master_volume > 0.001 else -80.0
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), db)
 	dither_toggled.emit(dither_enabled)
+	amber_toggled.emit(amber_mode)
+	InputSetup.set_gamepad(gamepad_enabled)
 	_save_settings()
 
 
@@ -185,6 +218,8 @@ func load_settings() -> void:
 		master_volume = cfg.get_value("settings", "volume", master_volume)
 		mouse_sens_mult = cfg.get_value("settings", "sens", mouse_sens_mult)
 		dither_enabled = cfg.get_value("settings", "dither", dither_enabled)
+		gamepad_enabled = cfg.get_value("settings", "gamepad", gamepad_enabled)
+		amber_mode = cfg.get_value("settings", "amber", amber_mode)
 
 
 func _save_settings() -> void:
@@ -192,6 +227,8 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "volume", master_volume)
 	cfg.set_value("settings", "sens", mouse_sens_mult)
 	cfg.set_value("settings", "dither", dither_enabled)
+	cfg.set_value("settings", "gamepad", gamepad_enabled)
+	cfg.set_value("settings", "amber", amber_mode)
 	cfg.save("user://settings.cfg")
 
 
@@ -202,6 +239,7 @@ func reset_level() -> void:
 	heat = 0.0
 	score = level_start_score
 	missiles = MISSILES_PER_LEVEL
+	plasma_bombs = maxi(plasma_bombs, 1)   # a retry always has one bomb in the rack
 	weapon_index = 0
 	is_dead = false
 	is_overheated = false
@@ -215,3 +253,4 @@ func reset_run() -> void:
 	level_index = 0
 	level_start_score = 0
 	reset_level()
+	plasma_bombs = 1

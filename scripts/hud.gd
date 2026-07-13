@@ -12,7 +12,6 @@ const CONSOLE_H := 36
 const CONSOLE_Y := H - CONSOLE_H
 
 const BAR_W := 40.0
-const THREAT_RANGE_SQ := 70.0 * 70.0
 
 const PANEL := Color(0.145, 0.155, 0.175)
 const PANEL_DARK := Color(0.075, 0.082, 0.10)
@@ -35,6 +34,7 @@ var shot_mgr: ShotManager
 var weapon_names: Array[String] = []
 
 var _flash: ColorRect
+var _bomb_flash: ColorRect   # V2.0 plasma bomb white-out, decays in _process
 var _msg: Label
 var _msg_t := 0.0
 var _level_speed: Label
@@ -46,13 +46,31 @@ var _heat_bar: ColorRect
 var _shield_num: Label
 var _crosshair: Control
 var _canopy: Control
+var _canopy_static: Control    # V2.1: struts/plates draw once, never per frame
 var _console_draw: Control
+var _console_static: Control
 var _kills := 0
 var _kill_target := 0
 var _threat := false
 var _boss_name: Label
 var _combo: Label
 var radar: RadarDisplay
+# V2.1 dirty caches: each dynamic layer redraws only when its inputs change —
+# the full cockpit was re-emitting dozens of draw calls every frame before
+var _c_threat := false
+var _c_blink := -2
+var _c_pips := -1
+var _c_boss_hp := -2
+var _c_boss_flash := false
+var _c_wpn := -1
+var _c_missiles := -1
+var _c_tsec := -1
+var _c_kills := -1
+var _c_ktarget := -1
+var _c_dodge := false
+var _c_hot := false
+var _c_vel := -1
+var _c_metric := -1
 
 
 func _ready() -> void:
@@ -65,7 +83,18 @@ func _ready() -> void:
 	_flash.color = Color(1, 0.1, 0.05, 0.0)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_flash)
-	# canopy frame under everything else so readouts stay on top
+	_bomb_flash = ColorRect.new()
+	_bomb_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_bomb_flash.color = Color(0.95, 0.98, 1.0, 0.0)
+	_bomb_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_bomb_flash)
+	# canopy frame under everything else so readouts stay on top; the static
+	# frame draws once at boot, the dynamic layer sits directly on top of it
+	_canopy_static = Control.new()
+	_canopy_static.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_canopy_static.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_canopy_static.draw.connect(_draw_canopy_static)
+	root.add_child(_canopy_static)
 	_canopy = Control.new()
 	_canopy.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_canopy.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -83,12 +112,19 @@ func _ready() -> void:
 	_boss_name.size = Vector2(W, 10)
 	_boss_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_boss_name.visible = false
-	_level_speed = _label(root, Vector2(8, 6), "LVL 1 · VEL 18", Color("5fb6d8"), 8)
-	_score = _label(root, Vector2(8, 16), "SCORE 0", Color("ffd34d"), 8)
+	# x=26 clears the left canopy strut (it reaches ~x=22 up top) so SCORE isn't
+	# clipped to "ORE ..." behind the frame
+	_level_speed = _label(root, Vector2(26, 6), "LVL 1 · VEL 18", Color("5fb6d8"), 8)
+	_score = _label(root, Vector2(26, 16), "SCORE 0", Color("ffd34d"), 8)
 	# Phase J: kill-streak multiplier readout
-	_combo = _label(root, Vector2(8, 26), "", Color("ff9a30"), 8)
+	_combo = _label(root, Vector2(26, 26), "", Color("ff9a30"), 8)
 	_combo.visible = false
 	# ---- bottom console ----
+	_console_static = Control.new()
+	_console_static.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_console_static.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_console_static.draw.connect(_draw_console_static)
+	root.add_child(_console_static)
 	_console_draw = Control.new()
 	_console_draw.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_console_draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -107,6 +143,7 @@ func _ready() -> void:
 	_label(root, Vector2(214, CONSOLE_Y + 24), "HEAT", Color("ffab66"), 8)
 	_heat_bar = _bar(root, Vector2(242, CONSOLE_Y + 26), Color("ff9a30"))
 	_wpn_name = _label(root, Vector2(8, CONSOLE_Y + 24), "", Color("9fe8ff"), 8)
+	_label(root, Vector2(84, CONSOLE_Y + 12), "EVD", Color("2f8a82"), 8)  # K4 lamp
 	GameState.shields_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.energy_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.heat_changed.connect(func(_v: float) -> void: _update_bars())
@@ -134,6 +171,11 @@ func show_message(text: String, t := 1.2) -> void:
 	_msg_t = t
 
 
+## V2.0 plasma bomb white-out — bright pop that fades over ~0.4 s.
+func flash_white() -> void:
+	_bomb_flash.color.a = 0.55
+
+
 func set_kill_counter(kills: int, target: int) -> void:
 	_kills = kills
 	_kill_target = target
@@ -146,23 +188,54 @@ func set_boss_name(text: String) -> void:
 func _process(delta: float) -> void:
 	_msg_t -= delta
 	_msg.visible = _msg_t > 0.0
+	_bomb_flash.color.a = maxf(0.0, _bomb_flash.color.a - delta * 1.4)
 	if player:
 		var a := minf(1.0, player.shake * 1.6) * 0.3
 		# Phase J: low-shield warning pulse under everything else
 		if GameState.shields < 25.0 and not GameState.is_dead:
 			a = maxf(a, (sin(Time.get_ticks_msec() / 160.0) * 0.5 + 0.5) * 0.14)
 		_flash.color.a = a
-		_level_speed.text = "LVL %d · VEL %d" % [GameState.level_index + 1, int(player.speed)]
-	_threat = false
-	if shot_mgr and player:
-		for p in shot_mgr.enemy_shot_positions():
-			if p.distance_squared_to(player.position) < THREAT_RANGE_SQ:
-				_threat = true
-				break
-	_boss_name.visible = enemy_mgr != null and not enemy_mgr.boss.is_empty()
-	_crosshair.queue_redraw()
-	_canopy.queue_redraw()
-	_console_draw.queue_redraw()
+		# only rebuild the readout string when the shown integers change
+		var vel := int(player.speed)
+		var metric := int(player.ring_idx * PathGen.SEG) if GameState.gauntlet_mode \
+			else GameState.level_index + 1
+		if vel != _c_vel or metric != _c_metric:
+			_c_vel = vel
+			_c_metric = metric
+			if GameState.gauntlet_mode:   # K5: distance is the score here
+				_level_speed.text = "DIST %dm · VEL %d" % [metric, vel]
+			else:
+				_level_speed.text = "LVL %d · VEL %d" % [metric, vel]
+	_threat = shot_mgr != null and shot_mgr.threat_near
+	var boss_live := enemy_mgr != null and not enemy_mgr.boss.is_empty()
+	_boss_name.visible = boss_live
+	# V2.1: each dynamic layer redraws only on state change
+	var blink := int(Time.get_ticks_msec() / 180) % 2 if _threat else -1
+	var boss_hp := int(enemy_mgr.boss.hp) if boss_live else -1
+	var boss_flash: bool = boss_live and enemy_mgr.boss.flash_t > 0.0
+	if _threat != _c_threat or blink != _c_blink or GameState.plasma_bombs != _c_pips \
+			or boss_hp != _c_boss_hp or boss_flash != _c_boss_flash:
+		_c_threat = _threat
+		_c_blink = blink
+		_c_pips = GameState.plasma_bombs
+		_c_boss_hp = boss_hp
+		_c_boss_flash = boss_flash
+		_canopy.queue_redraw()
+	var dodge_busy := player != null and player.dodge_cd > 0.0
+	var tsec := int(player.elapsed) if player else 0
+	if GameState.weapon_index != _c_wpn or GameState.missiles != _c_missiles \
+			or tsec != _c_tsec or _kills != _c_kills or _kill_target != _c_ktarget \
+			or dodge_busy or dodge_busy != _c_dodge:
+		_c_wpn = GameState.weapon_index
+		_c_missiles = GameState.missiles
+		_c_tsec = tsec
+		_c_kills = _kills
+		_c_ktarget = _kill_target
+		_c_dodge = dodge_busy
+		_console_draw.queue_redraw()
+	if GameState.is_overheated != _c_hot:
+		_c_hot = GameState.is_overheated
+		_crosshair.queue_redraw()
 
 
 func _draw_crosshair() -> void:
@@ -173,9 +246,10 @@ func _draw_crosshair() -> void:
 
 
 ## G4: canopy frame — angled side struts with brace lines and the THREAT panel
-## top-center, all flat fills per the reference-screenshot anatomy.
-func _draw_canopy() -> void:
-	var c := _canopy
+## plate, all flat fills per the reference-screenshot anatomy. Drawn ONCE at
+## boot (V2.1) — only the lamps/pips/boss bar live on the dynamic layer above.
+func _draw_canopy_static() -> void:
+	var c := _canopy_static
 	var floor_y := float(CONSOLE_Y)
 	# left strut: wide at the top corner, tapering toward the console
 	c.draw_colored_polygon(PackedVector2Array([
@@ -199,14 +273,28 @@ func _draw_canopy() -> void:
 	c.draw_line(Vector2(W - 9, 46), Vector2(W, 62), PANEL_EDGE)
 	c.draw_line(Vector2(W, floor_y - 34), Vector2(W - 12, floor_y), PANEL_EDGE)
 	c.draw_line(Vector2(W - 14, 8), Vector2(W - 6, 30), Color(0.20, 0.21, 0.24))
-	# THREAT panel top-center: label plate + warning light
+	# THREAT panel plate top-center
 	c.draw_rect(Rect2(W / 2.0 - 20, 0, 40, 11), PANEL_DARK)
 	c.draw_rect(Rect2(W / 2.0 - 20, 10, 40, 1), PANEL_EDGE)
+	_draw_text3x5(c, Vector2(W / 2.0 - 6, 3), "-", 1, DIGIT_DIM)  # spacer tick
+
+
+## Dynamic canopy layer: threat lamp/bar, plasma pips, boss bar. Redrawn only
+## when one of those inputs changes (see the dirty caches in _process).
+func _draw_canopy() -> void:
+	var c := _canopy
 	var lit := _threat and int(Time.get_ticks_msec() / 180) % 2 == 0
 	c.draw_rect(Rect2(W / 2.0 - 14, 3, 5, 5), Color("ff3018") if lit else Color(0.22, 0.09, 0.07))
-	_draw_text3x5(c, Vector2(W / 2.0 - 6, 3), "-", 1, DIGIT_DIM)  # spacer tick
 	var threat_col := Color("ff5030") if _threat else Color(0.36, 0.20, 0.16)
 	c.draw_rect(Rect2(W / 2.0 - 4, 4, 22, 3), threat_col)
+	# V2.0 plasma bomb rack, top-right (the original kept its counter there):
+	# one hot pip per bomb held, empty sockets stay dark
+	for i in GameState.PLASMA_MAX:
+		var lit_pip := i < GameState.plasma_bombs
+		c.draw_rect(Rect2(W - 60 + i * 8, 4, 5, 5),
+			Color("ff9a30") if lit_pip else Color(0.16, 0.12, 0.09))
+		if lit_pip:
+			c.draw_rect(Rect2(W - 59 + i * 8, 5, 2, 2), Color("ffe0a0"))
 	# Phase J: boss health bar under the THREAT panel — chunky rect, white damage
 	# flash, tick marks at the 66%/33% phase gates
 	if enemy_mgr and not enemy_mgr.boss.is_empty():
@@ -220,10 +308,9 @@ func _draw_canopy() -> void:
 			c.draw_rect(Rect2(102 + int(116 * gate), 14, 1, 6), PANEL_EDGE)
 
 
-## G4: sculpted console plate — bevel lines, weapon slot row, MISL ammo digits,
-## TIME clock, and the kill counter over the radar, in blocky 3x5 digits.
-func _draw_console() -> void:
-	var c := _console_draw
+## G4: sculpted console plate — bevels and recessed wells. Drawn ONCE at boot.
+func _draw_console_static() -> void:
+	var c := _console_static
 	c.draw_rect(Rect2(0, CONSOLE_Y, W, CONSOLE_H), PANEL)
 	c.draw_rect(Rect2(0, CONSOLE_Y, W, 1), PANEL_EDGE)
 	c.draw_rect(Rect2(0, CONSOLE_Y + 1, W, 1), PANEL_DARK)
@@ -232,6 +319,13 @@ func _draw_console() -> void:
 	c.draw_rect(Rect2(110, CONSOLE_Y + 4, 40, CONSOLE_H - 8), PANEL_DARK)
 	c.draw_rect(Rect2(W / 2.0 - 16, CONSOLE_Y + 4, 32, CONSOLE_H - 8), PANEL_DARK)
 	c.draw_rect(Rect2(210, CONSOLE_Y + 4, 106, CONSOLE_H - 8), PANEL_DARK)
+	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 20), "-", 1, DIGIT_DIM)
+
+
+## Dynamic console layer: weapon slots, MISL digits, EVD lamp, TIME clock and
+## the kill counter — redrawn only when one of those changes.
+func _draw_console() -> void:
+	var c := _console_draw
 	# weapon slots 1-4
 	for i in 4:
 		var r := Rect2(8 + i * 13, CONSOLE_Y + 6, 11, 11)
@@ -244,6 +338,12 @@ func _draw_console() -> void:
 	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 7), "%02d" % GameState.missiles, 2,
 		DIGIT_COL if GameState.missiles > 0 else Color("ff3018"))
 	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 20), "-", 1, DIGIT_DIM)
+	# K4: evade lamp — refills through the cooldown, bright cyan when ready
+	if player:
+		var frac := 1.0 - clampf(player.dodge_cd / PlayerShip.DODGE_CD, 0.0, 1.0)
+		c.draw_rect(Rect2(86, CONSOLE_Y + 22, 14, 5), Color(0.10, 0.11, 0.13))
+		c.draw_rect(Rect2(87, CONSOLE_Y + 23, 12.0 * frac, 3),
+			Color("55ffee") if frac >= 1.0 else Color(0.13, 0.38, 0.36))
 	# TIME clock
 	_draw_text3x5(c, Vector2(114, CONSOLE_Y + 7), _time_string(), 2, DIGIT_COL)
 	# kill counter over the radar (only while an arena lock is active)

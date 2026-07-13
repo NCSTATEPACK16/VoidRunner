@@ -119,6 +119,45 @@ static func _draw_hulk(frame: int, flash: bool) -> Image:
 	return img
 
 
+## 32x32 wall turret (V2.0, the original's missile-wall homage): riveted octagonal
+## wall plate, recessed gun ring, stubby barrel with a red targeting eye. Reads as
+## "part of the wall, but armed." Frames: 2 idle (eye pulse) + 1 hit-flash.
+static func turret_frames() -> Array[ImageTexture]:
+	var frames: Array[ImageTexture] = []
+	for f in 2:
+		frames.append(ImageTexture.create_from_image(_draw_turret(f, false)))
+	frames.append(ImageTexture.create_from_image(_draw_turret(0, true)))
+	return frames
+
+
+static func _draw_turret(frame: int, flash: bool) -> Image:
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	var plate := Palette.WHITE if flash else Palette.GREY_3
+	var plate_dk := Palette.GREY_7 if flash else Palette.GREY_1
+	var edge := Palette.WHITE if flash else Palette.GREY_5
+	# octagonal wall plate
+	_rect(img, 6, 6, 20, 20, plate_dk)
+	_rect(img, 8, 4, 16, 24, plate_dk)
+	_rect(img, 4, 8, 24, 16, plate_dk)
+	_rect(img, 9, 7, 14, 18, plate)
+	_rect(img, 7, 9, 18, 14, plate)
+	# corner rivets
+	for rv in [Vector2i(8, 8), Vector2i(23, 8), Vector2i(8, 23), Vector2i(23, 23)]:
+		_px(img, rv.x, rv.y, edge)
+	# recessed gun ring + barrel mouth
+	_ellipse(img, 16, 16, 7, 7, plate_dk)
+	_ellipse(img, 16, 16, 5, 5, Palette.GREY_2 if not flash else Palette.WHITE)
+	_ellipse(img, 16, 16, 3, 3, Palette.VOID_0)
+	# targeting eye pulses between frames
+	var eye := Palette.RED_4 if frame == 0 else Palette.RED_2
+	_rect(img, 15, 15, 2, 2, eye if not flash else Palette.WHITE)
+	# hazard ticks on the plate rim
+	for hx in [10, 16, 22]:
+		_px(img, hx, 5, Palette.ORANGE_2 if not flash else Palette.WHITE)
+		_px(img, hx, 26, Palette.ORANGE_2 if not flash else Palette.WHITE)
+	return img
+
+
 ## 64x64 boss: Sentinel-class guardian (Phase J) — broad layered warship hull,
 ## wide red eye bank, mantis-claw side pylons, orange belly vents that pulse
 ## between idle frames. Same 3-frame contract as every enemy (2 idle + hit
@@ -252,6 +291,14 @@ static func pickup_texture(kind: String) -> ImageTexture:
 			_rect(img, 5, 10, 2, 2, Palette.GREY_5)
 			_rect(img, 9, 10, 2, 2, Palette.GREY_5)
 			_rect(img, 7, 11, 2, 2, Palette.ORANGE_2)
+		"bomb":   # V2.0 plasma bomb: hot orb with four spark arms
+			_ellipse(img, 8, 8, 7, 7, Palette.RED_0)
+			_ellipse(img, 8, 8, 6, 6, Palette.RED_1)
+			_ellipse(img, 8, 8, 4, 4, Palette.ORANGE_2)
+			_ellipse(img, 8, 8, 2, 2, Palette.ORANGE_3)
+			_rect(img, 7, 7, 2, 2, Palette.WHITE)
+			for arm in [Vector2i(8, 2), Vector2i(8, 14), Vector2i(2, 8), Vector2i(14, 8)]:
+				_px(img, arm.x, arm.y, Palette.ORANGE_3)
 	return ImageTexture.create_from_image(img)
 
 

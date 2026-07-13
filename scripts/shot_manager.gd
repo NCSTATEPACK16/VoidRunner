@@ -8,8 +8,20 @@ signal player_hit(damage: float)
 
 const PLAYER_HIT_RANGE_SQ := 5.5  # enemy shot vs player
 const ENEMY_SHOT_DMG := 9.0       # fallback; each enemy shot now carries its own dmg
+const THREAT_RANGE_SQ := 70.0 * 70.0   # V2.1: threat lamp radius (was Hud's)
 # player-shot-vs-enemy hit radius² is per-enemy (e.hit_r2) — a 4 u drone and a
 # 20 u boss cannot share one collision sphere (Phase J)
+
+# V2.1 pooling: every billboard this manager draws comes from one flat Sprite3D
+# pool — nodes are created once, hidden with visible=false, never freed during
+# play. instantiate/queue_free churn during fuel-cell chains, boss deaths and
+# plasma bombs was a busy-combat stall on the single-threaded web build.
+const POOL_PREWARM := 96
+const POOL_HARD_CAP := 192        # > PSHOT+ESHOT+EXPLOSION+SPARK caps combined
+const PSHOT_CAP := 48             # overflow: skip (fire rates can't reach this)
+const ESHOT_CAP := 64             # overflow: reuse-oldest (oldest bolt vanishes)
+const EXPLOSION_CAP := 12         # overflow: reuse-oldest (finishes an old one)
+const SPARK_CAP := 60             # overflow: skip (pure garnish)
 
 var player: PlayerShip
 var enemy_mgr: EnemyManager
@@ -24,14 +36,23 @@ var _boom_cursor := 0
 var _explosion_frames: Array[ImageTexture] = []
 var _enemy_shot_tex: ImageTexture
 var _spark_tex: ImageTexture
+var _dodge_spark_tex: ImageTexture   # K4: cool blue, reads as thrusters not damage
 var _missile_tex: ImageTexture
 var _bolt_cache := {}
+var _pool_free: Array[Sprite3D] = []
+var _pool_total := 0
+# V2.1: filled once per frame inside the eshot loop (it already touches every
+# shot) and read by both the HUD threat scan and the radar — replaces the two
+# fresh Array[Vector3] allocations enemy_shot_positions() made every frame
+var eshot_cache := PackedVector3Array()
+var threat_near := false
 
 
 func _ready() -> void:
 	_explosion_frames = SpriteGen.explosion_frames()
 	_enemy_shot_tex = SpriteGen.star_texture(Palette.ORANGE_2, Palette.RED_2)
 	_spark_tex = SpriteGen.star_texture(Palette.ORANGE_3, Palette.ORANGE_1, 8)
+	_dodge_spark_tex = SpriteGen.star_texture(Palette.CYAN_3, Palette.BLUE_2, 8)
 	_missile_tex = SpriteGen.missile_texture()
 	for i in 3:
 		var light := OmniLight3D.new()
@@ -40,19 +61,52 @@ func _ready() -> void:
 		light.omni_range = 45.0
 		add_child(light)
 		_boom_lights.append(light)
+	for i in POOL_PREWARM:   # before the briefing warm-up rig ever runs
+		var s := SpriteGen.make_sprite(_spark_tex, 1.0)
+		s.visible = false
+		add_child(s)
+		_pool_free.append(s)
+		_pool_total += 1
+
+
+## Pop a pooled Sprite3D (or grow up to the hard cap). Callers enforce their
+## per-class caps first, so null only means the belt-and-braces cap tripped.
+func _acquire(tex: Texture2D, world_size: float) -> Sprite3D:
+	var s: Sprite3D
+	if not _pool_free.is_empty():
+		s = _pool_free.pop_back()
+	elif _pool_total < POOL_HARD_CAP:
+		s = SpriteGen.make_sprite(tex, world_size)
+		add_child(s)
+		_pool_total += 1
+		return s
+	else:
+		return null
+	s.texture = tex
+	s.pixel_size = world_size / tex.get_width()
+	s.visible = true
+	return s
+
+
+func _release(s: Sprite3D) -> void:
+	s.visible = false
+	_pool_free.append(s)
 
 
 func clear_all() -> void:
 	for arr in [_pshots, _eshots, _explosions, _sparks]:
 		for s in arr:
-			s.node.queue_free()
+			_release(s.node)   # pooled nodes survive level transitions
 		arr.clear()
+	for l in _boom_lights:   # no explosion light survives a level transition / warm-up
+		l.light_energy = 0.0
 
 
 ## Every texture a fight can draw, for the briefing-screen shader warm-up.
 ## Also pre-populates the per-weapon bolt cache so no texture is built mid-flight.
 func warmup_textures(weapon_list: Array[WeaponDef]) -> Array:
-	var texes: Array = [_explosion_frames[0], _enemy_shot_tex, _spark_tex, _missile_tex]
+	var texes: Array = [_explosion_frames[0], _enemy_shot_tex, _spark_tex,
+		_dodge_spark_tex, _missile_tex]
 	for w in weapon_list:
 		if w.fuse > 0.0:
 			continue
@@ -72,7 +126,10 @@ func warmup_boom_light(pos: Vector3, on: bool) -> void:
 func fire_player(w: WeaponDef) -> void:
 	var fwd := player.forward()
 	var right := fwd.cross(Vector3.UP).normalized()
+	var spawned := 0
 	for i in w.count:
+		if _pshots.size() >= PSHOT_CAP:
+			break
 		var lateral: float
 		if w.count == 2:
 			lateral = -1.25 if i == 0 else 1.25
@@ -89,9 +146,10 @@ func fire_player(w: WeaponDef) -> void:
 			if not _bolt_cache.has(w.display_name):
 				_bolt_cache[w.display_name] = SpriteGen.bolt_texture(w.color, w.color.darkened(0.4))
 			tex = _bolt_cache[w.display_name]
-		var sprite := SpriteGen.make_sprite(tex, 1.6 * w.sprite_scale)
+		var sprite := _acquire(tex, 1.6 * w.sprite_scale)
+		if sprite == null:
+			break
 		sprite.position = player.position + fwd * 3.0 + right * lateral + Vector3.UP * -0.45
-		add_child(sprite)
 		var shot := {
 			"node": sprite, "vel": dir * w.speed, "dmg": w.damage,
 			"life": (w.fuse + 0.5) if w.fuse > 0.0 else 1.4,
@@ -99,17 +157,23 @@ func fire_player(w: WeaponDef) -> void:
 			"homing": w.homing, "homing_turn": w.homing_turn,
 		}
 		_pshots.append(shot)
-	GameState.level_shots += w.count   # accuracy is per-projectile (Phase J)
+		spawned += 1
+	GameState.level_shots += spawned   # accuracy is per-projectile (Phase J)
 	player.flash_muzzle(w.color)
 	AudioSys.play_laser(w.freq)
 
 
 func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
-		shot_size := 1.7) -> void:
-	var sprite := SpriteGen.make_sprite(_enemy_shot_tex, shot_size)
+		shot_size := 1.7, seeker := false) -> void:
+	if _eshots.size() >= ESHOT_CAP:
+		_release(_eshots[0].node)   # reuse-oldest: the stalest bolt vanishes
+		_eshots.remove_at(0)
+	var sprite := _acquire(_enemy_shot_tex, shot_size)
+	if sprite == null:
+		return
 	sprite.position = origin
-	add_child(sprite)
-	_eshots.append({"node": sprite, "vel": velocity, "life": 5.0, "dmg": dmg})
+	_eshots.append({"node": sprite, "vel": velocity, "life": 5.0, "dmg": dmg,
+		"seeker": seeker})
 
 
 func detonate(pos: Vector3, radius: float, dmg: int) -> void:
@@ -122,24 +186,44 @@ func detonate(pos: Vector3, radius: float, dmg: int) -> void:
 
 
 func spawn_explosion(pos: Vector3, big: bool) -> void:
-	var sprite := SpriteGen.make_sprite(_explosion_frames[0], 7.0 if big else 4.5)
-	sprite.position = pos
-	add_child(sprite)
-	_explosions.append({"node": sprite, "t": 0.0})
+	if _explosions.size() >= EXPLOSION_CAP:
+		_release(_explosions[0].node)   # reuse-oldest: it was about to finish anyway
+		_explosions.remove_at(0)
+	var sprite := _acquire(_explosion_frames[0], 7.0 if big else 4.5)
+	if sprite:
+		sprite.position = pos
+		_explosions.append({"node": sprite, "t": 0.0})
 	var n := 6 if big else 4
 	for i in n:
-		var spark := SpriteGen.make_sprite(_spark_tex, 1.1)
-		spark.position = pos
-		add_child(spark)
-		_sparks.append({
-			"node": spark, "t": 0.6,
-			"vel": Vector3(randf_range(-14, 14), randf_range(-14, 14), randf_range(-14, 14)),
-		})
+		if not _spawn_spark(_spark_tex, pos, 14.0):
+			break
 	var light := _boom_lights[_boom_cursor]
 	_boom_cursor = (_boom_cursor + 1) % _boom_lights.size()
 	light.position = pos
 	light.light_energy = 3.2 if big else 2.2
 	AudioSys.play_boom(big)
+
+
+## K4: blue spark puff at the dodge origin — same lifecycle as explosion sparks.
+func spawn_dodge_burst(pos: Vector3) -> void:
+	for i in 5:
+		if not _spawn_spark(_dodge_spark_tex, pos, 10.0):
+			break
+
+
+func _spawn_spark(tex: Texture2D, pos: Vector3, spread: float) -> bool:
+	if _sparks.size() >= SPARK_CAP:
+		return false
+	var spark := _acquire(tex, 1.1)
+	if spark == null:
+		return false
+	spark.position = pos
+	_sparks.append({
+		"node": spark, "t": 0.6,
+		"vel": Vector3(randf_range(-spread, spread), randf_range(-spread, spread),
+			randf_range(-spread, spread)),
+	})
+	return true
 
 
 ## Rotate a heat-seeking shot's velocity toward the nearest enemy by a capped angle,
@@ -167,8 +251,11 @@ func _steer_homing(s: Dictionary, delta: float) -> void:
 func update_shots(delta: float) -> void:
 	for light in _boom_lights:
 		light.light_energy *= pow(0.002, delta)
+	# hot loops are index-walked `while`s: range() allocates an Array per call,
+	# and these run every frame (nested per shot × enemy in the worst case)
 	# --- player shots ---
-	for i in range(_pshots.size() - 1, -1, -1):
+	var i := _pshots.size() - 1
+	while i >= 0:
 		var s: Dictionary = _pshots[i]
 		if s.homing:
 			_steer_homing(s, delta)
@@ -181,7 +268,8 @@ func update_shots(delta: float) -> void:
 				boom = true
 		var dead: bool = s.life <= 0.0
 		if not dead and not boom:
-			for j in range(enemy_mgr.enemies.size() - 1, -1, -1):
+			var j := enemy_mgr.enemies.size() - 1
+			while j >= 0:
 				var ene: Dictionary = enemy_mgr.enemies[j]
 				if s.node.position.distance_squared_to(ene.node.position) \
 						< ene.get("hit_r2", 13.0):
@@ -193,8 +281,10 @@ func update_shots(delta: float) -> void:
 						boom = true
 					dead = true
 					break
+				j -= 1
 		if not dead and not boom and prop_mgr:
-			for k in range(prop_mgr.props.size() - 1, -1, -1):
+			var k := prop_mgr.props.size() - 1
+			while k >= 0:
 				if s.node.position.distance_squared_to(prop_mgr.props[k].node.position) \
 						< PropManager.HIT_R2:
 					prop_mgr.damage_prop(k, s.dmg)
@@ -203,15 +293,32 @@ func update_shots(delta: float) -> void:
 						boom = true
 					dead = true
 					break
+				k -= 1
 		if boom:
 			detonate(s.node.position, s.splash, s.splash_dmg)
 			dead = true
 		if dead:
-			s.node.queue_free()
+			_release(s.node)
 			_pshots.remove_at(i)
+		i -= 1
 	# --- enemy shots ---
-	for q in range(_eshots.size() - 1, -1, -1):
+	eshot_cache.resize(0)
+	threat_near = false
+	var q := _eshots.size() - 1
+	while q >= 0:
 		var es: Dictionary = _eshots[q]
+		if es.get("seeker", false):
+			# V2.0 seeker turret shots: gentle capped turn toward the player —
+			# slow enough that a dodge roll (or a hard bank) beats them
+			var cur: Vector3 = es.vel.normalized()
+			var des: Vector3 = (player.position - es.node.position).normalized()
+			var ang := cur.angle_to(des)
+			if ang > 0.0001:
+				var axis := cur.cross(des)
+				if axis.length_squared() < 1e-8:
+					axis = Vector3.UP
+				es.vel = cur.rotated(axis.normalized(), minf(ang, 1.2 * delta)) \
+					* es.vel.length()
 		es.node.position += es.vel * delta
 		es.life -= delta
 		var kill: bool = es.life <= 0.0
@@ -219,31 +326,33 @@ func update_shots(delta: float) -> void:
 			player_hit.emit(es.get("dmg", ENEMY_SHOT_DMG))
 			kill = true
 		if kill:
-			es.node.queue_free()
+			_release(es.node)
 			_eshots.remove_at(q)
+		else:
+			eshot_cache.append(es.node.position)
+			if es.node.position.distance_squared_to(player.position) < THREAT_RANGE_SQ:
+				threat_near = true
+		q -= 1
 	# --- explosion animations ---
-	for x in range(_explosions.size() - 1, -1, -1):
+	var x := _explosions.size() - 1
+	while x >= 0:
 		var ex: Dictionary = _explosions[x]
 		ex.t += delta
 		var frame := int(ex.t / 0.15)
 		if frame >= _explosion_frames.size():
-			ex.node.queue_free()
+			_release(ex.node)
 			_explosions.remove_at(x)
 		else:
 			ex.node.texture = _explosion_frames[frame]
+		x -= 1
 	# --- sparks ---
-	for p in range(_sparks.size() - 1, -1, -1):
+	var p := _sparks.size() - 1
+	while p >= 0:
 		var sp: Dictionary = _sparks[p]
 		sp.node.position += sp.vel * delta
 		sp.t -= delta
 		sp.node.pixel_size = maxf(0.01, sp.t / 0.6) * 1.1 / 8.0
 		if sp.t <= 0.0:
-			sp.node.queue_free()
+			_release(sp.node)
 			_sparks.remove_at(p)
-
-
-func enemy_shot_positions() -> Array[Vector3]:
-	var out: Array[Vector3] = []
-	for es in _eshots:
-		out.append(es.node.position)
-	return out
+		p -= 1

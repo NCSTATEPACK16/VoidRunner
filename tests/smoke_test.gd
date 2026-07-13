@@ -74,10 +74,27 @@ func _run() -> void:
 	GameState.unlocked_level = 0
 	game.overlays._sector = 0
 	game._on_launch()   # MENU -> BRIEFING
+	# V2.1: the briefing pump must finish the whole finite level before launch
+	for f in 20:
+		game._process(1.0 / 60.0)
+	assert(game.world.is_prebuilt())
 	game._on_launch()   # BRIEFING -> PLAYING
 	await get_tree().process_frame
 	assert(game.state == game.State.PLAYING)
 	var dt := 1.0 / 60.0
+	var built0: int = game.world._built_up_to
+	# V2.1 draw window: chunks far past the fog stay resident but invisible
+	for f in 3:
+		game._process(dt)
+	var all_far_hidden := true
+	var near_visible := false
+	for c in game.world._chunks:
+		if c.start > game.player.ring_idx + WorldBuilder.VIS_AHEAD:
+			all_far_hidden = all_far_hidden and not c.node.visible
+		elif c.end >= game.player.ring_idx:
+			near_visible = near_visible or c.node.visible
+	assert(all_far_hidden and near_visible)
+	print("prebuild ok — %d rings built at briefing, draw window active" % built0)
 	# --- K3: L1 has fuel cells (secondary objective) but no crushers ---
 	assert(GameState.level_props_total > 0)
 	assert(game.prop_mgr.props.size() == GameState.level_props_total)
@@ -87,6 +104,44 @@ func _run() -> void:
 		game._process(dt)
 	assert(GameState.level_props == 1)   # cell exploded and was counted
 	print("props ok — %d cells placed, detonation counted" % GameState.level_props_total)
+	# --- K4: dodge roll — spends energy, grants brief i-frames, shifts laterally ---
+	var ring0: Dictionary = game.path.rings[game.player.ring_idx]
+	var lat0: float = (game.player.position - ring0.p as Vector3).dot(ring0.r)
+	var energy0: float = GameState.energy
+	game.player._try_dodge(1.0)
+	assert(game.player.iframes_t > 0.0)
+	assert(GameState.energy <= energy0 - PlayerShip.DODGE_COST + 0.01)
+	var sh0: float = GameState.shields
+	game.player.take_damage(10.0, "TEST SHOT")
+	assert(GameState.shields == sh0)   # i-frames absorb non-wall damage
+	for f in 20:
+		game._process(dt)
+	var ring1: Dictionary = game.path.rings[game.player.ring_idx]
+	var lat1: float = (game.player.position - ring1.p as Vector3).dot(ring1.r)
+	assert(lat1 - lat0 > 3.0)          # visibly displaced to the roll side
+	assert(game.player.dodge_cd > 0.0)
+	print("dodge ok — lat %.1f -> %.1f, energy %.0f -> %.0f" % [
+		lat0, lat1, energy0, GameState.energy])
+	# --- V2.0 secrets: phantom panel placed, brushing it reveals the cache ---
+	assert(GameState.level_secrets_total >= 1)
+	var sec: Dictionary = game._secrets[0]
+	assert(is_instance_valid(sec.node))
+	var sring: Dictionary = game.path.rings[sec.ring]
+	game.player.ring_idx = sec.ring
+	game.player.position = sring.p + sring.r * (sec.side * (sring.hw - 1.7))
+	var score_before: int = GameState.score
+	var pickups_before: int = game.pickup_mgr._pickups.size()
+	game._update_secrets()
+	assert(sec.found)
+	assert(GameState.level_secrets == 1)
+	assert(GameState.score == score_before + 250)
+	assert(game.pickup_mgr._pickups.size() > pickups_before)   # the cache spilled
+	game._update_secrets()   # re-entering the spot must not double-count
+	assert(GameState.level_secrets == 1)
+	print("secrets ok — %d placed on L1, discovery pays and spills a cache" %
+		GameState.level_secrets_total)
+	# put the probe back at the start so the flight loop runs its usual course
+	game.player.reset_to_start()
 	Input.action_press("fire")
 	var peak_enemies := 0
 	var overheated_seen := false
@@ -98,9 +153,28 @@ func _run() -> void:
 		if game.state != game.State.PLAYING:
 			break
 	Input.action_release("fire")
+	# V2.1: a finite level never builds a chunk mid-flight (the web-stall cause),
+	# and the spawn cursor keeps tunnel enemies coming past the old ~25-ring wall
+	assert(game.world._built_up_to == built0)
+	assert(peak_enemies > 0)
 	print("end state=%d ring=%d/%d shields=%.0f score=%d peak_enemies=%d overheat=%s" % [
 		game.state, game.player.ring_idx, game.path.rings.size(),
 		GameState.shields, GameState.score, peak_enemies, overheated_seen])
+	# --- V2.1 pooling: hidden free nodes, per-class caps hold under a 50-boom burst,
+	# and every effect returns to the pool (no node is ever freed mid-play) ---
+	for n in game.shot_mgr._pool_free:
+		assert(not n.visible)
+	for b in 50:
+		game.shot_mgr.spawn_explosion(game.player.position + Vector3(b, 0, 0), b % 2 == 0)
+	assert(game.shot_mgr._pool_total <= ShotManager.POOL_HARD_CAP)
+	assert(game.shot_mgr._explosions.size() <= ShotManager.EXPLOSION_CAP)
+	assert(game.shot_mgr._sparks.size() <= ShotManager.SPARK_CAP)
+	assert(game.shot_mgr._eshots.size() <= ShotManager.ESHOT_CAP)
+	for f in 90:   # explosions/sparks live 0.6 s — let the burst drain back
+		game.shot_mgr.update_shots(dt)
+	assert(game.shot_mgr._explosions.is_empty() and game.shot_mgr._sparks.is_empty())
+	print("pool ok — total=%d free=%d after 50-boom burst" % [
+		game.shot_mgr._pool_total, game.shot_mgr._pool_free.size()])
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1
@@ -112,6 +186,26 @@ func _run() -> void:
 	for f in 200:   # cycle the pistons through a full period
 		game._process(dt)
 	print("hazards ok — %d crushers on L2, cycling" % game.hazard_mgr._traps.size())
+	# --- V2.0 wall turrets: fixed anchor, fires from the wall, dies to damage ---
+	var t0: int = game.enemy_mgr.enemies.size()
+	game.enemy_mgr.spawn(game.player.ring_idx + 4, -1, "turret")
+	assert(game.enemy_mgr.enemies.size() == t0 + 1)
+	var tur: Dictionary = game.enemy_mgr.enemies.back()
+	assert(tur.type == "turret" and not tur.seeker)   # L2: no seekers yet
+	var tpos: Vector3 = tur.node.position
+	var fired := false
+	for f in 60 * 6:   # max fire_t is ~3.5 s — 6 s guarantees at least one shot
+		game._process(dt)
+		GameState.shields = 100.0
+		if tur.fire_t < 1.4:   # cadence timer moved => the turret is engaging
+			fired = true
+	assert(is_instance_valid(tur.node) and tur.node.position == tpos)  # never moved
+	assert(fired)
+	var ti: int = game.enemy_mgr.enemies.find(tur)
+	assert(ti >= 0)
+	game.enemy_mgr.hit_enemy(ti, 999)
+	assert(game.enemy_mgr.enemies.find(tur) == -1)   # dead and removed
+	print("turret ok — wall-anchored, fireable, killable")
 	# --- Phase J: boss level — spawn, dormant portal, kill wakes the exit ring ---
 	GameState.reset_run()
 	GameState.level_index = 2   # L3 · DOCK SENTINEL
@@ -140,6 +234,76 @@ func _run() -> void:
 	assert(game.enemy_mgr.boss.is_empty())
 	assert(game.world.portal_active)
 	print("boss ok — hp %d -> dead, portal awake, score=%d" % [hp0, GameState.score])
+	# --- K5: Void Gauntlet — endless path grows, arenas stream in, chunks stay bounded ---
+	GameState.reset_run()
+	seed(20260711)          # pin the run layout — the gauntlet seed comes from randi()
+	game._on_gauntlet()     # MENU-independent: flips mode + builds behind a briefing
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game.path.is_endless)
+	assert(GameState.gauntlet_mode)
+	assert(not game.world.portal_active)   # no exit gate in the gauntlet
+	var rings_initial: int = game.path.rings.size()
+	for f in 60 * 90:   # 1.5 simulated minutes ≈ 135 rings of travel
+		GameState.shields = 100.0          # the probe flies, it doesn't fight fair
+		# rail-steer along the tunnel: a non-steering probe can grind to a stop
+		# against a hard 90° corner and stall the whole run
+		var pd: Vector3 = game.path.rings[mini(game.player.ring_idx + 2,
+			game.path.rings.size() - 1)].d
+		game.player.yaw = atan2(-pd.x, -pd.z)
+		game.player.pitch = clampf(asin(pd.y), -0.6, 0.6)
+		if f % 240 == 0:                   # clear arena stands so bulkheads open
+			game.enemy_mgr.splash_damage(game.player.position, 200.0, 999)
+		game._process(dt)
+	assert(game.path.rings.size() > rings_initial)   # extend_to() grew the path
+	assert(game.path.arenas.size() >= 2)             # stands were discovered…
+	assert(game.world._doors.size() == game.path.arenas.size())  # …and got doors
+	assert(game.world._chunks.size() <= 12)          # streaming stays bounded
+	# V2.1: discovery side effects drain within frames — never a same-frame burst
+	assert(game._door_queue.is_empty() and game._spawn_queue.is_empty())
+	var gdist := int(game.player.ring_idx * PathGen.SEG)
+	assert(gdist > 800)                              # bulkheads never soft-locked the run
+	GameState.record_gauntlet(gdist)
+	assert(GameState.gauntlet_best_dist >= gdist)
+	print("gauntlet ok — dist=%dm rings=%d arenas=%d tier=%d" % [
+		gdist, game.path.rings.size(), game.path.arenas.size(), game._gauntlet_tier])
+	# --- K6: opt-in gamepad — joy bindings appear and disappear with the toggle ---
+	var is_joy := func(e: InputEvent) -> bool:
+		return e is InputEventJoypadButton or e is InputEventJoypadMotion
+	assert(not Array(InputMap.action_get_events("fire")).any(is_joy))
+	GameState.gamepad_enabled = true
+	GameState.apply_settings()
+	assert(Array(InputMap.action_get_events("fire")).any(is_joy))
+	assert(Array(InputMap.action_get_events("pause_game")).any(is_joy))
+	GameState.gamepad_enabled = false
+	GameState.apply_settings()
+	assert(not Array(InputMap.action_get_events("fire")).any(is_joy))
+	print("gamepad ok — joy bindings toggle with the setting")
+	# --- V2.0 plasma bomb: P is bomb, Space still fires, Enter pauses ---
+	var has_key := func(action: String, key: Key) -> bool:
+		for ev in InputMap.action_get_events(action):
+			if ev is InputEventKey and ev.physical_keycode == key:
+				return true
+		return false
+	assert(has_key.call("fire", KEY_SPACE))
+	assert(has_key.call("plasma_bomb", KEY_P))
+	assert(has_key.call("pause_game", KEY_ENTER))
+	assert(not has_key.call("pause_game", KEY_P))
+	# room-clear: bombs kill every enemy in range and the counter decrements
+	GameState.plasma_bombs = 2
+	for s in 3:
+		game.enemy_mgr.spawn(game.player.ring_idx, -1, "drone")
+	game._fire_plasma_bomb()
+	assert(GameState.plasma_bombs == 1)
+	var near := 0
+	for e in game.enemy_mgr.enemies:
+		if e.node.position.distance_squared_to(game.player.position) < 120.0 * 120.0:
+			near += 1
+	assert(near == 0)
+	GameState.plasma_bombs = 0
+	game._fire_plasma_bomb()   # empty rack: no crash, stays at zero
+	assert(GameState.plasma_bombs == 0)
+	print("plasma bomb ok — room cleared, counter %d, keys remapped" % GameState.plasma_bombs)
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

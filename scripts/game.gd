@@ -25,6 +25,7 @@ var hud: Hud
 var overlays: Overlays
 var view: SubViewport
 var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
+var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipped
 var env: Environment            # K1: per-level fog/ambient moods retune this
 
 var _fire_cd := 0.0
@@ -37,6 +38,27 @@ var _boss_announced := false
 var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
 var _warmup_rig: Node3D
+# V2.1 web loading: on single-threaded WebGL, first-use shader/pipeline compiles
+# block the main thread for seconds. On web we build + warm the level across this
+# many rendered frames under an HTML loading overlay, so the freeze is an honest
+# loading screen instead of a hung browser. _warming gates a launch-during-load race.
+const WARM_FRAMES := 12
+var _warming := false
+
+# K5 Void Gauntlet: endless mode runs on a synthetic LevelDef whose numbers climb
+# with distance (one tier per 60 rings ≈ 720 m); the path extends and its arenas
+# are discovered while flying.
+var _gauntlet := false
+var _gauntlet_def: LevelDef
+var _gauntlet_tier := 0
+# V2.1: discovery side effects are queued and drained a little per frame so a
+# newly-completed arena can't spike one frame with a door build + spawn burst
+var _door_queue: Array[Dictionary] = []      # arena dicts awaiting build_door
+var _spawn_queue: Array[Dictionary] = []     # {ring, arena_id, type}
+
+## V2.0 phantom-wall secrets: {ring, side, node, found} — a wall panel you can fly
+## straight through, hiding a pickup cache (the original's holographic walls).
+var _secrets: Array[Dictionary] = []
 
 
 func _ready() -> void:
@@ -51,6 +73,14 @@ func _ready() -> void:
 	while ResourceLoader.exists("res://resources/levels/level_%d.tres" % li):
 		levels.append(load("res://resources/levels/level_%d.tres" % li))
 		li += 1
+	_gauntlet_def = LevelDef.new()
+	_gauntlet_def.display_name = "VOID GAUNTLET"
+	_gauntlet_def.kind = "endless"
+	_gauntlet_def.objective = "SURVIVE — EVERY METRE SCORES"
+	_gauntlet_def.briefing = "No exit gate on this run. The tunnel goes on for as " \
+		+ "long as you do, and the void keeps sending more. Fly far, fly sharp — " \
+		+ "your distance is the record."
+	_gauntlet_def.rings = 200   # initial batch; extend_to() grows it in flight
 	_build_game_view()
 	_build_environment()
 	world = WorldBuilder.new()
@@ -82,6 +112,8 @@ func _ready() -> void:
 	enemy_mgr.enemy_fired.connect(shot_mgr.fire_enemy)
 	enemy_mgr.exploded.connect(shot_mgr.spawn_explosion)
 	enemy_mgr.enemy_killed.connect(_on_enemy_killed)
+	enemy_mgr.turret_destroyed.connect(
+		func(pos: Vector3) -> void: prop_mgr.splash(pos, PropManager.CHAIN_RADIUS))
 	enemy_mgr.boss_killed.connect(_on_boss_killed)
 	enemy_mgr.boss_phase.connect(_on_boss_phase)
 	pickup_mgr.player = player
@@ -95,8 +127,13 @@ func _ready() -> void:
 	hazard_mgr.player = player
 	shot_mgr.player_hit.connect(func(dmg: float) -> void: player.take_damage(dmg, "SHIELD HIT"))
 	player.damaged.connect(func(_a: float, msg: String) -> void: hud.show_message(msg))
+	player.notified.connect(func(msg: String) -> void: hud.show_message(msg))
+	player.dodged.connect(func(dir: Vector3) -> void:
+		shot_mgr.spawn_dodge_burst(player.position + dir * 2.0 + Vector3.UP * -0.4)
+		AudioSys.play_dodge())
 	GameState.player_died.connect(_on_player_died)
 	overlays.launch_requested.connect(_on_launch)
+	overlays.gauntlet_requested.connect(_on_gauntlet)
 	overlays.next_level_requested.connect(_on_next_level)
 	overlays.retry_requested.connect(_on_retry)
 	overlays.new_campaign_requested.connect(_on_new_campaign)
@@ -108,14 +145,22 @@ func _ready() -> void:
 	for l in levels:
 		level_names.append(l.display_name)
 	overlays.set_campaign(level_names)   # Phase J sector select
-	# Phase H: dither layer follows the settings toggle; apply saved settings now
-	GameState.dither_toggled.connect(func(on: bool) -> void: dither_layer.visible = on)
+	# Phase H + V2.0: the dither layer hosts both the palette dither and the amber
+	# terminal mode; either being on keeps the layer visible.
+	GameState.dither_toggled.connect(func(_on: bool) -> void: _refresh_view_fx())
+	GameState.amber_toggled.connect(func(_on: bool) -> void: _refresh_view_fx())
 	GameState.apply_settings()
 	# idle backdrop behind the start screen (v2.2 does the same)
 	_load_level_world(0)
 	player.reset_to_start()
 	player.active = false
 	overlays.show_only("start")
+	# On web the HTML boot overlay is masking the menu backdrop's first-frame shader
+	# compile; drop it once that heavy frame has actually rendered (see web/vr_shell.html).
+	if OS.has_feature("web"):
+		for i in WARM_FRAMES:
+			await get_tree().process_frame
+		_web_hide_loading()
 
 
 ## Phase I4: the whole game frame (3D world + in-flight HUD + dither) renders in a
@@ -147,8 +192,8 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color.BLACK
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("16181e")
-	env.ambient_light_energy = 0.75
+	env.ambient_light_color = Color("1b1e26")
+	env.ambient_light_energy = 0.95   # lifts the base tunnel a touch; fog still eats the far end
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color.BLACK
@@ -168,6 +213,14 @@ func _apply_theme_mood(theme: Dictionary, level: LevelDef) -> void:
 		fog_end = maxf(fog_end, 110.0)
 	env.fog_depth_end = fog_end
 	env.ambient_light_color = theme.get("amb", Color("16181e"))
+
+
+## Dither layer visibility + amber uniform follow the two view settings. The amber
+## terminal effect lives inside the dither shader, so amber-on forces the layer
+## visible even if plain dither is off.
+func _refresh_view_fx() -> void:
+	dither_layer.visible = GameState.dither_enabled or GameState.amber_mode
+	_dither_mat.set_shader_parameter("amber", 1.0 if GameState.amber_mode else 0.0)
 
 
 ## Phase G2: palette-quantize + Bayer-dither the finished frame (3D + HUD, not the
@@ -191,15 +244,23 @@ func _build_dither_layer() -> void:
 	layer.add_child(rect)
 	view.add_child(layer)
 	dither_layer = layer
+	_dither_mat = mat
 
 
 # ---------- level lifecycle ----------
 
 func _load_level_world(index: int) -> void:
 	GameState.level_index = index
-	var level := levels[index]
+	var level := _current_level()
+	if _gauntlet:
+		# fresh tier-0 numbers, fresh seed, random zone theme — every run reads different
+		_apply_gauntlet_tier(0)
+		_gauntlet_def.level_seed = randi()
+		var theme_ids: Array = TextureGen.THEMES.keys()
+		_gauntlet_def.theme_id = theme_ids[randi() % theme_ids.size()]
 	path = PathGen.new()
-	path.generate(level.rings, level.level_seed, level.spawn_arena, level.kind == "boss")
+	path.generate(level.rings, level.level_seed, level.spawn_arena,
+		level.kind == "boss", _gauntlet)
 	player.path = path
 	enemy_mgr.path = path
 	enemy_mgr.level = level
@@ -218,8 +279,11 @@ func _load_level_world(index: int) -> void:
 	hazard_mgr.setup(world.mats.wall, theme.accent2)
 	_place_props(level)
 	_place_hazards(level)
+	_place_secrets(level)
 	_arena_spawned.clear()
 	_arena_kills.clear()
+	_door_queue.clear()
+	_spawn_queue.clear()
 	for arena in path.arenas:
 		if arena.door_ring < 0:
 			continue
@@ -240,6 +304,8 @@ func _load_level_world(index: int) -> void:
 		world.set_portal_active(false)
 		_boss_arena_start = room.start
 		_place_boss_stations(room, level)
+	if _gauntlet:
+		_gauntlet_stream()   # discover + wire the arenas in the initial batch
 	_built_level = index
 
 
@@ -266,8 +332,8 @@ func _place_boss_stations(room: Dictionary, level: LevelDef) -> void:
 func _place_props(level: LevelDef) -> void:
 	GameState.level_props_total = 0
 	GameState.level_props = 0
-	if level.kind == "boss":
-		return   # boss rooms stay clean (Phase J invariants)
+	if level.kind == "boss" or _gauntlet:
+		return   # boss rooms stay clean (Phase J); gauntlet arenas stream in later (K5)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = level.level_seed + 555
 	for arena in path.arenas:
@@ -319,7 +385,153 @@ func _on_cell_destroyed() -> void:
 		hud.show_message("SECONDARY COMPLETE — ALL CELLS DESTROYED")
 
 
+## V2.0 secrets: 1-2 phantom wall panels per tunnel level, on straight plain-tunnel
+## stretches clear of doors, corners, crushers, and each other. Deterministic per
+## level seed, like props and hazards.
+func _place_secrets(level: LevelDef) -> void:
+	for s in _secrets:
+		if is_instance_valid(s.node):
+			s.node.queue_free()
+	_secrets.clear()
+	GameState.level_secrets = 0
+	GameState.level_secrets_total = 0
+	if level.kind != "tunnel":
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = level.level_seed + 999
+	var want := clampi(level.rings / 100, 1, 2)
+	var placed: Array[int] = []
+	for attempt in 80:
+		if placed.size() >= want:
+			break
+		var ri := rng.randi_range(30, level.rings - 30)
+		var ring: Dictionary = path.rings[ri]
+		if ring.arena_id >= 0:
+			continue
+		if path.rings[ri - 2].d.dot(path.rings[ri + 2].d) < 0.985:
+			continue   # panels sit flush only on straight wall runs
+		var clear := true
+		for arena in path.arenas:
+			if arena.door_ring >= 0 and absi(ri - arena.door_ring) < 6:
+				clear = false
+		for other in placed:
+			if absi(ri - other) < 25:
+				clear = false
+		for t in hazard_mgr._traps:
+			if absi(ri - t.ring) < 6:
+				clear = false
+		if not clear:
+			continue
+		_secrets.append(_build_secret(ri, 1.0 if rng.randf() < 0.5 else -1.0))
+		placed.append(ri)
+	GameState.level_secrets_total = _secrets.size()
+
+
+## The panel: a box proud of the wall by ~1 u with a slightly-off wall tint — the
+## manual's "suspicious wall" tell. No collision anywhere in this game is physical,
+## so flying through it just works; discovery is a lateral-depth check per frame.
+func _build_secret(ri: int, side: float) -> Dictionary:
+	var ring: Dictionary = path.rings[ri]
+	var mi := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(2.4, (ring.hh - ring.fo - ring.co) * 2.0 - 0.6, PathGen.SEG * 1.6)
+	mi.mesh = box
+	var mat: StandardMaterial3D = world.mats.wall.duplicate()
+	mat.albedo_color = Color(0.86, 0.86, 0.97)   # cooler than true wall — the tell
+	mi.material_override = mat
+	mi.transform = Transform3D(Basis(ring.r, ring.u, -ring.d),
+		ring.p + ring.r * (side * (ring.hw - 1.2)) + ring.u * ((ring.fo - ring.co) * 0.5))
+	world.add_child(mi)
+	return {"ring": ri, "side": side, "node": mi, "found": false}
+
+
+## Brushing into a phantom panel reveals it: the panel vanishes, the cache spills
+## out, score lands, and the tally remembers. Runs per frame; ≤2 entries, cheap.
+func _update_secrets() -> void:
+	for s in _secrets:
+		if s.found or absi(player.ring_idx - s.ring) > 1:
+			continue
+		var ring: Dictionary = path.rings[s.ring]
+		var lat: float = (player.position - ring.p as Vector3).dot(ring.r) * s.side
+		if lat > ring.hw - 2.4:
+			s.found = true
+			s.node.queue_free()
+			GameState.level_secrets += 1
+			GameState.score += 250
+			hud.show_message("SECRET FOUND +250", 2.0)
+			AudioSys.play_portal()
+			var kinds: Array[String] = ["shield", "energy", "missile"]
+			if randf() < 0.35:
+				kinds.append("bomb")
+			for kind in kinds:
+				pickup_mgr.spawn_drop(
+					player.position + ring.d * randf_range(2.0, 6.0), s.ring, kind)
+
+
+## K5: the active tuning source — campaign levels from resources, gauntlet from
+## the synthetic escalating def.
+func _current_level() -> LevelDef:
+	return _gauntlet_def if _gauntlet else levels[GameState.level_index]
+
+
+## K5: keep the endless path generated ahead of the player, and wire in any arena
+## the scan completes — bulkhead door, exact guard count, kill-counter bookkeeping.
+func _gauntlet_stream() -> void:
+	path.extend_to(player.ring_idx + WorldBuilder.BUILD_AHEAD + 40)
+	if not path.has_unscanned():
+		return
+	for arena in path.discover_arenas(_gauntlet_def.spawn_arena):
+		# bookkeeping is immediate (kill counters must exist before any kill can
+		# land) but the door build + guard spawns drain from per-frame queues —
+		# an arena is discovered 110+ rings out, so there's ~70 s of slack
+		_arena_spawned[arena.id] = arena.spawn_rings.size()
+		_arena_kills[arena.id] = 0
+		_door_queue.append(arena)
+		for ring_idx in arena.spawn_rings:
+			_spawn_queue.append({"ring": ring_idx, "arena_id": arena.id,
+				"type": _pick_enemy_type(_gauntlet_def)})
+		if arena.spawn_rings.is_empty():
+			world.open_door(arena.id)
+
+
+## V2.1: drain discovery side effects — 1 door build + 2 enemy spawns per frame.
+func _drain_stream_queues() -> void:
+	if not _door_queue.is_empty():
+		world.build_door(_door_queue.pop_front())
+	for i in 2:
+		if _spawn_queue.is_empty():
+			break
+		var s: Dictionary = _spawn_queue.pop_front()
+		enemy_mgr.spawn(s.ring, s.arena_id, s.type)
+
+
+## K5: one difficulty tier per 60 rings (~720 m). Newly spawned enemies sample the
+## def at spawn time, so raising it escalates the run without touching live ones.
+func _apply_gauntlet_tier(tier: int) -> void:
+	_gauntlet_tier = tier
+	_gauntlet_def.enemy_hp = 2 + tier / 2
+	_gauntlet_def.enemy_speed = minf(13.0, 6.0 + tier * 0.7)
+	_gauntlet_def.enemy_fire = maxf(1.3, 2.8 - tier * 0.16)
+	_gauntlet_def.spawn_tunnel = minf(0.30, 0.08 + tier * 0.025)
+	_gauntlet_def.spawn_arena = minf(0.55, 0.30 + tier * 0.03)
+	var pool := PackedStringArray(["drone", "drone"])
+	if tier >= 1:
+		pool.append("weaver")
+	if tier >= 2:
+		pool.append("hulk")
+		pool.append("turret")
+	if tier >= 3:
+		pool.append("weaver")
+	if tier >= 5:
+		pool.append("hulk")
+		pool.append("turret")   # tier 5+ turrets fire seekers (enemy_speed >= 9)
+	_gauntlet_def.enemy_types = pool
+	AudioSys.set_music_intensity(tier / 8.0)
+
+
 func _launch_level() -> void:
+	if _warming:
+		return   # a Launch click landed mid warm-up (web); ignore until the rig is done
 	GameState.level_start_score = GameState.score
 	GameState.heat = 0.0
 	GameState.is_overheated = false
@@ -333,13 +545,14 @@ func _launch_level() -> void:
 	# only rebuild when launched directly without a briefing (tests, dirty world)
 	if _built_level != GameState.level_index:
 		_load_level_world(GameState.level_index)
+	world.prebuild_all()   # no-op unless the launch outran the briefing pump
 	_built_level = -1   # once play starts the world is dirty (doors, kills)
 	player.reset_to_start()
 	player.active = true
 	GameState.is_dead = false
 	state = State.PLAYING
 	overlays.hide_all()
-	hud.show_message(levels[GameState.level_index].display_name)
+	hud.show_message(_current_level().display_name)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -378,7 +591,8 @@ func _level_complete() -> void:
 		state = State.LEVEL_CLEAR
 		overlays.set_level_clear(
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
-			GameState.level_kills, acc, player.elapsed, rank, secondary_done)
+			GameState.level_kills, acc, player.elapsed, rank, secondary_done,
+			GameState.level_secrets, GameState.level_secrets_total)
 		overlays.show_only("level_clear")
 
 
@@ -407,8 +621,14 @@ func _on_player_died() -> void:
 	shot_mgr.spawn_explosion(player.position, true)
 	AudioSys.stop_engine()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	var new_record := GameState.record_progress()
-	overlays.set_final_score("game_over", GameState.score, new_record)
+	if _gauntlet:
+		# K5: a gauntlet run scores by distance; records stay campaign-separate
+		var dist := int(player.ring_idx * PathGen.SEG)
+		var new_best := GameState.record_gauntlet(dist)
+		overlays.set_final_score("game_over", GameState.score, new_best, dist)
+	else:
+		var new_record := GameState.record_progress()
+		overlays.set_final_score("game_over", GameState.score, new_record)
 	overlays.show_only("game_over")
 
 
@@ -417,6 +637,8 @@ func _on_player_died() -> void:
 func _on_launch() -> void:
 	if state == State.MENU:
 		# Phase J sector select: campaigns can start at any unlocked level
+		_gauntlet = false
+		GameState.gauntlet_mode = false
 		GameState.level_index = overlays.selected_sector()
 		GameState.level_start_score = 0
 		GameState.score = 0
@@ -425,18 +647,78 @@ func _on_launch() -> void:
 		_launch_level()
 
 
+## K5: Void Gauntlet entry from the start screen.
+func _on_gauntlet() -> void:
+	_gauntlet = true
+	GameState.gauntlet_mode = true
+	_built_level = -1
+	GameState.level_index = 0
+	GameState.level_start_score = 0
+	GameState.score = 0
+	_show_briefing()
+
+
 func _show_briefing() -> void:
 	state = State.BRIEFING
-	overlays.set_briefing(levels[GameState.level_index])
+	overlays.set_briefing(_current_level())
 	overlays.show_only("briefing")
-	# Build the level world NOW, behind the briefing overlay, and park a warm-up rig
-	# in front of the camera so every shader variant compiles while the player reads.
-	# First-use shader compilation is the level-1 stutter cause — it is synchronous
-	# and very slow on the WebGL export (profiled 100-130ms even on desktop GL).
+	if OS.has_feature("web"):
+		# WebGL: build + warm under the HTML loading overlay, spread across rendered
+		# frames so the serial, main-thread-blocking shader compiles land here (an
+		# honest loading screen) instead of on the first level frame and the first shot.
+		await _web_load_and_warm()
+	else:
+		# Desktop/headless (warm shader cache): build the level world NOW behind the
+		# briefing overlay and park a warm-up rig in front of the camera so its shader
+		# variants compile while the player reads. Synchronous — unchanged from v2.0.
+		_load_level_world(GameState.level_index)
+		player.reset_to_start()
+		player.active = false
+		_start_warmup()
+		get_tree().create_timer(0.5).timeout.connect(_end_warmup)
+
+
+## Web-only load path. Shows the compositor-animated HTML loading overlay, yields two
+## frames so the browser actually paints it, then builds the level and drives the
+## warm-up across WARM_FRAMES *rendered* frames — long enough that WebGL's serial,
+## blocking shader/pipeline compiles all finish under the overlay. A muted real
+## fire + explosion makes the projectile / explosion / muzzle+boom-light-on-wall
+## variants compile here too, so the first live shot no longer stalls.
+func _web_load_and_warm() -> void:
+	_warming = true
+	_web_show_loading("ENTERING SECTOR")
+	await get_tree().process_frame
+	await get_tree().process_frame            # give the browser a frame to paint the overlay
 	_load_level_world(GameState.level_index)
 	player.reset_to_start()
 	player.active = false
 	_start_warmup()
+	# exercise the actual combat draw path, silently, so its shaders compile now
+	var was_muted := AudioServer.is_bus_mute(0)
+	AudioServer.set_bus_mute(0, true)
+	var shots0 := GameState.level_shots
+	if not weapons.is_empty():
+		shot_mgr.fire_player(weapons[0])
+	shot_mgr.spawn_explosion(player.position + player.forward() * 12.0, true)
+	for i in WARM_FRAMES:
+		await get_tree().process_frame        # compiles happen here; the overlay keeps spinning
+	GameState.level_shots = shots0
+	shot_mgr.clear_all()                       # also zeroes the boom lights (see ShotManager)
+	AudioServer.set_bus_mute(0, was_muted)
+	_end_warmup()
+	await get_tree().process_frame
+	_web_hide_loading()
+	_warming = false
+
+
+func _web_show_loading(msg := "LOADING") -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.vrShowLoading && window.vrShowLoading(%s);" % JSON.stringify(msg), true)
+
+
+func _web_hide_loading() -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.vrHideLoading && window.vrHideLoading();", true)
 
 
 ## One small instance of every material the level can draw — enemy/boss sprites,
@@ -462,7 +744,8 @@ func _start_warmup() -> void:
 	world.warmup_meshes(_warmup_rig, base + Vector3.UP * 2.4)
 	player.muzzle_light.light_energy = 0.6
 	shot_mgr.warmup_boom_light(base, true)
-	get_tree().create_timer(0.5).timeout.connect(_end_warmup)
+	# teardown is owned by the caller: the desktop path arms a 0.5s timer, the web
+	# path frees the rig after WARM_FRAMES rendered frames (see _web_load_and_warm)
 
 
 func _end_warmup() -> void:
@@ -492,10 +775,22 @@ func _on_new_campaign() -> void:
 
 func _process(delta: float) -> void:
 	world.animate(delta)
+	if state == State.BRIEFING:
+		# finish building the whole level behind the briefing overlay, 4 ms/frame —
+		# geometry + buffer uploads land here so flight never builds a chunk
+		world.prebuild_step(4000)
 	if state != State.PLAYING:
 		return
 	player.update_flight(delta)
-	world.ensure_world(player.ring_idx)
+	if _gauntlet:
+		_gauntlet_stream()
+		var tier := player.ring_idx / 60
+		if tier != _gauntlet_tier:
+			_apply_gauntlet_tier(tier)
+			hud.show_message("VOID PRESSURE RISING", 1.6)
+			AudioSys.play_select()
+	_drain_stream_queues()
+	world.update_streaming(player.ring_idx)
 	GameState.tick_combo(delta)
 	_update_heat(delta)
 	_update_firing(delta)
@@ -504,6 +799,7 @@ func _process(delta: float) -> void:
 	pickup_mgr.update_pickups(delta)
 	prop_mgr.update_props(delta)
 	hazard_mgr.update_traps(delta)
+	_update_secrets()
 	_update_arena_lock()
 	if _boss_arena_start >= 0 and not _boss_announced \
 			and player.ring_idx >= _boss_arena_start - 4:
@@ -570,6 +866,26 @@ func _notify_cant_fire(msg: String) -> void:
 	hud.show_message(msg)
 
 
+## V2.0 plasma bomb (the original's spacebar screen-clear, on P here): heavy
+## damage to every enemy in visual range, reduced against bosses, and nearby
+## fuel cells cook off. Rare pickup, PLASMA_MAX carried.
+func _fire_plasma_bomb() -> void:
+	if GameState.plasma_bombs <= 0:
+		_notify_cant_fire("NO PLASMA BOMBS")
+		return
+	GameState.plasma_bombs -= 1
+	for k in range(enemy_mgr.enemies.size() - 1, -1, -1):
+		var e: Dictionary = enemy_mgr.enemies[k]
+		if e.node.position.distance_squared_to(player.position) > 120.0 * 120.0:
+			continue
+		enemy_mgr.hit_enemy(k, 25 if e.get("is_boss", false) else 60)
+	prop_mgr.splash(player.position, 60.0)
+	hud.flash_white()
+	player.shake = 0.6
+	AudioSys.play_bomb()
+	hud.show_message("PLASMA BOMB — %d LEFT" % GameState.plasma_bombs, 1.6)
+
+
 func _update_arena_lock() -> void:
 	for arena in path.arenas:
 		if arena.door_ring < 0 or world.is_door_open(arena.id):
@@ -588,6 +904,8 @@ func _on_pickup_collected(kind: String) -> void:
 			hud.show_message("ENERGY CORE +30")
 		"missile":
 			hud.show_message("MISSILE PACK +3")
+		"bomb":
+			hud.show_message("PLASMA BOMB +1")
 	AudioSys.play_select()
 
 
@@ -623,8 +941,9 @@ func _on_tunnel_spawn(ring_idx: int) -> void:
 	# only the menu's idle backdrop stays empty
 	if state == State.MENU:
 		return
-	if randf() < levels[GameState.level_index].spawn_tunnel:
-		enemy_mgr.spawn(ring_idx, -1, _pick_enemy_type(levels[GameState.level_index]))
+	var level := _current_level()
+	if randf() < level.spawn_tunnel:
+		enemy_mgr.spawn(ring_idx, -1, _pick_enemy_type(level))
 
 
 ## I3: weighted pick from a level's enemy_types pool (repeated ids act as weights).
@@ -653,6 +972,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed \
 			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		return
+	if event.is_action_pressed("plasma_bomb"):
+		_fire_plasma_bomb()
 		return
 	for i in 4:
 		if event.is_action_pressed("weapon_%d" % (i + 1)):

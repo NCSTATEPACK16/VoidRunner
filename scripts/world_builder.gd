@@ -10,14 +10,21 @@ const CHUNK := 14              # rings per geometry chunk
 const BUILD_AHEAD := 110       # keep geometry built this many rings ahead
 const FREE_BEHIND := 18        # free geometry this many rings behind
 const MAX_ARENA_LIGHTS := 6
+const VIS_AHEAD := 36          # draw window: 432 m ahead > camera.far and every fog_end
+const SPAWN_AHEAD := 24        # roll tunnel-spawn dice this far ahead of the player
 
 var path: PathGen
-var mats: Dictionary            # {wall, floor, ceil} StandardMaterial3D
+var mats: Dictionary            # {wall, floor, ceil, strip, strip_frames} (TextureGen.theme_set)
 var accent_color := Color("55ffee")
 var accent2_color := Color("ff5533")
 
 var _chunks: Array[Dictionary] = []      # {node, start, end}
 var _built_up_to := 0
+var _pending_lights: Array[Dictionary] = []   # {idx, color, mode, phase, pos}
+var _spawn_cursor := 0
+var _unit_box := BoxMesh.new()     # shared decoration meshes: instances scale via
+var _unit_quad := QuadMesh.new()   # their Basis, so no per-instance mesh gen/upload
+var _door_mat: StandardMaterial3D
 var _caps: Array[MeshInstance3D] = []
 var _doors := {}                          # arena_id -> {node, ring, open}
 var _lights: Array[Dictionary] = []       # {light, idx, mode, phase, energy}
@@ -25,6 +32,8 @@ var _light_t := 0.0
 var _portal: Node3D
 var _portal_ring: MeshInstance3D
 var _portal_pulse := 0.0
+var _strip_t := 0.0        # V2.0 accent floor: frame-swap clock
+var _strip_frame := 0
 var portal_position := Vector3.ZERO
 var portal_active := false
 
@@ -36,14 +45,24 @@ func rebuild(new_path: PathGen, theme_mats: Dictionary, accent: Color,
 	mats = theme_mats
 	accent_color = accent
 	accent2_color = accent2
-	var initial: int = mini(CHUNK * 8, path.rings.size() - 1)
+	_door_mat = mats.wall.duplicate()
+	_door_mat.albedo_color = Color(0.7, 0.7, 0.75)
+	_door_mat.emission_enabled = true
+	_door_mat.emission = accent_color
+	_door_mat.emission_energy_multiplier = 0.25
+	# small synchronous head start (covers the deepest fog at the launch ring);
+	# the briefing pump (prebuild_step) builds the rest of a finite level
+	var initial: int = mini(CHUNK * 3, path.rings.size() - 1)
 	while _built_up_to + CHUNK <= initial:
 		_build_chunk(_built_up_to, _built_up_to + CHUNK)
 		_built_up_to += CHUNK
 	_build_cap(0)
-	_build_cap(path.rings.size() - 1)
+	# K5 endless: no far cap and no exit portal — the tunnel just runs into the fog;
+	# arenas (and their doors) are discovered and built while streaming instead
+	if not path.is_endless:
+		_build_cap(path.rings.size() - 1)
+		_spawn_portal()
 	_build_doors()
-	_spawn_portal()
 
 
 func clear_world() -> void:
@@ -64,11 +83,47 @@ func clear_world() -> void:
 		_portal = null
 	portal_active = false
 	_built_up_to = 0
+	_pending_lights.clear()
+	_spawn_cursor = 0
 
 
-func ensure_world(player_ring: int) -> void:
+## Budgeted prebuild pump: run while the briefing overlay is up so a finite
+## level's whole tunnel is built (and its buffers uploaded — the tunnel renders
+## behind the briefing with no draw window) before flight. Mid-level chunk
+## builds were the recurring web-build stall this removes.
+func prebuild_step(budget_usec: int) -> bool:
+	if path == null or path.is_endless:
+		return true
+	var t0 := Time.get_ticks_usec()
 	var last := path.rings.size() - 1
-	while _built_up_to < last and _built_up_to - player_ring < BUILD_AHEAD:
+	while _built_up_to < last:
+		var end := mini(_built_up_to + CHUNK, last)
+		_build_chunk(_built_up_to, end)
+		_built_up_to = end
+		if Time.get_ticks_usec() - t0 >= budget_usec:
+			break
+	return _built_up_to >= last
+
+
+func is_prebuilt() -> bool:
+	return path != null and not path.is_endless \
+		and _built_up_to >= path.rings.size() - 1
+
+
+## Synchronous safety net for launches that outran the briefing pump
+## (speed-clicks, tests calling _launch_level directly).
+func prebuild_all() -> void:
+	while not prebuild_step(1 << 30):
+		pass
+
+
+func update_streaming(player_ring: int) -> void:
+	var last := path.rings.size() - 1
+	# endless mode still streams geometry ahead (finite levels are prebuilt) —
+	# hard-capped at ONE chunk build per frame: at cruise speed the player crosses
+	# a ring in ~0.67 s, so a 14-ring chunk per frame outruns them ~500× while the
+	# per-frame worst case stays one SurfaceTool commit instead of a burst
+	if _built_up_to < last and _built_up_to - player_ring < BUILD_AHEAD:
 		var end := mini(_built_up_to + CHUNK, last)
 		_build_chunk(_built_up_to, end)
 		_built_up_to = end
@@ -78,9 +133,45 @@ func ensure_world(player_ring: int) -> void:
 	while not _lights.is_empty() and _lights[0].idx < player_ring - FREE_BEHIND:
 		_lights[0].light.queue_free()
 		_lights.pop_front()
+	# arena lights are recorded at build time but instantiated by proximity, so a
+	# prebuilt level fills its MAX_ARENA_LIGHTS slots exactly like streaming did
+	while not _pending_lights.is_empty() \
+			and _pending_lights[0].idx < player_ring + BUILD_AHEAD:
+		var pl: Dictionary = _pending_lights.pop_front()
+		if _lights.size() >= MAX_ARENA_LIGHTS:
+			continue
+		var light := OmniLight3D.new()
+		light.light_color = pl.color
+		light.light_energy = 1.1
+		light.omni_range = 80.0
+		light.position = pl.pos
+		add_child(light)
+		_lights.append({"light": light, "idx": pl.idx, "mode": pl.mode,
+			"phase": pl.phase, "energy": 1.1})
+	# tunnel-spawn dice roll just ahead of the player, not at build time: a
+	# prebuilt level would roll every ring at once and the 300 u despawn would
+	# cull the lot (which is what streaming already did, silently, to every
+	# spawn past ~25 rings — so this is also the mid/late-level density fix)
+	var spawn_to := mini(_built_up_to, player_ring + SPAWN_AHEAD)
+	while _spawn_cursor < spawn_to:
+		_spawn_cursor += 1
+		if _spawn_cursor > 20 and path.rings[_spawn_cursor].arena_id < 0:
+			tunnel_spawn_requested.emit(_spawn_cursor)
+	# draw window: prebuilt chunks far beyond the fog stay resident but invisible
+	for c in _chunks:
+		c.node.visible = c.end >= player_ring - FREE_BEHIND \
+			and c.start <= player_ring + VIS_AHEAD
 
 
 func animate(delta: float) -> void:
+	# V2.0 accent floor: march the light band down the corridor — an albedo
+	# texture swap on ONE shared material, so no shader variants and WebGL-safe
+	if mats.has("strip_frames"):
+		_strip_t += delta
+		var fi := int(_strip_t / 0.12) % (mats.strip_frames as Array).size()
+		if fi != _strip_frame:
+			_strip_frame = fi
+			(mats.strip as StandardMaterial3D).albedo_texture = mats.strip_frames[fi]
 	if _portal and portal_active:
 		_portal_pulse += delta * 3.0
 		_portal_ring.rotate_object_local(Vector3(0, 0, 1), delta * 1.6)
@@ -167,6 +258,7 @@ func set_portal_active(on: bool) -> void:
 func _build_chunk(s: int, e: int) -> void:
 	var surfaces := {
 		"floor": SurfaceTool.new(), "ceil": SurfaceTool.new(), "wall": SurfaceTool.new(),
+		"strip": SurfaceTool.new(),
 	}
 	for key in surfaces:
 		surfaces[key].begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -195,6 +287,16 @@ func _build_chunk(s: int, e: int) -> void:
 			path.corner(r0, 1, -1), path.corner(r0, 1, 1),
 			path.corner(r1, 1, 1), path.corner(r1, 1, -1),
 			[Vector2(u0, 0), Vector2(u0, vw0), Vector2(u1, vw1), Vector2(u1, 0)])
+		# V2.0 accent floor strip: a narrow glowing centreline in plain tunnel only
+		# (arenas/boss rooms keep their own lighting language). UV.y runs along the
+		# tunnel so the marching band in the texture flows with the flight.
+		if r0.arena_id < 0 and r1.arena_id < 0:
+			var sw := 1.2
+			var f0: Vector3 = r0.p + r0.u * (-(r0.hh - r0.fo) + 0.08)
+			var f1: Vector3 = r1.p + r1.u * (-(r1.hh - r1.fo) + 0.08)
+			_quad(surfaces.strip, r0.u,
+				f0 - r0.r * sw, f0 + r0.r * sw, f1 + r1.r * sw, f1 - r1.r * sw,
+				[Vector2(0, u0), Vector2(1, u0), Vector2(1, u1), Vector2(0, u1)])
 	var chunk_node := Node3D.new()
 	for key in surfaces:
 		var mi := MeshInstance3D.new()
@@ -213,47 +315,38 @@ func _build_chunk(s: int, e: int) -> void:
 			if ri % 3 == 0:
 				for side in [-1.0, 1.0]:
 					var pilaster := MeshInstance3D.new()
-					var pbox := BoxMesh.new()
-					pbox.size = Vector3(1.0, ring.hh * 2.0, 2.2)
-					pilaster.mesh = pbox
+					pilaster.mesh = _unit_box
 					pilaster.material_override = mats.wall
 					pilaster.transform = Transform3D(
-						Basis(ring.r, ring.u, -ring.d),
+						Basis(ring.r, ring.u * (ring.hh * 2.0), -ring.d * 2.2),
 						ring.p + ring.r * (side * (ring.hw - 0.5)))
 					chunk_node.add_child(pilaster)
 			if ri % 9 == 4:
 				var beam := MeshInstance3D.new()
-				var bbox := BoxMesh.new()
-				bbox.size = Vector3(ring.hw * 2.0, 1.0, 1.6)
-				beam.mesh = bbox
+				beam.mesh = _unit_box
 				beam.material_override = mats.ceil
 				beam.transform = Transform3D(
-					Basis(ring.r, ring.u, -ring.d),
+					Basis(ring.r * (ring.hw * 2.0), ring.u, -ring.d * 1.6),
 					ring.p + ring.u * (ring.hh - 0.5))
 				chunk_node.add_child(beam)
-		if ring.arena_center and _lights.size() < MAX_ARENA_LIGHTS:
+		if ring.arena_center and ring.arena_id % 4 != 3:
 			# K1/V-10: every 4th arena stays unlit — a shadow pocket where only the
-			# fog-to-black ambient reads and lurking enemies are radar-first contacts
-			if ring.arena_id % 4 == 3:
-				continue
-			var light := OmniLight3D.new()
-			light.light_color = accent2_color if (ri % 2 == 0) else accent_color
-			light.light_energy = 1.1
-			light.omni_range = 80.0
-			light.position = ring.p + ring.u * (ring.hh * 0.5)
-			add_child(light)
-			# deterministic per-ring mood: most lights steady, some shimmer, a few strobe
+			# fog-to-black ambient reads and lurking enemies are radar-first contacts.
+			# Deterministic per-ring mood: most steady, some shimmer, a few strobe.
+			# Recorded here, instantiated by proximity in update_streaming so a fully
+			# prebuilt level doesn't spend all MAX_ARENA_LIGHTS slots on its first six.
 			var mode := "steady"
 			if ri % 3 == 0:
 				mode = "flicker"
 			elif ri % 7 == 0:
 				mode = "strobe"
-			_lights.append({"light": light, "idx": ri, "mode": mode,
-				"phase": float(ri % 13), "energy": 1.1})
-		# tunnel enemies spawn by chance as geometry streams in (arena enemies are
-		# pre-spawned deterministically by the game for exact door kill-counts)
-		if ri > 20 and ring.arena_id < 0:
-			tunnel_spawn_requested.emit(ri)
+			_pending_lights.append({"idx": ri,
+				"color": accent2_color if (ri % 2 == 0) else accent_color,
+				"mode": mode, "phase": float(ri % 13),
+				"pos": ring.p + ring.u * (ring.hh * 0.5)})
+		# tunnel enemies no longer spawn here: update_streaming rolls the dice via
+		# _spawn_cursor just ahead of the player (arena enemies stay pre-spawned
+		# deterministically by the game for exact door kill-counts)
 
 
 func _quad(st: SurfaceTool, normal: Vector3, a: Vector3, b: Vector3, c: Vector3, d: Vector3,
@@ -268,33 +361,33 @@ func _quad(st: SurfaceTool, normal: Vector3, a: Vector3, b: Vector3, c: Vector3,
 func _build_cap(idx: int) -> void:
 	var ring: Dictionary = path.rings[idx]
 	var mi := MeshInstance3D.new()
-	var quad := QuadMesh.new()
-	quad.size = Vector2(ring.hw * 2.0, ring.hh * 2.0)
-	mi.mesh = quad
+	mi.mesh = _unit_quad
 	mi.material_override = mats.wall
-	mi.transform = _ring_transform(ring)
+	mi.transform = Transform3D(
+		Basis(ring.r * (ring.hw * 2.0), ring.u * (ring.hh * 2.0), -ring.d), ring.p)
 	add_child(mi)
 	_caps.append(mi)
 
 
 func _build_doors() -> void:
 	for arena in path.arenas:
-		if arena.door_ring < 0:
-			continue
-		var ring: Dictionary = path.rings[arena.door_ring]
-		var mi := MeshInstance3D.new()
-		var quad := QuadMesh.new()
-		quad.size = Vector2(ring.hw * 2.0 + 2.0, ring.hh * 2.0 + 2.0)
-		mi.mesh = quad
-		var door_mat: StandardMaterial3D = mats.wall.duplicate()
-		door_mat.albedo_color = Color(0.7, 0.7, 0.75)
-		door_mat.emission_enabled = true
-		door_mat.emission = accent_color
-		door_mat.emission_energy_multiplier = 0.25
-		mi.material_override = door_mat
-		mi.transform = _ring_transform(ring)
-		add_child(mi)
-		_doors[arena.id] = {"node": mi, "ring": arena.door_ring, "open": false}
+		build_door(arena)
+
+
+## One bulkhead quad. Public because endless mode discovers arenas mid-flight
+## (K5) and needs their doors built as they appear.
+func build_door(arena: Dictionary) -> void:
+	if arena.door_ring < 0 or _doors.has(arena.id):
+		return
+	var ring: Dictionary = path.rings[arena.door_ring]
+	var mi := MeshInstance3D.new()
+	mi.mesh = _unit_quad
+	mi.material_override = _door_mat   # one shared emissive variant per level
+	mi.transform = Transform3D(
+		Basis(ring.r * (ring.hw * 2.0 + 2.0), ring.u * (ring.hh * 2.0 + 2.0), -ring.d),
+		ring.p)
+	add_child(mi)
+	_doors[arena.id] = {"node": mi, "ring": arena.door_ring, "open": false}
 
 
 func _ring_transform(ring: Dictionary) -> Transform3D:

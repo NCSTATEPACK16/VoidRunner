@@ -19,4 +19,4 @@ enemy_speed = 7.6
 enemy_fire = 2.2
 theme_id = "rock"
 level_seed = 303
-enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk")
+enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk", "turret")
