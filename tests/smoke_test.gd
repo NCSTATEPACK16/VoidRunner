@@ -192,6 +192,15 @@ func _run() -> void:
 		gm._sim(0.01)
 	assert(gm.active_count() == 0)
 	print("gibs ok — cap held, pool drained")
+	# --- V2.2 L1c: hit-stop — crushes time, cooldown gates spam, real-time restore ---
+	gm.hit_stop(50)
+	assert(Engine.time_scale < 0.5)
+	gm.hit_stop(200)   # lands inside the 150 ms cooldown: must be ignored
+	assert(gm._stop_restore_ms - Time.get_ticks_msec() <= 60)
+	gm._stop_restore_ms = Time.get_ticks_msec() - 1   # force the restore due now
+	gm._process(0.016)
+	assert(is_equal_approx(Engine.time_scale, 1.0))
+	print("hit-stop ok — crush + cooldown + restore")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1

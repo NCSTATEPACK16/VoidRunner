@@ -18,6 +18,11 @@ var _g: Array[Dictionary] = []
 var _order: Array[int] = []       # spawn order for oldest-first recycling
 var _frames: Array = []           # [shape][rot 0..3] -> ImageTexture
 
+# L1 hit-stop: Engine.time_scale crush with a REAL-time restore (_process ticks
+# every frame regardless of time_scale or game state, so restore can't be missed).
+var _stop_restore_ms := 0
+var _stop_cooldown_ms := 0
+
 
 func _ready() -> void:
 	for tex in SpriteGen.gib_frames():
@@ -52,8 +57,26 @@ func active_count() -> int:
 	return n
 
 
+## Freeze-frame: kill punctuation. 150 ms cooldown keeps multi-kills punchy, not
+## stuttery; `force` lets the boss-death slow-mo override a burst's own stop.
+func hit_stop(ms: int, scale := 0.08, force := false) -> void:
+	var now := Time.get_ticks_msec()
+	if not force and now < _stop_cooldown_ms:
+		return
+	_stop_cooldown_ms = now + ms + 150
+	_stop_restore_ms = now + ms
+	Engine.time_scale = scale
+
+
+func _process(_delta: float) -> void:
+	if _stop_restore_ms > 0 and Time.get_ticks_msec() >= _stop_restore_ms:
+		_stop_restore_ms = 0
+		Engine.time_scale = 1.0
+
+
 ## Matches EnemyManager.gibs_requested, so game.gd connects it directly.
 func burst(pos: Vector3, base_vel: Vector3, ring: int, count: int, tint: Color) -> void:
+	hit_stop(90 if count >= 20 else (50 if count >= 12 else 30))   # class rides the count
 	for k in count:
 		var slot := _take_slot()
 		var st: Dictionary = _g[slot]

@@ -918,6 +918,7 @@ func _on_pickup_collected(kind: String) -> void:
 
 
 func _on_boss_killed() -> void:
+	gib_mgr.hit_stop(250, 0.25, true)   # V2.2 L1: boss-death slow-mo beats the cooldown
 	world.set_portal_active(true)
 	hud.show_message("SIGNATURE ELIMINATED — GATE OPEN", 3.0)
 	AudioSys.play_portal()
@@ -925,6 +926,7 @@ func _on_boss_killed() -> void:
 
 
 func _on_boss_phase(phase: int) -> void:
+	gib_mgr.hit_stop(90)   # V2.2 L1: phase transitions land with a beat
 	if phase == 2:
 		hud.show_message("SIGNATURE SHIFTING — VOLLEY PATTERN", 2.5)
 	elif phase == 3:
