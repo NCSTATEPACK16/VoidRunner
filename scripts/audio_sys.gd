@@ -16,6 +16,9 @@ var _music: Array[AudioStreamPlayer] = []
 var _ramp_floor := 0.0   # gauntlet depth ramp: a floor under the live intensity
 var _intensity := 0.0    # 0 CALM → 1 COMBAT → 2 FRENZY, continuous
 var _calm_t := 0.0
+var _music_lin: Array[float] = [0.0, 0.001, 0.001]   # crossfade state, linear
+var _duck_amt := 0.0     # V2.2 L2d: dB offset on heavy kills, eases back to 0
+var _duck_until_ms := 0
 var _enemy_mgr: Node = null   # combat feeds, wired once by game._ready
 var _shot_mgr: Node = null
 var _listener: Node3D = null
@@ -74,6 +77,7 @@ func _ready() -> void:
 		mp.volume_db = MUSIC_DB if m == 0 else -60.0
 		add_child(mp)
 		_music.append(mp)
+	_music_lin[0] = db_to_linear(MUSIC_DB)
 
 
 func unlock() -> void:
@@ -141,19 +145,27 @@ func _mix_weights(i: float) -> Vector3:   # (calm, combat, frenzy)
 			clampf(i - 1.0, 0.0, 1.0))
 
 
+## V2.2 L2d: heavy kills push the music down −8 dB for a beat, restoring over
+## ~0.2 s — the same per-frame volume writes carry it, no tween nodes.
+func duck(ms := 100) -> void:
+	_duck_until_ms = Time.get_ticks_msec() + ms
+	_duck_amt = -8.0
+
+
 func _process(delta: float) -> void:
 	if _music.is_empty():
 		return
 	if _listener != null:
 		_update_intensity(delta, _listener.position)
+	if _duck_amt < 0.0 and Time.get_ticks_msec() >= _duck_until_ms:
+		_duck_amt = minf(_duck_amt + 40.0 * delta, 0.0)
 	# crossfade each bed toward its weight — 3 volume writes, invisible on perf
 	var w := _mix_weights(_intensity)
 	var full := db_to_linear(MUSIC_DB)
 	var k := minf(delta / 1.2, 1.0)
 	for m in 3:
-		var mp := _music[m]
-		var cur := db_to_linear(mp.volume_db)
-		mp.volume_db = linear_to_db(maxf(lerpf(cur, full * w[m], k), 0.001))
+		_music_lin[m] = maxf(lerpf(_music_lin[m], full * w[m], k), 0.001)
+		_music[m].volume_db = linear_to_db(_music_lin[m]) + _duck_amt
 
 
 func play_laser(freq: float) -> void:

@@ -394,6 +394,8 @@ func _kill(index: int, scored: bool) -> void:
 		else GIB_TINTS.get(e.get("type", ""), Color(0.6, 0.6, 0.65))
 	gibs_requested.emit(e.node.position,
 		(e.node.position - player.position).normalized() * 4.0, e.ring, gcount, gtint)
+	if gcount >= 12:   # V2.2 L2d: hulk/boss kills punch the music down for a beat
+		AudioSys.duck(140 if e.get("is_boss", false) else 100)
 	# Phase J feedback: nearby kills thump the camera a little
 	if e.node.position.distance_squared_to(player.position) < 2500.0:
 		player.shake = minf(0.6, player.shake + 0.12)
