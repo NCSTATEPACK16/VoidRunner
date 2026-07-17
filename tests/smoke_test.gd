@@ -304,6 +304,34 @@ func _run() -> void:
 	assert(is_equal_approx(game.player.wall_damage_mult(), 0.7))   # hull plating
 	GameState.ship_ranks.hull = 0
 	print("apply ok — marks + ranks reach the consumption sites")
+	# --- V2.2 L3d: Upgrade Bay — buy weapon marks + ship ranks, bank at level end ---
+	GameState.reset_run()
+	GameState.salvage_run = 0
+	GameState.salvage_bank = 500
+	GameState.ship_ranks.shield = 0
+	GameState.ship_ranks.magnet = 0
+	assert(game.overlays.bay_buy_weapon(0))                       # MK I -> II, 60
+	assert(GameState.weapon_marks[0] == 1 and GameState.salvage_total() == 440)
+	assert(game.overlays.bay_buy_weapon(0))                       # MK II -> III, 140
+	assert(GameState.weapon_marks[0] == 2 and GameState.salvage_total() == 300)
+	assert(not game.overlays.bay_buy_weapon(0))                   # maxed — no charge
+	assert(GameState.salvage_total() == 300)
+	assert(game.overlays.bay_buy_ship("shield"))                 # rank 0 -> 1, 120
+	assert(GameState.ship_ranks.shield == 1 and GameState.salvage_total() == 180)
+	assert(game.overlays.bay_buy_ship("magnet"))                 # single rank, 180
+	assert(GameState.ship_ranks.magnet == 1 and GameState.salvage_total() == 0)
+	assert(not game.overlays.bay_buy_ship("magnet"))             # already maxed
+	assert(not game.overlays.bay_buy_ship("shield"))             # can't afford rank 2 (260)
+	# banking: the level's unbanked haul folds into the persistent bank
+	GameState.reset_run()
+	GameState.salvage_run = 45
+	GameState.bank_salvage()
+	assert(GameState.salvage_run == 0 and GameState.salvage_bank == 45)
+	GameState.reset_run()
+	GameState.salvage_bank = 0            # scrub bank + ranks for later sections
+	GameState.ship_ranks.shield = 0
+	GameState.ship_ranks.magnet = 0
+	print("bay ok — marks + ranks bought, banking works")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1

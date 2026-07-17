@@ -588,6 +588,7 @@ func _level_complete() -> void:
 	AudioSys.stop_engine()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	var idx := GameState.level_index
+	var earned := GameState.salvage_run   # V2.2 L3: haul this level, captured before banking
 	var bonus := 500 + idx * 250
 	# K3: secondary objective — every fuel cell destroyed
 	var secondary_done := GameState.level_props_total > 0 \
@@ -609,6 +610,7 @@ func _level_complete() -> void:
 	GameState.unlocked_level = mini(
 		maxi(GameState.unlocked_level, idx + 1), levels.size() - 1)
 	var new_record := GameState.record_progress(rank)
+	GameState.bank_salvage()   # V2.2 L3: this level's salvage haul → persistent bank
 	if idx >= levels.size() - 1:
 		state = State.VICTORY
 		overlays.set_final_score("victory", GameState.score, new_record)
@@ -618,7 +620,7 @@ func _level_complete() -> void:
 		overlays.set_level_clear(
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
 			GameState.level_kills, acc, player.elapsed, rank, secondary_done,
-			GameState.level_secrets, GameState.level_secrets_total, GameState.peak_style)
+			GameState.level_secrets, GameState.level_secrets_total, GameState.peak_style, earned)
 		overlays.show_only("level_clear")
 
 

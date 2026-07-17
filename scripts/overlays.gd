@@ -17,9 +17,23 @@ const TITLE_COL := Color("62ffd0")
 const TEXT_COL := Color("8fb8cc")
 const KEY_COL := Color("ffd34d")
 
+# V2.2 L3d: Upgrade Bay — cost to reach the NEXT tier, indexed by current tier.
+const WEAPON_COST := [60, 140]              # MK I->II, MK II->III
+const BAY_WEAPONS := ["NEUTRON", "SCATTER", "BOLT", "MISSILE"]
+const BAY_SHIP := [   # [GameState.ship_ranks key, display label]
+	["shield", "SHIELD"], ["heat", "HEAT SINK"], ["energy", "ENERGY"],
+	["rack", "MSL RACK"], ["magnet", "MAGNET"], ["hull", "HULL"],
+]
+const SHIP_COST := {   # cost per rank; array length = max rank
+	"shield": [120, 260], "heat": [120, 260], "energy": [120, 260],
+	"rack": [120, 260], "magnet": [180], "hull": [180],
+}
+
 var _panels := {}
 var _settings_labels := {}       # H: setting key -> its value Label/Button
 var _settings_return := "start"  # where the settings BACK button returns to
+var _bay_rows := {}              # V2.2 L3d: row id -> {status: Label, buy: Button}
+var _bay_salvage_label: Label
 
 # Phase J: sector select + records on the start screen
 var _sector := 0
@@ -38,6 +52,7 @@ func _ready() -> void:
 	_build_level_clear()
 	_build_victory()
 	_build_settings()
+	_build_bay()
 	show_only("start")
 
 
@@ -103,7 +118,7 @@ func set_briefing(level: LevelDef) -> void:
 
 func set_level_clear(level_name: String, bonus: int, score: int, next_name: String,
 		kills: int, acc: int, time: float, rank: String, secondary := false,
-		secrets := 0, secrets_total := 0, style_peak := 0) -> void:
+		secrets := 0, secrets_total := 0, style_peak := 0, salvage := 0) -> void:
 	var p: Control = _panels.level_clear
 	(p.get_node("Title") as Label).text = level_name + " CLEAR"
 	var extras: Array[String] = []
@@ -113,6 +128,8 @@ func set_level_clear(level_name: String, bonus: int, score: int, next_name: Stri
 		extras.append("SECRETS %d/%d" % [secrets, secrets_total])
 	if style_peak > 0:   # V2.2 L2c: best style grade pays out
 		extras.append("STYLE: %s +%d" % [GameState.STYLE_NAMES[style_peak], style_peak * 100])
+	if salvage > 0:   # V2.2 L3: salvage hauled this level (banked at completion)
+		extras.append("SALVAGE +%d" % salvage)
 	var secondary_line := ("\n" + " · ".join(extras)) if not extras.is_empty() else ""
 	(p.get_node("Body") as Label).text = \
 		"KILLS %d · ACCURACY %d%% · TIME %s%s\nEXIT BONUS +%d · SCORE %d\nNEXT: %s" % [
@@ -229,7 +246,10 @@ func _build_briefing() -> void:
 	b.size = Vector2(260, 80) * 2  # _line labels are 2x-size, 0.5-scale (see _line)
 	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_button(p, Vector2(128, 164), "> LAUNCH", func() -> void:
+	_button(p, Vector2(58, 164), "* UPGRADE BAY", func() -> void:
+		_refresh_bay()
+		show_only("bay"))
+	_button(p, Vector2(196, 164), "> LAUNCH", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
 
@@ -347,6 +367,98 @@ func _refresh_settings() -> void:
 		(_settings_labels["amber"] as Button).text = "ON" if GameState.amber_mode else "OFF"
 	if _settings_labels.has("shake"):
 		(_settings_labels["shake"] as Button).text = "ON" if GameState.screen_shake else "OFF"
+
+
+## V2.2 L3d: Upgrade Bay — reached from the briefing (a button swaps to this panel).
+## Weapon marks are per-run, ship ranks persist; buying draws from salvage (the run
+## haul first, then the bank) via GameState.spend_salvage. One place, no shop sprawl.
+func _build_bay() -> void:
+	var p := _panel("bay")
+	_title(p, "UPGRADE BAY", 14, TITLE_COL)
+	_at(p, Vector2(20, 50), "WEAPON MARKS", 8, KEY_COL)
+	for i in BAY_WEAPONS.size():
+		_bay_row(p, 20, 64 + i * 13, "w%d" % i, BAY_WEAPONS[i])
+	_at(p, Vector2(168, 50), "SHIP SYSTEMS", 8, KEY_COL)
+	for i in BAY_SHIP.size():
+		_bay_row(p, 168, 64 + i * 13, "s:" + BAY_SHIP[i][0], BAY_SHIP[i][1])
+	_bay_salvage_label = _at(p, Vector2(20, 172), "", 8, KEY_COL)
+	_button(p, Vector2(150, 180), "< BACK", func() -> void: show_only("briefing"))
+	_button(p, Vector2(224, 180), "> LAUNCH", func() -> void:
+		AudioSys.unlock()
+		launch_requested.emit())
+	_refresh_bay()
+
+
+func _bay_row(p: Control, x: float, y: float, id: String, label: String) -> void:
+	_at(p, Vector2(x, y + 2), label, 8, TEXT_COL)
+	var status := _at(p, Vector2(x + 58, y + 2), "", 8, Color("5fb6d8"))
+	var buy := _button(p, Vector2(x + 92, y), "", func() -> void: _bay_buy(id))
+	_bay_rows[id] = {"status": status, "buy": buy}
+
+
+func _bay_buy(id: String) -> void:
+	if id.begins_with("s:"):
+		bay_buy_ship(id.substr(2))
+	else:
+		bay_buy_weapon(int(id.substr(1)))
+
+
+## Purchase entries the Bay buttons call — also the testable seam. Return false when
+## already maxed or salvage is short (spend_salvage leaves the balance untouched).
+func bay_buy_weapon(widx: int) -> bool:
+	var mk: int = GameState.weapon_marks[widx]
+	if mk >= WEAPON_COST.size():
+		return false
+	if not GameState.spend_salvage(WEAPON_COST[mk]):
+		return false
+	GameState.weapon_marks[widx] = mk + 1
+	AudioSys.play_select()
+	_refresh_bay()
+	return true
+
+
+func bay_buy_ship(key: String) -> bool:
+	var rank: int = GameState.ship_ranks[key]
+	var costs: Array = SHIP_COST[key]
+	if rank >= costs.size():
+		return false
+	if not GameState.spend_salvage(costs[rank]):
+		return false
+	GameState.ship_ranks[key] = rank + 1
+	AudioSys.play_select()
+	_refresh_bay()
+	return true
+
+
+func _refresh_bay() -> void:
+	if _bay_rows.is_empty():
+		return
+	for i in BAY_WEAPONS.size():
+		var mk: int = GameState.weapon_marks[i]
+		var row: Dictionary = _bay_rows["w%d" % i]
+		(row.status as Label).text = "MK%d" % (mk + 1)
+		var buy := row.buy as Button
+		if mk >= WEAPON_COST.size():
+			buy.text = "MAX"
+			buy.disabled = true
+		else:
+			buy.text = str(WEAPON_COST[mk])
+			buy.disabled = GameState.salvage_total() < WEAPON_COST[mk]
+	for row_def in BAY_SHIP:
+		var key: String = row_def[0]
+		var rank: int = GameState.ship_ranks[key]
+		var costs: Array = SHIP_COST[key]
+		var srow: Dictionary = _bay_rows["s:" + key]
+		(srow.status as Label).text = "%d/%d" % [rank, costs.size()]
+		var sbuy := srow.buy as Button
+		if rank >= costs.size():
+			sbuy.text = "MAX"
+			sbuy.disabled = true
+		else:
+			sbuy.text = str(costs[rank])
+			sbuy.disabled = GameState.salvage_total() < costs[rank]
+	if _bay_salvage_label:
+		_bay_salvage_label.text = "SALVAGE: %d" % GameState.salvage_total()
 
 
 # ---------- widget helpers ----------
