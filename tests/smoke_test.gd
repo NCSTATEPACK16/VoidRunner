@@ -256,6 +256,28 @@ func _run() -> void:
 	GameState.reset_level_stats()
 	assert(GameState.peak_style == 0)      # peak is per-level
 	print("style ok — grades + peak")
+	# --- V2.2 L3a: salvage economy + upgrade accessors ---
+	GameState.reset_run()
+	GameState.salvage_run = 50
+	GameState.salvage_bank = 30
+	assert(GameState.salvage_total() == 80)
+	assert(GameState.spend_salvage(60) and GameState.salvage_run == 0 \
+		and GameState.salvage_bank == 20)   # spend drains run first, then bank
+	assert(not GameState.spend_salvage(999))   # can't overdraw
+	GameState.weapon_marks[0] = 2
+	assert(is_equal_approx(GameState.weapon_mult(0, "damage"), 1.75))   # NEUTRON MK III
+	assert(GameState.weapon_add(1, "pellets") == 0)   # SCATTER still MK I
+	GameState.ship_ranks.shield = 1
+	assert(is_equal_approx(GameState.max_shields(), 120.0))   # shield cap rank 1
+	GameState.save_records()
+	GameState.ship_ranks.shield = 0
+	GameState.load_records()
+	assert(GameState.ship_ranks.shield == 1)   # ship rank persists
+	GameState.reset_run()
+	assert(GameState.weapon_marks[0] == 0)     # marks are per-run
+	GameState.ship_ranks.shield = 0            # scrub test state for later sections
+	GameState.salvage_bank = 0
+	print("economy ok — salvage + marks + ranks")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1
