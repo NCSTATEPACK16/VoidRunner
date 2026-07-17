@@ -347,6 +347,28 @@ static func explosion_frames() -> Array[ImageTexture]:
 	return frames
 
 
+## V2.2 L1: 4 small jagged debris chunks in bright greys — tinted per enemy at
+## spawn via Sprite3D.modulate, so one texture set serves every archetype.
+static var _gib_cache: Array[ImageTexture] = []
+
+
+static func gib_frames() -> Array[ImageTexture]:
+	if not _gib_cache.is_empty():
+		return _gib_cache
+	var rng := RandomNumberGenerator.new()
+	for i in 4:
+		rng.seed = 7700 + i
+		var img := Image.create(10, 10, false, Image.FORMAT_RGBA8)
+		for y in 10:
+			for x in 10:
+				var d := Vector2(x - 5, y - 5).length() / 4.0
+				if d < 0.55 + rng.randf() * 0.45:
+					var v := 0.62 + rng.randf() * 0.38
+					_px(img, x, y, Color(v, v, v))
+		_gib_cache.append(ImageTexture.create_from_image(img))
+	return _gib_cache
+
+
 ## Build a billboarded Sprite3D configured for the chunky look.
 static func make_sprite(tex: Texture2D, world_size: float) -> Sprite3D:
 	var s := Sprite3D.new()

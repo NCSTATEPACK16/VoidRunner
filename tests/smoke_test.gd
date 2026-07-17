@@ -63,6 +63,13 @@ func _run() -> void:
 		i += 1
 		count += 1
 	assert(count == 9)
+	# --- V2.2 L1a: gib fragment textures ---
+	var gframes: Array = SpriteGen.gib_frames()
+	assert(gframes.size() == 4)
+	for gf in gframes:
+		assert(gf is Texture2D and gf.get_width() >= 8)
+	assert(SpriteGen.gib_frames()[0] == gframes[0])   # cached, not re-rendered
+	print("gib frames ok — %d shapes" % gframes.size())
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()
 	add_child(game)
 	await get_tree().process_frame
