@@ -12,7 +12,7 @@ signal exploded(pos: Vector3, big: bool)
 signal turret_destroyed(pos: Vector3)   # V2.0: game chains fuel cells off this
 signal boss_killed
 signal boss_phase(phase: int)
-signal drop_spawned(pos: Vector3, ring: int, kind: String)
+signal drop_spawned(pos: Vector3, ring: int, kind: String, value: int)
 signal gibs_requested(pos: Vector3, vel: Vector3, ring: int, count: int, tint: Color)   # V2.2 L1
 
 const CONTACT_DMG := 12.0
@@ -401,19 +401,28 @@ func _kill(index: int, scored: bool) -> void:
 		player.shake = minf(0.6, player.shake + 0.12)
 	if scored:
 		GameState.register_kill(int(e.score))   # streak-multiplied (Phase J)
+		# V2.2 L3b: salvage — guaranteed from heavies, a 30% roll from the rest
+		if e.get("is_boss", false):
+			drop_spawned.emit(e.node.position, e.ring, "salvage", 50)
+		elif e.get("type", "") == "hulk":
+			drop_spawned.emit(e.node.position, e.ring, "salvage", 15)
+		elif e.get("type", "") == "turret":
+			drop_spawned.emit(e.node.position, e.ring, "salvage", 10)
+		elif randf() < 0.30:
+			drop_spawned.emit(e.node.position, e.ring, "salvage", 5)
 		# Phase J drop roll — one chance per scored kill (never the boss itself;
 		# its reward is the exit ring). Hulks are tanky, so they drop more often.
 		if not e.get("is_boss", false):
 			var mult: float = 1.6 if e.get("type", "") == "hulk" else 1.0
 			var roll := randf()
 			if roll < 0.12 * mult:
-				drop_spawned.emit(e.node.position, e.ring, "shield")
+				drop_spawned.emit(e.node.position, e.ring, "shield", 0)
 			elif roll < 0.22 * mult:
-				drop_spawned.emit(e.node.position, e.ring, "energy")
+				drop_spawned.emit(e.node.position, e.ring, "energy", 0)
 			elif roll < 0.30 * mult:
-				drop_spawned.emit(e.node.position, e.ring, "missile")
+				drop_spawned.emit(e.node.position, e.ring, "missile", 0)
 			elif roll < 0.34 * mult:
-				drop_spawned.emit(e.node.position, e.ring, "bomb")   # V2.0: rare
+				drop_spawned.emit(e.node.position, e.ring, "bomb", 0)   # V2.0: rare
 	enemy_killed.emit(e.arena_id)
 	_release_node(e.node)
 	enemies.remove_at(index)

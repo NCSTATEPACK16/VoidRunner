@@ -486,6 +486,8 @@ func _update_secrets() -> void:
 			for kind in kinds:
 				pickup_mgr.spawn_drop(
 					player.position + ring.d * randf_range(2.0, 6.0), s.ring, kind)
+			pickup_mgr.spawn_drop(   # V2.2 L3b: caches always hide scrap
+				player.position + ring.d * randf_range(2.0, 6.0), s.ring, "salvage", 25)
 
 
 ## K5: the active tuning source — campaign levels from resources, gauntlet from
@@ -925,7 +927,7 @@ func _update_arena_lock() -> void:
 	hud.set_kill_counter(0, 0)
 
 
-func _on_pickup_collected(kind: String) -> void:
+func _on_pickup_collected(kind: String, value := 0) -> void:
 	match kind:
 		"shield":
 			hud.show_message("SHIELD CELL +20")
@@ -935,6 +937,8 @@ func _on_pickup_collected(kind: String) -> void:
 			hud.show_message("MISSILE PACK +3")
 		"bomb":
 			hud.show_message("PLASMA BOMB +1")
+		"salvage":   # V2.2 L3b
+			hud.show_message("SALVAGE +%d" % value)
 	AudioSys.play_select()
 
 

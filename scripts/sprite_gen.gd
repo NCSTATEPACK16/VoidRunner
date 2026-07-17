@@ -299,6 +299,12 @@ static func pickup_texture(kind: String) -> ImageTexture:
 			_rect(img, 7, 7, 2, 2, Palette.WHITE)
 			for arm in [Vector2i(8, 2), Vector2i(8, 14), Vector2i(2, 8), Vector2i(14, 8)]:
 				_px(img, arm.x, arm.y, Palette.ORANGE_3)
+		"salvage":   # V2.2 L3: scrap nugget — chunky gold ingot with a glint
+			_ellipse(img, 8, 9, 6, 5, Palette.ORANGE_0)
+			_rect(img, 4, 6, 8, 6, Palette.ORANGE_1)
+			_rect(img, 5, 5, 6, 5, Palette.ORANGE_2)
+			_rect(img, 6, 4, 3, 3, Palette.ORANGE_3)
+			_px(img, 7, 5, Palette.WHITE)
 	return ImageTexture.create_from_image(img)
 
 

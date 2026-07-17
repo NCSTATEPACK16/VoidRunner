@@ -5,7 +5,7 @@ extends Node3D
 ## and expire (blinking) if ignored — fly through to collect. Distance checks,
 ## no physics bodies, same as every other system in this game.
 
-signal collected(kind: String)
+signal collected(kind: String, value: int)   # value: salvage amount, else 0
 
 const MAGNET_RANGE_SQ := 14.0 * 14.0
 const MAGNET_SPEED := 18.0
@@ -29,7 +29,7 @@ var _textures := {}
 
 
 func _ready() -> void:
-	for kind in EFFECT:
+	for kind in ["shield", "energy", "missile", "bomb", "salvage"]:
 		_textures[kind] = SpriteGen.pickup_texture(kind)
 
 
@@ -69,12 +69,13 @@ func _respawn_station(s: Dictionary) -> void:
 	s.node = sprite
 
 
-func spawn_drop(pos: Vector3, ring: int, kind: String) -> void:
+func spawn_drop(pos: Vector3, ring: int, kind: String, value := 0) -> void:
 	var sprite := SpriteGen.make_sprite(_textures[kind], 2.2)
 	sprite.position = path.clamp_to_ring(pos, ring, 2.0)
 	add_child(sprite)
 	_pickups.append({
 		"node": sprite, "kind": kind, "bob_p": randf() * TAU, "life": LIFETIME,
+		"value": value,   # V2.2 L3b: salvage amount rides the drop
 	})
 
 
@@ -92,7 +93,7 @@ func update_pickups(delta: float) -> void:
 		var to_player: Vector3 = player.position - node.position
 		var d2 := to_player.length_squared()
 		if d2 < COLLECT_RANGE_SQ:
-			_collect(p.kind)
+			_collect(p.kind, p.get("value", 0))
 			node.queue_free()
 			_pickups.remove_at(i)
 			continue
@@ -111,7 +112,7 @@ func update_pickups(delta: float) -> void:
 			s.node = null
 
 
-func _collect(kind: String) -> void:
+func _collect(kind: String, value := 0) -> void:
 	match kind:
 		"shield":
 			GameState.shields += EFFECT.shield
@@ -121,4 +122,7 @@ func _collect(kind: String) -> void:
 			GameState.missiles += int(EFFECT.missile)
 		"bomb":
 			GameState.plasma_bombs += int(EFFECT.bomb)
-	collected.emit(kind)
+		"salvage":   # V2.2 L3b: straight into the level's unbanked haul
+			GameState.salvage_run += value
+			GameState.salvage_changed.emit(GameState.salvage_total())
+	collected.emit(kind, value)

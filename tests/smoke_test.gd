@@ -278,6 +278,23 @@ func _run() -> void:
 	GameState.ship_ranks.shield = 0            # scrub test state for later sections
 	GameState.salvage_bank = 0
 	print("economy ok — salvage + marks + ranks")
+	# --- V2.2 L3b: salvage drops ride the pickup pipeline ---
+	GameState.reset_level_stats()
+	game.pickup_mgr.clear_all()
+	var pre_enemies: int = game.enemy_mgr.enemies.size()
+	game.enemy_mgr.spawn(game.player.ring_idx + 3, -1, "hulk")
+	assert(game.enemy_mgr.enemies.size() == pre_enemies + 1)
+	game.enemy_mgr._kill(game.enemy_mgr.enemies.size() - 1, true)   # scored hulk kill
+	var salv_pick: Dictionary = {}
+	for pk in game.pickup_mgr._pickups:
+		if pk.kind == "salvage":
+			salv_pick = pk
+	assert(not salv_pick.is_empty())   # hulk ALWAYS drops salvage
+	assert(salv_pick.value == 15)
+	game.player.position = salv_pick.node.position   # stand on it
+	game.pickup_mgr.update_pickups(0.016)
+	assert(GameState.salvage_run == 15)   # collected through the manager path
+	print("salvage ok — hulk drop collected for 15")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1
