@@ -4,7 +4,7 @@ extends Node3D
 ## Projectiles are billboarded sprites (bright shapes, not meshes) per the
 ## authenticity research; MISSILE carries the v2.2 2-second fuse + splash blast.
 
-signal player_hit(damage: float)
+signal player_hit(damage: float, from_pos: Vector3)   # V2.2 L1e: source for HUD arcs
 
 const PLAYER_HIT_RANGE_SQ := 5.5  # enemy shot vs player
 const ENEMY_SHOT_DMG := 9.0       # fallback; each enemy shot now carries its own dmg
@@ -323,7 +323,7 @@ func update_shots(delta: float) -> void:
 		es.life -= delta
 		var kill: bool = es.life <= 0.0
 		if not kill and es.node.position.distance_squared_to(player.position) < PLAYER_HIT_RANGE_SQ:
-			player_hit.emit(es.get("dmg", ENEMY_SHOT_DMG))
+			player_hit.emit(es.get("dmg", ENEMY_SHOT_DMG), es.node.position)
 			kill = true
 		if kill:
 			_release(es.node)

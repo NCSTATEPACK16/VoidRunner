@@ -223,6 +223,12 @@ func _run() -> void:
 	assert(game.player._kick_pitch > 0.0)
 	game.player._kick_pitch = 0.0
 	print("shake ok — kick + shake behind SCREEN SHAKE setting")
+	# --- V2.2 L1e: hit feedback — kill tick + directional damage arcs ---
+	game.hud.flash_kill_tick()
+	assert(game.hud._kill_tick_t > 0.0)   # kill tick armed
+	game.hud.show_damage_from(game.player.position + Vector3(30, 0, 0))
+	assert(game.hud._dmg_arcs.size() > 0)   # damage arc registered
+	print("feedback ok — kill tick + damage arcs")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1

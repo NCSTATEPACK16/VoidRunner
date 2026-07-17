@@ -134,7 +134,10 @@ func _ready() -> void:
 	shot_mgr.prop_mgr = prop_mgr
 	prop_mgr.cell_destroyed.connect(_on_cell_destroyed)
 	hazard_mgr.player = player
-	shot_mgr.player_hit.connect(func(dmg: float) -> void: player.take_damage(dmg, "SHIELD HIT"))
+	# V2.2 L1e: shield hits also flash a directional arc toward the shooter
+	shot_mgr.player_hit.connect(func(dmg: float, from_pos: Vector3) -> void:
+		player.take_damage(dmg, "SHIELD HIT")
+		hud.show_damage_from(from_pos))
 	player.damaged.connect(func(_a: float, msg: String) -> void: hud.show_message(msg))
 	player.notified.connect(func(msg: String) -> void: hud.show_message(msg))
 	player.dodged.connect(func(dir: Vector3) -> void:
@@ -942,6 +945,7 @@ func _on_boss_phase(phase: int) -> void:
 
 
 func _on_enemy_killed(arena_id: int) -> void:
+	hud.flash_kill_tick()   # V2.2 L1e: every kill, arena or tunnel
 	if arena_id < 0:
 		return
 	_arena_kills[arena_id] = _arena_kills.get(arena_id, 0) + 1

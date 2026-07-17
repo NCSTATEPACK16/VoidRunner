@@ -71,6 +71,9 @@ var _c_dodge := false
 var _c_hot := false
 var _c_vel := -1
 var _c_metric := -1
+# V2.2 L1e: transient feedback — the crosshair layer redraws only while these live
+var _kill_tick_t := 0.0
+var _dmg_arcs: Array = []   # {angle: float, t: float}, newest appended
 
 
 func _ready() -> void:
@@ -185,6 +188,21 @@ func set_boss_name(text: String) -> void:
 	_boss_name.text = text
 
 
+## V2.2 L1e: 4 corner ticks pop off the crosshair for a beat on every kill.
+func flash_kill_tick() -> void:
+	_kill_tick_t = 0.15
+	_crosshair.queue_redraw()
+
+
+## V2.2 L1e: red arc at the screen edge pointing at whoever just hit us.
+func show_damage_from(world_pos: Vector3) -> void:
+	if player == null:
+		return
+	var local := (world_pos - player.position).rotated(Vector3.UP, -player.rotation.y)
+	_dmg_arcs.append({"angle": atan2(local.x, -local.z), "t": 0.4})
+	_crosshair.queue_redraw()
+
+
 func _process(delta: float) -> void:
 	_msg_t -= delta
 	_msg.visible = _msg_t > 0.0
@@ -236,6 +254,17 @@ func _process(delta: float) -> void:
 	if GameState.is_overheated != _c_hot:
 		_c_hot = GameState.is_overheated
 		_crosshair.queue_redraw()
+	# V2.2 L1e: tick down transient feedback; keep redrawing while live (the
+	# final redraw after a timer expires is what clears it from the layer)
+	if _kill_tick_t > 0.0:
+		_kill_tick_t -= delta
+		_crosshair.queue_redraw()
+	if not _dmg_arcs.is_empty():
+		for i in range(_dmg_arcs.size() - 1, -1, -1):
+			_dmg_arcs[i].t -= delta
+			if _dmg_arcs[i].t <= 0.0:
+				_dmg_arcs.remove_at(i)
+		_crosshair.queue_redraw()
 
 
 func _draw_crosshair() -> void:
@@ -243,6 +272,16 @@ func _draw_crosshair() -> void:
 	var col := Color("ff5030") if hot else Color("62ffd0")
 	for arm in [Vector2(0, -1), Vector2(0, 1), Vector2(-1, 0), Vector2(1, 0)]:
 		_crosshair.draw_line(arm * 3.0, arm * 8.0, col, 1.0)
+	# V2.2 L1e: kill tick — short diagonals off the crosshair corners
+	if _kill_tick_t > 0.0:
+		for d in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
+			_crosshair.draw_line(d * 9.0, d * 13.0, Color("ffd34d"), 1.0)
+	# V2.2 L1e: damage arcs — screen-edge segments toward the shooter, angle 0 =
+	# dead ahead = top of screen; draw_arc's 0 rad points right, hence the -PI/2
+	for a in _dmg_arcs:
+		var ca: float = a.angle - PI / 2.0
+		_crosshair.draw_arc(Vector2.ZERO, 58.0, ca - 0.45, ca + 0.45, 10,
+			Color(1.0, 0.28, 0.16, clampf(a.t / 0.4, 0.0, 1.0)), 3.0)
 
 
 ## G4: canopy frame — angled side struts with brace lines and the THREAT panel
