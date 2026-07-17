@@ -24,6 +24,8 @@ var _clank: AudioStreamWAV
 var _dodge: AudioStreamWAV
 var _bomb: AudioStreamWAV
 var _engine_loop: AudioStreamWAV
+var _gib_tick: AudioStreamWAV
+var _gib_voices: Array[AudioStreamPlayer] = []   # V2.2 L1f: dedicated, caps ticks at 2
 
 
 func _ready() -> void:
@@ -42,6 +44,13 @@ func _ready() -> void:
 	_dodge = _render_dodge()
 	_bomb = _render_bomb()
 	_engine_loop = _render_engine_loop()
+	_gib_tick = _render_gib_tick()
+	for i in 2:
+		var g := AudioStreamPlayer.new()
+		g.bus = "Master"
+		g.volume_db = -16.0
+		add_child(g)
+		_gib_voices.append(g)
 	_engine = AudioStreamPlayer.new()
 	_engine.stream = _engine_loop
 	_engine.volume_db = -80.0
@@ -117,6 +126,19 @@ func play_bomb() -> void:
 	_play(_bomb)
 
 
+## V2.2 L1f: quiet debris click on gib ricochet. Dedicated 2-voice pool — when
+## both are busy the tick is simply dropped, so a 48-gib storm can't spam.
+func gib_tick() -> void:
+	if not _unlocked:
+		return
+	for g in _gib_voices:
+		if not g.playing:
+			g.stream = _gib_tick
+			g.pitch_scale = 0.85 + randf() * 0.4
+			g.play()
+			return
+
+
 func _play(stream: AudioStreamWAV) -> void:
 	if not _unlocked:
 		return
@@ -175,6 +197,21 @@ func _render_boom(big: bool) -> AudioStreamWAV:
 		var alpha := clampf(cutoff / (SAMPLE_RATE * 0.5), 0.0, 1.0)
 		lp += (rng.randf_range(-1.0, 1.0) - lp) * alpha * 4.0
 		out[i] = clampf(lp, -1.0, 1.0) * (0.5 if big else 0.3) * exp(-t * 7.0)
+	return _make_wav(out)
+
+
+func _render_gib_tick() -> AudioStreamWAV:
+	# 30 ms low-passed noise blip — debris tapping the wall.
+	var n := int(SAMPLE_RATE * 0.03)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.55
+		out[i] = lp * 0.5 * exp(-t * 220.0)
 	return _make_wav(out)
 
 

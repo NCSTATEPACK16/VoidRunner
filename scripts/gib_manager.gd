@@ -128,6 +128,8 @@ func _sim(dt: float) -> void:
 			if clamped.distance_squared_to(pos) > 0.0001:
 				st.vel = st.vel.bounce((clamped - pos).normalized()) * DAMP
 				pos = clamped
+				if randf() < 0.3:   # L1f: debris taps the wall, quietly
+					AudioSys.gib_tick()
 		n.position = pos
 		n.texture = _frames[st.shape][int(st.t * st.tumble) % 4]
 		var frac: float = st.t / st.life
