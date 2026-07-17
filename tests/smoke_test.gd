@@ -393,8 +393,10 @@ func _run() -> void:
 	print("boss ok — hp %d -> dead, portal awake, score=%d" % [hp0, GameState.score])
 	# --- K5: Void Gauntlet — endless path grows, arenas stream in, chunks stay bounded ---
 	GameState.reset_run()
+	GameState.weapon_marks = [2, 2, 2, 2]   # a prior campaign's marks must not leak in
 	seed(20260711)          # pin the run layout — the gauntlet seed comes from randi()
 	game._on_gauntlet()     # MENU-independent: flips mode + builds behind a briefing
+	assert(GameState.weapon_marks == [0, 0, 0, 0])   # L3e: gauntlet resets to MK I
 	game._launch_level()
 	await get_tree().process_frame
 	assert(game.path.is_endless)
@@ -422,6 +424,12 @@ func _run() -> void:
 	assert(gdist > 800)                              # bulkheads never soft-locked the run
 	GameState.record_gauntlet(gdist)
 	assert(GameState.gauntlet_best_dist >= gdist)
+	# L3e: the gauntlet run's salvage haul banks when the run ends (death path)
+	GameState.salvage_bank = 0
+	GameState.salvage_run = 20
+	game._on_player_died()
+	assert(GameState.salvage_bank == 20 and GameState.salvage_run == 0)
+	GameState.salvage_bank = 0   # scrub for later sections
 	print("gauntlet ok — dist=%dm rings=%d arenas=%d tier=%d" % [
 		gdist, game.path.rings.size(), game.path.arenas.size(), game._gauntlet_tier])
 	# --- K6: opt-in gamepad — joy bindings appear and disappear with the toggle ---

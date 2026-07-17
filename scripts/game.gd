@@ -651,6 +651,7 @@ func _on_player_died() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _gauntlet:
 		# K5: a gauntlet run scores by distance; records stay campaign-separate
+		GameState.bank_salvage()   # V2.2 L3e: the run's salvage haul banks at run end
 		var dist := int(player.ring_idx * PathGen.SEG)
 		var new_best := GameState.record_gauntlet(dist)
 		overlays.set_final_score("game_over", GameState.score, new_best, dist)
@@ -677,6 +678,7 @@ func _on_launch() -> void:
 
 ## K5: Void Gauntlet entry from the start screen.
 func _on_gauntlet() -> void:
+	GameState.reset_run()   # V2.2 L3e: gauntlet always starts at MK I (no bay mid-run)
 	_gauntlet = true
 	GameState.gauntlet_mode = true
 	_built_level = -1
