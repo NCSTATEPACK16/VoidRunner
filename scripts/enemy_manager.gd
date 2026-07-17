@@ -351,6 +351,16 @@ func nearest_enemy(from: Vector3) -> Node3D:
 	return best
 
 
+## V2.2 L2b: live-enemy census around a point — the music intensity feed.
+func near_count(from: Vector3, r: float) -> int:
+	var r2 := r * r
+	var n := 0
+	for e in enemies:
+		if e.node.position.distance_squared_to(from) < r2:
+			n += 1
+	return n
+
+
 func _hurt(index: int, dmg: int) -> bool:
 	var e: Dictionary = enemies[index]
 	e.hp -= dmg

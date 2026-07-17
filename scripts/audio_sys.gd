@@ -14,6 +14,11 @@ var _engine: AudioStreamPlayer
 # same frame and crossfaded by the intensity engine — never re-timed.
 var _music: Array[AudioStreamPlayer] = []
 var _ramp_floor := 0.0   # gauntlet depth ramp: a floor under the live intensity
+var _intensity := 0.0    # 0 CALM → 1 COMBAT → 2 FRENZY, continuous
+var _calm_t := 0.0
+var _enemy_mgr: Node = null   # combat feeds, wired once by game._ready
+var _shot_mgr: Node = null
+var _listener: Node3D = null
 var _unlocked := false
 
 const MUSIC_DB := -13.0
@@ -95,6 +100,58 @@ func stop_engine() -> void:
 ## intensity — depth guarantees at least this much heat; combat can exceed it.
 func set_music_intensity(t: float) -> void:
 	_ramp_floor = clampf(t, 0.0, 2.0)
+
+
+## V2.2 L2b: one game._ready wiring line hands over the combat feeds.
+func set_combat_refs(enemies: Node, shots: Node, listener: Node3D) -> void:
+	_enemy_mgr = enemies
+	_shot_mgr = shots
+	_listener = listener
+
+
+## V2.2 L2b: intensity engine. Rises instantly with pressure, holds through
+## 4 s of quiet, then bleeds off at 0.5/s — so music never yo-yos mid-fight.
+func _update_intensity(dt: float, ppos: Vector3) -> void:
+	var target := 0.0
+	if _enemy_mgr != null:
+		target += minf(_enemy_mgr.near_count(ppos, 120.0) * 0.35, 1.4)
+	if _shot_mgr != null:
+		target += minf(_shot_mgr.eshot_cache.size() * 0.15, 0.6)
+	target += (GameState.combo_mult() - 1) * 0.3
+	target = maxf(target, _ramp_floor)
+	if GameState.arena_locked:
+		target = maxf(target, 1.0)
+	if GameState.boss_active:
+		target = 2.0
+	target = clampf(target, 0.0, 2.0)
+	if target >= _intensity:
+		_intensity = target
+		_calm_t = 0.0
+	else:
+		_calm_t += dt
+		if _calm_t > 4.0:
+			_intensity = maxf(target, _intensity - 0.5 * dt)
+
+
+func _mix_weights(i: float) -> Vector3:   # (calm, combat, frenzy)
+	return Vector3(clampf(1.0 - i, 0.0, 1.0),
+			clampf(1.0 - absf(i - 1.0), 0.0, 1.0),
+			clampf(i - 1.0, 0.0, 1.0))
+
+
+func _process(delta: float) -> void:
+	if _music.is_empty():
+		return
+	if _listener != null:
+		_update_intensity(delta, _listener.position)
+	# crossfade each bed toward its weight — 3 volume writes, invisible on perf
+	var w := _mix_weights(_intensity)
+	var full := db_to_linear(MUSIC_DB)
+	var k := minf(delta / 1.2, 1.0)
+	for m in 3:
+		var mp := _music[m]
+		var cur := db_to_linear(mp.volume_db)
+		mp.volume_db = linear_to_db(maxf(lerpf(cur, full * w[m], k), 0.001))
 
 
 func play_laser(freq: float) -> void:

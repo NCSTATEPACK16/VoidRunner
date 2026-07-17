@@ -153,6 +153,7 @@ func _ready() -> void:
 	for w in weapons:
 		names.append(w.display_name)
 	hud.setup(player, enemy_mgr, shot_mgr, names)
+	AudioSys.set_combat_refs(enemy_mgr, shot_mgr, player)   # V2.2 L2b: music feeds
 	var level_names: Array[String] = []
 	for l in levels:
 		level_names.append(l.display_name)
@@ -553,6 +554,8 @@ func _launch_level() -> void:
 	GameState.missiles = GameState.MISSILES_PER_LEVEL   # I2: refill ammo each level start
 	_overheat_t = 0.0
 	_fire_cd = 0.0
+	GameState.arena_locked = false   # V2.2 L2b: fresh music state per level
+	GameState.boss_active = false
 	GameState.reset_level_stats()
 	_end_warmup()
 	# the briefing screen already built this level's world (and warmed its shaders);
@@ -820,7 +823,8 @@ func _process(delta: float) -> void:
 	if _boss_arena_start >= 0 and not _boss_announced \
 			and player.ring_idx >= _boss_arena_start - 4:
 		_boss_announced = true
-		hud.show_message("WARNING · CLASS-X SIGNATURE", 3.0)
+		GameState.boss_active = true   # V2.2 L2b: engagement, not spawn — the
+		hud.show_message("WARNING · CLASS-X SIGNATURE", 3.0)   # entry tunnel stays calm
 		AudioSys.play_overheat()
 	# Phase J: one-shot shields-critical callout with hysteresis
 	if GameState.shields < 25.0 and not _low_shield_warned:
@@ -908,8 +912,10 @@ func _update_arena_lock() -> void:
 		if arena.door_ring < 0 or world.is_door_open(arena.id):
 			continue
 		if player.ring_idx >= arena.start - 2 and player.ring_idx <= arena.door_ring:
+			GameState.arena_locked = true   # V2.2 L2b: music heat floor
 			hud.set_kill_counter(_arena_kills.get(arena.id, 0), _arena_spawned.get(arena.id, 0))
 			return
+	GameState.arena_locked = false
 	hud.set_kill_counter(0, 0)
 
 
@@ -927,6 +933,7 @@ func _on_pickup_collected(kind: String) -> void:
 
 
 func _on_boss_killed() -> void:
+	GameState.boss_active = false   # V2.2 L2b: let the music breathe again
 	gib_mgr.hit_stop(250, 0.25, true)   # V2.2 L1: boss-death slow-mo beats the cooldown
 	world.set_portal_active(true)
 	hud.show_message("SIGNATURE ELIMINATED — GATE OPEN", 3.0)

@@ -235,6 +235,18 @@ func _run() -> void:
 	assert(is_equal_approx(mix_a.get_length(), mix_b.get_length()))   # phase-aligned
 	assert(AudioSys._music.size() == 3)   # three synced players
 	print("mixes ok — 3 phase-aligned music beds")
+	# --- V2.2 L2b: combat-intensity engine — boss forces frenzy, calm decays ---
+	GameState.boss_active = true
+	AudioSys._update_intensity(0.1, game.player.position)
+	assert(AudioSys._intensity >= 2.0)   # boss forces FRENZY
+	GameState.boss_active = false
+	GameState.arena_locked = false
+	AudioSys._ramp_floor = 0.0
+	AudioSys._intensity = 2.0
+	for _calm_step in 100:
+		AudioSys._update_intensity(0.1, Vector3(9999, 0, 9999))   # 10 s of calm
+	assert(AudioSys._intensity < 1.0)   # decays once the calm window lapses
+	print("intensity ok — frenzy on boss, decay after calm")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1

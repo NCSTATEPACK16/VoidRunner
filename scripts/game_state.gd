@@ -201,6 +201,9 @@ var dither_enabled := true
 var gamepad_enabled := false   # K6: opt-in, never default
 var amber_mode := false        # amber-monochrome terminal look (via the dither shader)
 var screen_shake := true       # V2.2 L1: camera kick/shake master switch (accessibility)
+# V2.2 L2b: combat-state flags game.gd maintains for the music intensity engine
+var arena_locked := false
+var boss_active := false
 
 
 ## Push current settings to the engine (audio bus + dither layer via signal) and save.
