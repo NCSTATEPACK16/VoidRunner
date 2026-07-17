@@ -10,8 +10,13 @@ const POOL_SIZE := 8
 var _pool: Array[AudioStreamPlayer] = []
 var _pool_cursor := 0
 var _engine: AudioStreamPlayer
-var _music: AudioStreamPlayer
+# V2.2 L2: three sample-aligned music beds (calm/combat/frenzy), started in the
+# same frame and crossfaded by the intensity engine — never re-timed.
+var _music: Array[AudioStreamPlayer] = []
+var _ramp_floor := 0.0   # gauntlet depth ramp: a floor under the live intensity
 var _unlocked := false
+
+const MUSIC_DB := -13.0
 
 var _laser_cache := {}
 var _boom_small: AudioStreamWAV
@@ -55,10 +60,13 @@ func _ready() -> void:
 	_engine.stream = _engine_loop
 	_engine.volume_db = -80.0
 	add_child(_engine)
-	_music = AudioStreamPlayer.new()
-	_music.stream = MusicGen.render_loop()
-	_music.volume_db = -13.0
-	add_child(_music)
+	for m in 3:
+		var mp := AudioStreamPlayer.new()
+		mp.stream = MusicGen.render_loop(m)
+		mp.bus = "Master"
+		mp.volume_db = MUSIC_DB if m == 0 else -60.0
+		add_child(mp)
+		_music.append(mp)
 
 
 func unlock() -> void:
@@ -67,7 +75,8 @@ func unlock() -> void:
 		return
 	_unlocked = true
 	_engine.play()
-	_music.play()
+	for mp in _music:   # same frame = same start sample = phase lock forever
+		mp.play()
 
 
 func set_engine(speed: float, max_speed: float) -> void:
@@ -82,10 +91,10 @@ func stop_engine() -> void:
 	_engine.volume_db = -80.0
 
 
-## K5: gauntlet pressure ramp — the loop leans in as the run gets deep. Volume
-## only (repitching the tracker loop reads as a bug, not intensity).
+## K5→V2.2 L2: gauntlet pressure ramp, now a floor under the live combat
+## intensity — depth guarantees at least this much heat; combat can exceed it.
 func set_music_intensity(t: float) -> void:
-	_music.volume_db = -13.0 + 4.0 * clampf(t, 0.0, 1.0)
+	_ramp_floor = clampf(t, 0.0, 2.0)
 
 
 func play_laser(freq: float) -> void:

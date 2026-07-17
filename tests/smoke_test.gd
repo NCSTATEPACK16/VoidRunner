@@ -229,6 +229,12 @@ func _run() -> void:
 	game.hud.show_damage_from(game.player.position + Vector3(30, 0, 0))
 	assert(game.hud._dmg_arcs.size() > 0)   # damage arc registered
 	print("feedback ok — kill tick + damage arcs")
+	# --- V2.2 L2a: three phase-aligned music mixes on synced players ---
+	var mix_a: AudioStream = MusicGen.render_loop(0)
+	var mix_b: AudioStream = MusicGen.render_loop(2)
+	assert(is_equal_approx(mix_a.get_length(), mix_b.get_length()))   # phase-aligned
+	assert(AudioSys._music.size() == 3)   # three synced players
+	print("mixes ok — 3 phase-aligned music beds")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1
