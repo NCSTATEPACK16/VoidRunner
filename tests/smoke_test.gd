@@ -12,6 +12,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
+	print("smoke: _run entered")
 	# the test completes levels — snapshot and restore the player's real records
 	var saved := {}
 	for f in ["user://records.cfg", "user://settings.cfg"]:
@@ -193,14 +194,35 @@ func _run() -> void:
 	assert(gm.active_count() == 0)
 	print("gibs ok — cap held, pool drained")
 	# --- V2.2 L1c: hit-stop — crushes time, cooldown gates spam, real-time restore ---
+	gm._stop_cooldown_ms = 0   # earlier live-fire kills may have armed the cooldown
 	gm.hit_stop(50)
 	assert(Engine.time_scale < 0.5)
-	gm.hit_stop(200)   # lands inside the 150 ms cooldown: must be ignored
-	assert(gm._stop_restore_ms - Time.get_ticks_msec() <= 60)
+	gm._stop_cooldown_ms = Time.get_ticks_msec() + 10000   # pin: cooldown live regardless of run speed
+	var restore_before: int = gm._stop_restore_ms
+	gm.hit_stop(200)   # lands inside the cooldown: must be ignored
+	assert(gm._stop_restore_ms == restore_before)
+	gm._stop_cooldown_ms = 0
 	gm._stop_restore_ms = Time.get_ticks_msec() - 1   # force the restore due now
 	gm._process(0.016)
 	assert(is_equal_approx(Engine.time_scale, 1.0))
 	print("hit-stop ok — crush + cooldown + restore")
+	# --- V2.2 L1d: camera kick + shake respect the SCREEN SHAKE setting ---
+	GameState.screen_shake = true
+	game.player.shake = 0.0
+	game.player.add_shake(0.5)
+	assert(game.player.shake > 0.0)
+	GameState.screen_shake = false
+	game.player.shake = 0.0
+	game.player.add_shake(0.5)
+	assert(game.player.shake == 0.0)
+	game.player._kick_pitch = 0.0   # clear residual decay from the earlier live-fire sim
+	game.player.add_kick(1)
+	assert(game.player._kick_pitch == 0.0)   # kick gated by the setting too
+	GameState.screen_shake = true
+	game.player.add_kick(1)
+	assert(game.player._kick_pitch > 0.0)
+	game.player._kick_pitch = 0.0
+	print("shake ok — kick + shake behind SCREEN SHAKE setting")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1

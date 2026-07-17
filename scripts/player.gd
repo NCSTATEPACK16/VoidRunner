@@ -45,8 +45,12 @@ var last_damage := -99.0
 var elapsed := 0.0
 var active := false           # only steers/moves while the run is live
 
+## V2.2 L1: per-weapon muzzle kick, degrees of camera pitch (indexed by weapon).
+const WEAPON_KICK := [0.25, 0.7, 0.4, 0.9]
+
 var dodge_cd := 0.0           # public: the HUD's evade lamp reads this
 var iframes_t := 0.0
+var _kick_pitch := 0.0        # V2.2 L1: spring-decay camera kick, degrees
 var _dodge_t := 0.0
 var _dodge_dir := Vector3.ZERO
 var _tap_l := -99.0
@@ -99,6 +103,8 @@ func reset_to_start() -> void:
 	_tap_r = -99.0
 	rotation = Vector3.ZERO
 	camera.position = Vector3.ZERO
+	camera.rotation = Vector3.ZERO
+	_kick_pitch = 0.0
 
 
 ## Called by game.gd from root-viewport input — the ship sits inside the 320x200
@@ -189,11 +195,14 @@ func update_flight(delta: float) -> void:
 	roll += (clampf(_turn_sm * 7.0, -0.28, 0.28) - roll) * minf(1.0, delta * 6.0)
 	rotation = Vector3(pitch, yaw, roll)
 	shake = maxf(0.0, shake - delta * 1.4)
-	if shake > 0.0:
+	if shake > 0.0 and GameState.screen_shake:
 		camera.position = Vector3(
 			(randf() - 0.5) * shake * 0.7, (randf() - 0.5) * shake * 0.7, 0.0)
 	else:
 		camera.position = Vector3.ZERO
+	# V2.2 L1: muzzle kick — a sharp pitch-up that springs back within a few frames
+	_kick_pitch = lerpf(_kick_pitch, 0.0, minf(10.0 * delta, 1.0))
+	camera.rotation.x = deg_to_rad(_kick_pitch)
 	muzzle_light.light_energy *= pow(0.0006, delta)
 
 
@@ -277,6 +286,19 @@ func take_damage(amount: float, message: String, pierce_evade := false) -> void:
 	shake = minf(0.6, shake + 0.35)
 	AudioSys.play_hit()
 	damaged.emit(amount, message)
+
+
+## V2.2 L1: both no-op when the SCREEN SHAKE setting is off (accessibility).
+func add_kick(weapon_idx: int) -> void:
+	if not GameState.screen_shake:
+		return
+	_kick_pitch = minf(_kick_pitch + WEAPON_KICK[mini(weapon_idx, WEAPON_KICK.size() - 1)], 1.6)
+
+
+func add_shake(strength: float) -> void:
+	if not GameState.screen_shake:
+		return
+	shake = minf(1.0, shake + strength)
 
 
 func flash_muzzle(color: Color) -> void:

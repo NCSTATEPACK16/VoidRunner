@@ -120,6 +120,11 @@ func _ready() -> void:
 	enemy_mgr.boss_killed.connect(_on_boss_killed)
 	enemy_mgr.boss_phase.connect(_on_boss_phase)
 	enemy_mgr.gibs_requested.connect(gib_mgr.burst)
+	# V2.2 L1: nearby explosions rattle the camera, scaled by proximity
+	enemy_mgr.exploded.connect(func(pos: Vector3, big: bool) -> void:
+		var d2 := pos.distance_squared_to(player.position)
+		if d2 < 1600.0:
+			player.add_shake((0.45 if big else 0.2) * (1.0 - sqrt(d2) / 40.0)))
 	pickup_mgr.player = player
 	enemy_mgr.drop_spawned.connect(pickup_mgr.spawn_drop)
 	pickup_mgr.collected.connect(_on_pickup_collected)
@@ -855,6 +860,7 @@ func _update_firing(delta: float) -> void:
 		return
 	_fire_cd = w.cooldown
 	shot_mgr.fire_player(w)
+	player.add_kick(GameState.weapon_index)   # V2.2 L1: per-weapon muzzle kick
 	if w.uses_ammo:
 		GameState.missiles -= 1
 	if w.energy_cost > 0.0:

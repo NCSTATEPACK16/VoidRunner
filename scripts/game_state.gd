@@ -200,6 +200,7 @@ var mouse_sens_mult := 1.0
 var dither_enabled := true
 var gamepad_enabled := false   # K6: opt-in, never default
 var amber_mode := false        # amber-monochrome terminal look (via the dither shader)
+var screen_shake := true       # V2.2 L1: camera kick/shake master switch (accessibility)
 
 
 ## Push current settings to the engine (audio bus + dither layer via signal) and save.
@@ -220,6 +221,7 @@ func load_settings() -> void:
 		dither_enabled = cfg.get_value("settings", "dither", dither_enabled)
 		gamepad_enabled = cfg.get_value("settings", "gamepad", gamepad_enabled)
 		amber_mode = cfg.get_value("settings", "amber", amber_mode)
+		screen_shake = cfg.get_value("settings", "shake", screen_shake)
 
 
 func _save_settings() -> void:
@@ -229,6 +231,7 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "dither", dither_enabled)
 	cfg.set_value("settings", "gamepad", gamepad_enabled)
 	cfg.set_value("settings", "amber", amber_mode)
+	cfg.set_value("settings", "shake", screen_shake)
 	cfg.save("user://settings.cfg")
 
 

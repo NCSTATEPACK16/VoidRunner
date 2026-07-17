@@ -282,28 +282,35 @@ func _build_victory() -> void:
 func _build_settings() -> void:
 	var p := _panel("settings")
 	_title(p, "SETTINGS", 16, TITLE_COL)
-	_setting_row(p, 74, "VOLUME", "volume")
-	_setting_row(p, 98, "MOUSE SENS", "sens")
-	_at(p, Vector2(60, 124), "DITHER (DOS LOOK)", 8, TEXT_COL)
-	var dbtn := _button(p, Vector2(214, 122), "ON", func() -> void:
+	_setting_row(p, 66, "VOLUME", "volume")
+	_setting_row(p, 86, "MOUSE SENS", "sens")
+	_at(p, Vector2(60, 108), "DITHER (DOS LOOK)", 8, TEXT_COL)
+	var dbtn := _button(p, Vector2(214, 106), "ON", func() -> void:
 		GameState.dither_enabled = not GameState.dither_enabled
 		GameState.apply_settings()
 		_refresh_settings())
 	_settings_labels["dither"] = dbtn
 	# K6: gamepad stays opt-in — flying with a pad is a choice, never a surprise
-	_at(p, Vector2(60, 140), "GAMEPAD", 8, TEXT_COL)
-	var gbtn := _button(p, Vector2(214, 138), "OFF", func() -> void:
+	_at(p, Vector2(60, 124), "GAMEPAD", 8, TEXT_COL)
+	var gbtn := _button(p, Vector2(214, 122), "OFF", func() -> void:
 		GameState.gamepad_enabled = not GameState.gamepad_enabled
 		GameState.apply_settings()
 		_refresh_settings())
 	_settings_labels["gamepad"] = gbtn
 	# V2.0: amber "terminal" look — a black-and-amber monochrome view mode
-	_at(p, Vector2(60, 158), "AMBER TERMINAL", 8, TEXT_COL)
-	var abtn := _button(p, Vector2(214, 156), "OFF", func() -> void:
+	_at(p, Vector2(60, 140), "AMBER TERMINAL", 8, TEXT_COL)
+	var abtn := _button(p, Vector2(214, 138), "OFF", func() -> void:
 		GameState.amber_mode = not GameState.amber_mode
 		GameState.apply_settings()
 		_refresh_settings())
 	_settings_labels["amber"] = abtn
+	# V2.2 L1: camera kick/shake master switch (accessibility)
+	_at(p, Vector2(60, 156), "SCREEN SHAKE", 8, TEXT_COL)
+	var sbtn := _button(p, Vector2(214, 154), "ON", func() -> void:
+		GameState.screen_shake = not GameState.screen_shake
+		GameState.apply_settings()
+		_refresh_settings())
+	_settings_labels["shake"] = sbtn
 	_button(p, Vector2(130, 178), "< BACK", func() -> void: show_only(_settings_return))
 	_refresh_settings()
 
@@ -336,6 +343,8 @@ func _refresh_settings() -> void:
 		(_settings_labels["gamepad"] as Button).text = "ON" if GameState.gamepad_enabled else "OFF"
 	if _settings_labels.has("amber"):
 		(_settings_labels["amber"] as Button).text = "ON" if GameState.amber_mode else "OFF"
+	if _settings_labels.has("shake"):
+		(_settings_labels["shake"] as Button).text = "ON" if GameState.screen_shake else "OFF"
 
 
 # ---------- widget helpers ----------
