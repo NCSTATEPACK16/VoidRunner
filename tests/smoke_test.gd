@@ -295,6 +295,15 @@ func _run() -> void:
 	game.pickup_mgr.update_pickups(0.016)
 	assert(GameState.salvage_run == 15)   # collected through the manager path
 	print("salvage ok — hulk drop collected for 15")
+	# --- V2.2 L3c: upgrade accessors reach every consumption site ---
+	var base_pellets: int = game.shot_mgr.pellet_count(1)
+	GameState.weapon_marks[1] = 2      # SCATTER MK III
+	assert(game.shot_mgr.pellet_count(1) == base_pellets + 2)   # +2 pellets
+	GameState.weapon_marks[1] = 0
+	GameState.ship_ranks.hull = 1
+	assert(is_equal_approx(game.player.wall_damage_mult(), 0.7))   # hull plating
+	GameState.ship_ranks.hull = 0
+	print("apply ok — marks + ranks reach the consumption sites")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1

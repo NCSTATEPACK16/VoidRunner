@@ -80,6 +80,9 @@ func spawn_drop(pos: Vector3, ring: int, kind: String, value := 0) -> void:
 
 
 func update_pickups(delta: float) -> void:
+	# V2.2 L3c: magnet coil rank widens the pull radius (squared-space compare)
+	var m := GameState.magnet_mult()
+	var magnet_r2 := MAGNET_RANGE_SQ * m * m
 	for i in range(_pickups.size() - 1, -1, -1):
 		var p: Dictionary = _pickups[i]
 		var node: Sprite3D = p.node
@@ -97,7 +100,7 @@ func update_pickups(delta: float) -> void:
 			node.queue_free()
 			_pickups.remove_at(i)
 			continue
-		if d2 < MAGNET_RANGE_SQ:
+		if d2 < magnet_r2:
 			node.position += to_player.normalized() * (MAGNET_SPEED * delta)
 		node.visible = p.life > BLINK_AT or int(p.life * 6.0) % 2 == 0
 	for s in _stations:

@@ -462,8 +462,8 @@ func _draw_text3x5(ci: CanvasItem, pos: Vector2, text: String, px: int, color: C
 
 
 func _update_bars() -> void:
-	_shield_bar.size.x = BAR_W * GameState.shields / GameState.MAX_SHIELDS
-	_energy_bar.size.x = BAR_W * GameState.energy / GameState.MAX_ENERGY
+	_shield_bar.size.x = BAR_W * GameState.shields / GameState.max_shields()
+	_energy_bar.size.x = BAR_W * GameState.energy / GameState.max_energy()
 	_heat_bar.size.x = BAR_W * GameState.heat / GameState.MAX_HEAT
 	_shield_num.text = str(int(GameState.shields))
 	_heat_bar.color = Color("ff3010") if GameState.is_overheated else Color("ff9a30")

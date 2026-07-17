@@ -111,6 +111,7 @@ func _ready() -> void:
 	# wiring
 	shot_mgr.player = player
 	shot_mgr.enemy_mgr = enemy_mgr
+	shot_mgr.weapons = weapons   # V2.2 L3c: pellet_count seam
 	enemy_mgr.player = player
 	world.tunnel_spawn_requested.connect(_on_tunnel_spawn)
 	enemy_mgr.enemy_fired.connect(shot_mgr.fire_enemy)
@@ -558,7 +559,7 @@ func _launch_level() -> void:
 	GameState.heat = 0.0
 	GameState.is_overheated = false
 	GameState.weapon_index = 0
-	GameState.missiles = GameState.MISSILES_PER_LEVEL   # I2: refill ammo each level start
+	GameState.missiles = GameState.missile_cap()   # I2→L3c: full rack each level start
 	_overheat_t = 0.0
 	_fire_cd = 0.0
 	GameState.arena_locked = false   # V2.2 L2b: fresh music state per level
@@ -873,14 +874,15 @@ func _update_firing(delta: float) -> void:
 	if w.energy_cost > 0.0 and GameState.energy < w.energy_cost:
 		_notify_cant_fire("LOW ENERGY")
 		return
-	_fire_cd = w.cooldown
+	# V2.2 L3c: NEUTRON marks shorten the interval; heat sinks cool every weapon
+	_fire_cd = w.cooldown * GameState.weapon_mult(GameState.weapon_index, "interval")
 	shot_mgr.fire_player(w)
 	player.add_kick(GameState.weapon_index)   # V2.2 L1: per-weapon muzzle kick
 	if w.uses_ammo:
 		GameState.missiles -= 1
 	if w.energy_cost > 0.0:
 		GameState.energy -= w.energy_cost   # shared afterburner pool; regens in player.gd
-	GameState.heat += w.heat
+	GameState.heat += w.heat * GameState.heat_mult()
 	if GameState.heat >= 100.0:
 		GameState.is_overheated = true
 		_overheat_t = OVERHEAT_LOCK

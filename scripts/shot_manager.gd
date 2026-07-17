@@ -123,21 +123,37 @@ func warmup_boom_light(pos: Vector3, on: bool) -> void:
 	_boom_lights[0].light_energy = 1.0 if on else 0.0
 
 
+## V2.2 L3c: testable seam — base pellet count + SCATTER mark bonus. `weapons`
+## is wired by game._ready; the count applies inside fire_player.
+var weapons: Array = []
+
+
+func pellet_count(widx: int) -> int:
+	var base: int = weapons[widx].count if widx < weapons.size() else 1
+	return base + GameState.weapon_add(widx, "pellets")
+
+
 func fire_player(w: WeaponDef) -> void:
 	var fwd := player.forward()
 	var right := fwd.cross(Vector3.UP).normalized()
 	var spawned := 0
-	for i in w.count:
+	# V2.2 L3c: marks scale the shot at spawn time — the dict carries final stats
+	var widx := GameState.weapon_index
+	var count: int = w.count + GameState.weapon_add(widx, "pellets")
+	var dmg: float = w.damage * GameState.weapon_mult(widx, "damage")
+	var spd: float = w.speed * GameState.weapon_mult(widx, "speed")
+	var spl: float = w.splash * GameState.weapon_mult(widx, "splash")
+	for i in count:
 		if _pshots.size() >= PSHOT_CAP:
 			break
 		var lateral: float
-		if w.count == 2:
+		if count == 2:
 			lateral = -1.25 if i == 0 else 1.25
 		else:
-			lateral = (i - (w.count - 1) / 2.0) * 0.9
+			lateral = (i - (count - 1) / 2.0) * 0.9
 		var ang := 0.0
-		if w.count > 2:
-			ang = (i - (w.count - 1) / 2.0) * w.spread
+		if count > 2:
+			ang = (i - (count - 1) / 2.0) * w.spread
 		var dir := (fwd + right * sin(ang)).normalized()
 		var tex: Texture2D
 		if w.fuse > 0.0:
@@ -151,9 +167,9 @@ func fire_player(w: WeaponDef) -> void:
 			break
 		sprite.position = player.position + fwd * 3.0 + right * lateral + Vector3.UP * -0.45
 		var shot := {
-			"node": sprite, "vel": dir * w.speed, "dmg": w.damage,
+			"node": sprite, "vel": dir * spd, "dmg": dmg,
 			"life": (w.fuse + 0.5) if w.fuse > 0.0 else 1.4,
-			"fuse": w.fuse, "splash": w.splash, "splash_dmg": w.splash_damage,
+			"fuse": w.fuse, "splash": spl, "splash_dmg": w.splash_damage,
 			"homing": w.homing, "homing_turn": w.homing_turn,
 		}
 		_pshots.append(shot)

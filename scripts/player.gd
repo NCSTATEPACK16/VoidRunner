@@ -256,7 +256,7 @@ func _wall_collide() -> void:
 		_dodge_t = 0.0
 	elif hit and wall_hurt_t <= 0.0:
 		wall_hurt_t = 0.45
-		take_damage(WALL_DMG, "HULL IMPACT", true)
+		take_damage(WALL_DMG * wall_damage_mult(), "HULL IMPACT", true)
 
 
 ## Phase E: a closed kill-locked door acts like a wall cap — bounce off it.
@@ -271,7 +271,8 @@ func _door_collide() -> void:
 		bounce += ring.d * -14.0
 		if wall_hurt_t <= 0.0:
 			wall_hurt_t = 0.45
-			take_damage(2.0, "BULKHEAD SEALED — CLEAR ALL HOSTILES", true)
+			take_damage(2.0 * wall_damage_mult(),
+				"BULKHEAD SEALED — CLEAR ALL HOSTILES", true)
 
 
 ## pierce_evade: wall/bulkhead scrapes still hurt mid-dodge (no rolling along walls
@@ -286,6 +287,11 @@ func take_damage(amount: float, message: String, pierce_evade := false) -> void:
 	shake = minf(0.6, shake + 0.35)
 	AudioSys.play_hit()
 	damaged.emit(amount, message)
+
+
+## V2.2 L3c: hull plating rank — the testable seam for wall/door impact scaling.
+func wall_damage_mult() -> float:
+	return GameState.hull_mult()
 
 
 ## V2.2 L1: both no-op when the SCREEN SHAKE setting is off (accessibility).
