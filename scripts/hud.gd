@@ -74,6 +74,12 @@ var _c_metric := -1
 # V2.2 L1e: transient feedback — the crosshair layer redraws only while these live
 var _kill_tick_t := 0.0
 var _dmg_arcs: Array = []   # {angle: float, t: float}, newest appended
+# V2.2 L2c: style meter — grade name pops on transitions, bar drains with the window
+const STYLE_TH := [0, 3, 6, 10, 15]
+var _style_name: Label
+var _style_draw: Control
+var _style_pop_t := 0.0
+var _c_style_live := false
 
 
 func _ready() -> void:
@@ -121,6 +127,15 @@ func _ready() -> void:
 	_score = _label(root, Vector2(26, 16), "SCORE 0", Color("ffd34d"), 8)
 	# Phase J: kill-streak multiplier readout
 	_combo = _label(root, Vector2(26, 26), "", Color("ff9a30"), 8)
+	# V2.2 L2c: style grade + drain bar directly under the combo readout
+	_style_name = _label(root, Vector2(26, 36), "", Color("62ffd0"), 8)
+	_style_name.visible = false
+	_style_draw = Control.new()
+	_style_draw.position = Vector2(26, 47)
+	_style_draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_style_draw.draw.connect(_draw_style)
+	root.add_child(_style_draw)
+	GameState.style_changed.connect(_on_style_changed)
 	_combo.visible = false
 	# ---- bottom console ----
 	_console_static = Control.new()
@@ -265,6 +280,41 @@ func _process(delta: float) -> void:
 			if _dmg_arcs[i].t <= 0.0:
 				_dmg_arcs.remove_at(i)
 		_crosshair.queue_redraw()
+	# V2.2 L2c: style meter animates only while a streak is live (dirty rule:
+	# the one extra redraw after it dies is what clears the bar)
+	if _style_pop_t > 0.0:
+		_style_pop_t -= delta
+		_style_name.scale = Vector2.ONE * (2.0 if _style_pop_t > 0.45 else 1.0)
+	var style_live := GameState.style_grade() > 0
+	if style_live:
+		_style_name.text = GameState.STYLE_NAMES[GameState.style_grade()]
+		_style_draw.queue_redraw()
+	elif _c_style_live:
+		_style_draw.queue_redraw()
+	_style_name.visible = style_live
+	_c_style_live = style_live
+
+
+## V2.2 L2c: signal-driven pop so the name scales up for a beat on every grade-up.
+func _on_style_changed(grade: int) -> void:
+	if grade > 0:
+		_style_pop_t = 0.6
+	_style_draw.queue_redraw()
+
+
+## Bar fill = window time remaining × progress toward the next grade — it reads
+## as "keep killing to hold the rank", which is exactly the mechanic.
+func _draw_style() -> void:
+	var g := GameState.style_grade()
+	if g <= 0:
+		return
+	var time_frac := clampf(GameState.combo_t / GameState.COMBO_WINDOW, 0.0, 1.0)
+	var prog := 1.0
+	if g < 4:
+		prog = float(GameState.combo - STYLE_TH[g]) / float(STYLE_TH[g + 1] - STYLE_TH[g])
+	var fill := clampf(time_frac * clampf(prog, 0.0, 1.0), 0.0, 1.0)
+	_style_draw.draw_rect(Rect2(0, 0, 42, 5), PANEL_DARK)
+	_style_draw.draw_rect(Rect2(1, 1, 40.0 * fill, 3), Color("62ffd0"))
 
 
 func _draw_crosshair() -> void:

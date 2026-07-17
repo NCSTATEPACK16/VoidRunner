@@ -247,6 +247,15 @@ func _run() -> void:
 		AudioSys._update_intensity(0.1, Vector3(9999, 0, 9999))   # 10 s of calm
 	assert(AudioSys._intensity < 1.0)   # decays once the calm window lapses
 	print("intensity ok — frenzy on boss, decay after calm")
+	# --- V2.2 L2c: style meter grades the combo streak ---
+	GameState.reset_level_stats()
+	for _sk in 6:
+		GameState.register_kill(10)
+	assert(GameState.style_grade() >= 2)   # 6-kill streak = STELLAR
+	assert(GameState.peak_style >= 2)      # peak recorded for the tally
+	GameState.reset_level_stats()
+	assert(GameState.peak_style == 0)      # peak is per-level
+	print("style ok — grades + peak")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1

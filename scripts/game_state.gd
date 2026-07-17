@@ -80,11 +80,15 @@ var arena_kill_target := -1
 
 # --- Phase J: kill-streak combo, per-level stats, persistent records ---
 signal combo_changed(count: int, mult: int)
+signal style_changed(grade: int)   # V2.2 L2c: fires on grade transitions only
 
 const COMBO_WINDOW := 4.0   # seconds between kills before the streak drops
+# V2.2 L2c: style grades ride the streak — names indexed by style_grade()
+const STYLE_NAMES := ["", "RAD", "STELLAR", "COSMIC", "VOID LEGEND"]
 
 var combo := 0
 var combo_t := 0.0
+var peak_style := 0         # V2.2 L2c: best grade this level, pays at the tally
 var level_shots := 0        # projectiles fired this level (SCATTER counts 3)
 var level_hits := 0         # projectiles that connected
 var level_kills := 0
@@ -112,13 +116,31 @@ func combo_mult() -> int:
 	return 1
 
 
+## V2.2 L2c: streak length → style grade (0 none … 4 VOID LEGEND).
+func style_grade() -> int:
+	if combo >= 15:
+		return 4
+	if combo >= 10:
+		return 3
+	if combo >= 6:
+		return 2
+	if combo >= 3:
+		return 1
+	return 0
+
+
 ## Every scored kill routes through here so streaks multiply the base value.
 func register_kill(base: int) -> void:
+	var grade_was := style_grade()
 	combo += 1
 	combo_t = COMBO_WINDOW
 	level_kills += 1
 	score += base * combo_mult()
 	combo_changed.emit(combo, combo_mult())
+	var grade_now := style_grade()
+	if grade_now != grade_was:
+		peak_style = maxi(peak_style, grade_now)
+		style_changed.emit(grade_now)
 
 
 ## Called from game._process only while PLAYING, so pausing never eats a streak.
@@ -126,13 +148,17 @@ func tick_combo(delta: float) -> void:
 	if combo_t > 0.0:
 		combo_t -= delta
 		if combo_t <= 0.0 and combo > 0:
+			var had_style := style_grade() > 0
 			combo = 0
 			combo_changed.emit(0, 1)
+			if had_style:
+				style_changed.emit(0)   # streak lapsed — clear the meter
 
 
 func reset_level_stats() -> void:
 	combo = 0
 	combo_t = 0.0
+	peak_style = 0
 	level_shots = 0
 	level_hits = 0
 	level_kills = 0

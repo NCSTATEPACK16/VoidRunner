@@ -35,6 +35,7 @@ var _dodge: AudioStreamWAV
 var _bomb: AudioStreamWAV
 var _engine_loop: AudioStreamWAV
 var _gib_tick: AudioStreamWAV
+var _sting: AudioStreamWAV   # V2.2 L2c: style-grade fanfare, repitched per grade
 var _gib_voices: Array[AudioStreamPlayer] = []   # V2.2 L1f: dedicated, caps ticks at 2
 
 
@@ -55,6 +56,7 @@ func _ready() -> void:
 	_bomb = _render_bomb()
 	_engine_loop = _render_engine_loop()
 	_gib_tick = _render_gib_tick()
+	_sting = _render_sting()
 	for i in 2:
 		var g := AudioStreamPlayer.new()
 		g.bus = "Master"
@@ -205,12 +207,18 @@ func gib_tick() -> void:
 			return
 
 
-func _play(stream: AudioStreamWAV) -> void:
+## V2.2 L2c: rising arpeggio on style-grade ups; pitch climbs with the grade.
+func style_sting(grade: int) -> void:
+	_play(_sting, 1.0 + 0.15 * maxi(grade - 1, 0))
+
+
+func _play(stream: AudioStreamWAV, pitch := 1.0) -> void:
 	if not _unlocked:
 		return
 	var p := _pool[_pool_cursor]
 	_pool_cursor = (_pool_cursor + 1) % POOL_SIZE
 	p.stream = stream
+	p.pitch_scale = pitch   # always written — stings can't leak pitch into SFX
 	p.play()
 
 
@@ -263,6 +271,23 @@ func _render_boom(big: bool) -> AudioStreamWAV:
 		var alpha := clampf(cutoff / (SAMPLE_RATE * 0.5), 0.0, 1.0)
 		lp += (rng.randf_range(-1.0, 1.0) - lp) * alpha * 4.0
 		out[i] = clampf(lp, -1.0, 1.0) * (0.5 if big else 0.3) * exp(-t * 7.0)
+	return _make_wav(out)
+
+
+func _render_sting() -> AudioStreamWAV:
+	# quick 3-note rising square arpeggio (C5-E5-A5) — the style fanfare
+	var n := int(SAMPLE_RATE * 0.26)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var notes := [0, 4, 9]
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		var ni := mini(int(t / 0.085), 2)
+		var f := 523.25 * pow(2.0, float(notes[ni]) / 12.0)
+		phase += f / SAMPLE_RATE
+		var in_note := fmod(t, 0.085)
+		out[i] = (1.0 if fmod(phase, 1.0) < 0.4 else -1.0) * 0.12 * exp(-in_note * 14.0)
 	return _make_wav(out)
 
 

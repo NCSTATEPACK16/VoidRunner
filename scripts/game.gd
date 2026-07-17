@@ -36,6 +36,7 @@ var _arena_spawned := {}
 var _arena_kills := {}
 var _boss_arena_start := -1   # Phase J: first ring of the boss room (-1 = no boss)
 var _boss_announced := false
+var _last_style := 0   # V2.2 L2c: sting fires on upward grade changes only
 var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
 var _warmup_rig: Node3D
@@ -154,6 +155,10 @@ func _ready() -> void:
 		names.append(w.display_name)
 	hud.setup(player, enemy_mgr, shot_mgr, names)
 	AudioSys.set_combat_refs(enemy_mgr, shot_mgr, player)   # V2.2 L2b: music feeds
+	GameState.style_changed.connect(func(grade: int) -> void:   # L2c: sting on ups only
+		if grade > _last_style:
+			AudioSys.style_sting(grade)
+		_last_style = grade)
 	var level_names: Array[String] = []
 	for l in levels:
 		level_names.append(l.display_name)
@@ -586,6 +591,7 @@ func _level_complete() -> void:
 		and GameState.level_props >= GameState.level_props_total
 	if secondary_done:
 		bonus += 400
+	bonus += GameState.peak_style * 100   # V2.2 L2c: style pays
 	GameState.score += bonus
 	# Phase J: rank the run, remember progress
 	var level := levels[idx]
@@ -609,7 +615,7 @@ func _level_complete() -> void:
 		overlays.set_level_clear(
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
 			GameState.level_kills, acc, player.elapsed, rank, secondary_done,
-			GameState.level_secrets, GameState.level_secrets_total)
+			GameState.level_secrets, GameState.level_secrets_total, GameState.peak_style)
 		overlays.show_only("level_clear")
 
 
