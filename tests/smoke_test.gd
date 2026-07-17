@@ -182,6 +182,16 @@ func _run() -> void:
 	assert(game.shot_mgr._explosions.is_empty() and game.shot_mgr._sparks.is_empty())
 	print("pool ok — total=%d free=%d after 50-boom burst" % [
 		game.shot_mgr._pool_total, game.shot_mgr._pool_free.size()])
+	# --- V2.2 L1b: gibs — burst past the cap, ricochet sim, full drain ---
+	var gm: GibManager = game.gib_mgr
+	gm.burst(game.player.position + game.player.forward() * 10.0, Vector3(4, 2, -6),
+		game.player.ring_idx, 60, Color.RED)   # 60 asked > 48 cap
+	assert(gm.active_count() <= 48)
+	assert(gm.active_count() > 0)
+	for f in 400:   # ~4 s of physics — every chunk must expire and free its slot
+		gm._sim(0.01)
+	assert(gm.active_count() == 0)
+	print("gibs ok — cap held, pool drained")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1

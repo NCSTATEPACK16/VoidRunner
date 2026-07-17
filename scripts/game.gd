@@ -21,6 +21,7 @@ var shot_mgr: ShotManager
 var pickup_mgr: PickupManager
 var prop_mgr: PropManager       # K3 fuel cells
 var hazard_mgr: HazardManager   # K3 crushers
+var gib_mgr: GibManager         # V2.2 L1 debris + hit-stop
 var hud: Hud
 var overlays: Overlays
 var view: SubViewport
@@ -97,6 +98,8 @@ func _ready() -> void:
 	view.add_child(prop_mgr)
 	hazard_mgr = HazardManager.new()
 	view.add_child(hazard_mgr)
+	gib_mgr = GibManager.new()
+	view.add_child(gib_mgr)
 	hud = Hud.new()
 	hud.layer = 1
 	view.add_child(hud)
@@ -116,6 +119,7 @@ func _ready() -> void:
 		func(pos: Vector3) -> void: prop_mgr.splash(pos, PropManager.CHAIN_RADIUS))
 	enemy_mgr.boss_killed.connect(_on_boss_killed)
 	enemy_mgr.boss_phase.connect(_on_boss_phase)
+	enemy_mgr.gibs_requested.connect(gib_mgr.burst)
 	pickup_mgr.player = player
 	enemy_mgr.drop_spawned.connect(pickup_mgr.spawn_drop)
 	pickup_mgr.collected.connect(_on_pickup_collected)
@@ -265,6 +269,7 @@ func _load_level_world(index: int) -> void:
 	enemy_mgr.path = path
 	enemy_mgr.level = level
 	pickup_mgr.path = path
+	gib_mgr.path = path
 	var theme: Dictionary = TextureGen.THEMES[level.theme_id]
 	_apply_theme_mood(theme, level)
 	world.rebuild(path, TextureGen.theme_set(level.theme_id, level.level_seed),
@@ -275,6 +280,7 @@ func _load_level_world(index: int) -> void:
 	pickup_mgr.clear_all()
 	prop_mgr.clear_all()
 	hazard_mgr.clear_all()
+	gib_mgr.clear_all()
 	hazard_mgr.path = path
 	hazard_mgr.setup(world.mats.wall, theme.accent2)
 	_place_props(level)
@@ -736,6 +742,7 @@ func _start_warmup() -> void:
 	texes.append_array(shot_mgr.warmup_textures(weapons))
 	texes.append_array(pickup_mgr.warmup_textures())
 	texes.append_array(prop_mgr.warmup_textures())
+	texes.append_array(SpriteGen.gib_frames())   # V2.2 L1: gib chunks join the rig
 	for i in texes.size():
 		var s := SpriteGen.make_sprite(texes[i], 0.7)
 		s.position = base + right * ((i % 6) - 2.5) * 1.1 \
@@ -796,6 +803,7 @@ func _process(delta: float) -> void:
 	_update_firing(delta)
 	enemy_mgr.update_enemies(delta)
 	shot_mgr.update_shots(delta)
+	gib_mgr.update_gibs(delta)
 	pickup_mgr.update_pickups(delta)
 	prop_mgr.update_props(delta)
 	hazard_mgr.update_traps(delta)
