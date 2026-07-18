@@ -22,6 +22,7 @@ var pickup_mgr: PickupManager
 var prop_mgr: PropManager       # K3 fuel cells
 var hazard_mgr: HazardManager   # K3 crushers
 var gib_mgr: GibManager         # V2.2 L1 debris + hit-stop
+var spur_mgr: SpurManager       # V2.2 L5 side-spurs (hatch + ring-snap + cache)
 var hud: Hud
 var overlays: Overlays
 var view: SubViewport
@@ -102,6 +103,8 @@ func _ready() -> void:
 	view.add_child(hazard_mgr)
 	gib_mgr = GibManager.new()
 	view.add_child(gib_mgr)
+	spur_mgr = SpurManager.new()
+	view.add_child(spur_mgr)
 	hud = Hud.new()
 	hud.layer = 1
 	view.add_child(hud)
@@ -138,6 +141,9 @@ func _ready() -> void:
 	pickup_mgr.player = player
 	enemy_mgr.drop_spawned.connect(pickup_mgr.spawn_drop)
 	pickup_mgr.collected.connect(_on_pickup_collected)
+	spur_mgr.cache_collected.connect(func(_id: int) -> void:
+		hud.show_message("SUPPLY CACHE +300", 2.0)
+		AudioSys.play_portal())
 	prop_mgr.player = player
 	prop_mgr.enemy_mgr = enemy_mgr
 	prop_mgr.shot_mgr = shot_mgr
@@ -288,6 +294,7 @@ func _load_level_world(index: int) -> void:
 	path = PathGen.new()
 	path.generate(level.rings, level.level_seed, level.spawn_arena,
 		level.kind == "boss", _gauntlet)
+	path.add_spurs(level.spur_count)   # V2.2 L5: campaign spurs (guarded for boss/endless/0)
 	player.path = path
 	enemy_mgr.path = path
 	enemy_mgr.level = level
@@ -310,6 +317,7 @@ func _load_level_world(index: int) -> void:
 	_place_props(level)
 	_place_hazards(level)
 	_place_secrets(level)
+	spur_mgr.setup(path, player, pickup_mgr, world.mats.wall, theme.accent2)   # V2.2 L5
 	_arena_spawned.clear()
 	_arena_kills.clear()
 	_door_queue.clear()
@@ -629,7 +637,8 @@ func _level_complete() -> void:
 		overlays.set_level_clear(
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
 			GameState.level_kills, acc, player.elapsed, rank, secondary_done,
-			GameState.level_secrets, GameState.level_secrets_total, GameState.peak_style, earned)
+			GameState.level_secrets, GameState.level_secrets_total, GameState.peak_style, earned,
+			spur_mgr.caches_found, path.spurs.size())
 		overlays.show_only("level_clear")
 
 
@@ -842,6 +851,7 @@ func _process(delta: float) -> void:
 	prop_mgr.update_props(delta)
 	hazard_mgr.update_traps(delta)
 	_update_secrets()
+	spur_mgr.update(delta)
 	_update_arena_lock()
 	if _boss_arena_start >= 0 and not _boss_announced \
 			and player.ring_idx >= _boss_arena_start - 4:

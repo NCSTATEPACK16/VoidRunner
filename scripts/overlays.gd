@@ -112,13 +112,16 @@ func set_briefing(level: LevelDef) -> void:
 	var objective := "PRIMARY: " + level.objective
 	if level.kind == "tunnel":
 		objective += "\nSECONDARY: DESTROY ALL FUEL CELLS"   # K3 (not boss/endless)
+	if level.spur_count > 0:   # V2.2 L5: optional side-spur supply caches
+		objective += "\nOPTIONAL: SUPPLY CACHE DETECTED (%d)" % level.spur_count
 	(p.get_node("Objective") as Label).text = objective
 	(p.get_node("Body") as Label).text = level.briefing
 
 
 func set_level_clear(level_name: String, bonus: int, score: int, next_name: String,
 		kills: int, acc: int, time: float, rank: String, secondary := false,
-		secrets := 0, secrets_total := 0, style_peak := 0, salvage := 0) -> void:
+		secrets := 0, secrets_total := 0, style_peak := 0, salvage := 0,
+		caches := 0, caches_total := 0) -> void:
 	var p: Control = _panels.level_clear
 	(p.get_node("Title") as Label).text = level_name + " CLEAR"
 	var extras: Array[String] = []
@@ -130,6 +133,8 @@ func set_level_clear(level_name: String, bonus: int, score: int, next_name: Stri
 		extras.append("STYLE: %s +%d" % [GameState.STYLE_NAMES[style_peak], style_peak * 100])
 	if salvage > 0:   # V2.2 L3: salvage hauled this level (banked at completion)
 		extras.append("SALVAGE +%d" % salvage)
+	if caches_total > 0:   # V2.2 L5: optional supply caches collected
+		extras.append("CACHES %d/%d" % [caches, caches_total])
 	var secondary_line := ("\n" + " · ".join(extras)) if not extras.is_empty() else ""
 	(p.get_node("Body") as Label).text = \
 		"KILLS %d · ACCURACY %d%% · TIME %s%s\nEXIT BONUS +%d · SCORE %d\nNEXT: %s" % [

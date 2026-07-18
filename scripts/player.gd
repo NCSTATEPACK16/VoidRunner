@@ -294,6 +294,14 @@ func wall_damage_mult() -> float:
 	return GameState.hull_mult()
 
 
+## V2.2 L5: force the tracked ring index. Crossing a spur mouth jumps the index from
+## the arena (mid-array) to the spur (end of array) — a leap nearest_ring's local
+## search can't bridge — so spur_manager snaps it here; the next update_flight frame's
+## nearest_ring then keeps tracking correctly from the new index.
+func snap_ring(idx: int) -> void:
+	ring_idx = idx
+
+
 ## V2.2 L1: both no-op when the SCREEN SHAKE setting is off (accessibility).
 func add_kick(weapon_idx: int) -> void:
 	if not GameState.screen_shake:

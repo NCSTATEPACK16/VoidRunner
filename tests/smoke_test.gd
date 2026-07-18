@@ -497,6 +497,35 @@ func _run() -> void:
 	bpg.add_spurs(2)
 	assert(bpg.spurs.is_empty())             # boss levels never spur
 	print("spurs ok — %d spurs appended, main path intact" % spg.spurs.size())
+	# --- V2.2 L5b: spur hatch + ring-snap — crossing the mouth swaps ring index space ---
+	game._gauntlet = false          # the gauntlet section above left this set
+	GameState.gauntlet_mode = false
+	GameState.reset_run()
+	GameState.level_index = 4        # L5 · HIVE TRENCHES (spur_count = 2)
+	game._launch_level()
+	await get_tree().process_frame
+	assert(not game.path.spurs.is_empty())                         # game wired add_spurs
+	assert(game.spur_mgr._spurs.size() == game.path.spurs.size())  # a hatch per spur
+	var msp: Dictionary = game.path.spurs[0]
+	var mouth: Vector3 = game.path.rings[msp.start].p
+	var toward_arena: Vector3 = (game.path.rings[msp.entry].p - mouth).normalized()
+	# ENTER: tracked as the arena ring, just inside the mouth -> snap into the spur
+	game.player.ring_idx = msp.entry
+	game.player.position = mouth + toward_arena * 5.0
+	game.spur_mgr.update(0.016)
+	assert(game.player.ring_idx == msp.start)
+	# reach the cache chamber: re-arms the snap and pays the +300/+25 bundle once
+	var cache_score_before: int = GameState.score
+	game.player.position = game.path.rings[msp.cache].p
+	game.spur_mgr.update(0.016)
+	assert(game.spur_mgr.caches_found >= 1)
+	assert(GameState.score >= cache_score_before + 300)
+	# EXIT: tracked as a spur ring, back at the mouth -> snap to the arena
+	game.player.ring_idx = msp.cache
+	game.player.position = mouth + toward_arena * 5.0
+	game.spur_mgr.update(0.016)
+	assert(game.player.ring_idx == msp.entry)
+	print("spur snap ok — mouth crossing swaps ring index both ways; cache paid")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
