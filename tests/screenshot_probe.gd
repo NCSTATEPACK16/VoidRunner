@@ -3,6 +3,7 @@ extends Node
 ## (NO --headless — it needs the real rasterizer). Boots the game, flies three
 ## representative moments, and saves the native 320x200 SubViewport frame as PNG:
 ##   1. L1 plain corridor in flight   -> shot_corridor.png
+##   1b. Tab automap over explored L1  -> shot_automap.png
 ##   2. L1 first arena, guards live   -> shot_arena.png
 ##   3. L3 boss room, boss in view    -> shot_boss.png
 ## Output dir: VR_SHOT_DIR env var, else user://shots. Restores records/settings.
@@ -59,6 +60,10 @@ func _run() -> void:
 	# 1) corridor in flight — far enough in that fog/strip/lighting all read
 	await _fly(game, 60 * 6)
 	await _capture(game, "shot_corridor.png", dir)
+	# 1b) Tab automap over the explored corridor — must read as a 1995 automap
+	game._open_automap()
+	await _capture(game, "shot_automap.png", dir)
+	game.automap.close()
 	# 2) first arena with its guards still alive
 	var arena: Dictionary = game.path.arenas[0]
 	var aring: Dictionary = game.path.rings[arena.start + 2]
