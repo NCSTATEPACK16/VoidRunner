@@ -299,6 +299,12 @@ static func pickup_texture(kind: String) -> ImageTexture:
 			_rect(img, 7, 7, 2, 2, Palette.WHITE)
 			for arm in [Vector2i(8, 2), Vector2i(8, 14), Vector2i(2, 8), Vector2i(14, 8)]:
 				_px(img, arm.x, arm.y, Palette.ORANGE_3)
+		"salvage":   # V2.2 L3: scrap nugget — chunky gold ingot with a glint
+			_ellipse(img, 8, 9, 6, 5, Palette.ORANGE_0)
+			_rect(img, 4, 6, 8, 6, Palette.ORANGE_1)
+			_rect(img, 5, 5, 6, 5, Palette.ORANGE_2)
+			_rect(img, 6, 4, 3, 3, Palette.ORANGE_3)
+			_px(img, 7, 5, Palette.WHITE)
 	return ImageTexture.create_from_image(img)
 
 
@@ -345,6 +351,28 @@ static func explosion_frames() -> Array[ImageTexture]:
 			_rect(img, 14, 14, 4, 4, Palette.WHITE)
 		frames.append(ImageTexture.create_from_image(img))
 	return frames
+
+
+## V2.2 L1: 4 small jagged debris chunks in bright greys — tinted per enemy at
+## spawn via Sprite3D.modulate, so one texture set serves every archetype.
+static var _gib_cache: Array[ImageTexture] = []
+
+
+static func gib_frames() -> Array[ImageTexture]:
+	if not _gib_cache.is_empty():
+		return _gib_cache
+	var rng := RandomNumberGenerator.new()
+	for i in 4:
+		rng.seed = 7700 + i
+		var img := Image.create(10, 10, false, Image.FORMAT_RGBA8)
+		for y in 10:
+			for x in 10:
+				var d := Vector2(x - 5, y - 5).length() / 4.0
+				if d < 0.55 + rng.randf() * 0.45:
+					var v := 0.62 + rng.randf() * 0.38
+					_px(img, x, y, Color(v, v, v))
+		_gib_cache.append(ImageTexture.create_from_image(img))
+	return _gib_cache
 
 
 ## Build a billboarded Sprite3D configured for the chunky look.

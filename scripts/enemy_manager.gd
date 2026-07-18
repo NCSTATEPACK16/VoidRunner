@@ -12,7 +12,8 @@ signal exploded(pos: Vector3, big: bool)
 signal turret_destroyed(pos: Vector3)   # V2.0: game chains fuel cells off this
 signal boss_killed
 signal boss_phase(phase: int)
-signal drop_spawned(pos: Vector3, ring: int, kind: String)
+signal drop_spawned(pos: Vector3, ring: int, kind: String, value: int)
+signal gibs_requested(pos: Vector3, vel: Vector3, ring: int, count: int, tint: Color)   # V2.2 L1
 
 const CONTACT_DMG := 12.0
 const ENEMY_CAP := 42
@@ -48,6 +49,15 @@ var _type_frames := {}   # type_id -> Array[ImageTexture]
 # matching kill bursts) stop churning Sprite3D instantiate/queue_free mid-combat
 const NODE_CACHE_CAP := 16
 var _node_cache: Array[Sprite3D] = []
+
+# V2.2 L1: debris tint per archetype (boss gibs use its own modulate tint instead).
+# Approximations of each sprite's dominant hull color; the dither pass re-quantizes.
+const GIB_TINTS := {
+	"drone": Color(0.62, 0.64, 0.7),
+	"weaver": Color(0.45, 0.72, 0.5),
+	"hulk": Color(0.38, 0.44, 0.66),
+	"turret": Color(0.55, 0.55, 0.58),
+}
 
 
 func _ready() -> void:
@@ -341,6 +351,16 @@ func nearest_enemy(from: Vector3) -> Node3D:
 	return best
 
 
+## V2.2 L2b: live-enemy census around a point — the music intensity feed.
+func near_count(from: Vector3, r: float) -> int:
+	var r2 := r * r
+	var n := 0
+	for e in enemies:
+		if e.node.position.distance_squared_to(from) < r2:
+			n += 1
+	return n
+
+
 func _hurt(index: int, dmg: int) -> bool:
 	var e: Dictionary = enemies[index]
 	e.hp -= dmg
@@ -364,24 +384,45 @@ func _kill(index: int, scored: bool) -> void:
 		exploded.emit(e.node.position, false)
 	if e.get("type", "") == "turret":
 		turret_destroyed.emit(e.node.position)   # V2.0: chains nearby fuel cells
+	# V2.2 L1: debris burst — chunk count scales with the kill's heft
+	var gcount := 6
+	if e.get("is_boss", false):
+		gcount = 20
+	elif e.get("type", "") == "hulk":
+		gcount = 12
+	var gtint: Color = e.node.modulate if e.get("is_boss", false) \
+		else GIB_TINTS.get(e.get("type", ""), Color(0.6, 0.6, 0.65))
+	gibs_requested.emit(e.node.position,
+		(e.node.position - player.position).normalized() * 4.0, e.ring, gcount, gtint)
+	if gcount >= 12:   # V2.2 L2d: hulk/boss kills punch the music down for a beat
+		AudioSys.duck(140 if e.get("is_boss", false) else 100)
 	# Phase J feedback: nearby kills thump the camera a little
 	if e.node.position.distance_squared_to(player.position) < 2500.0:
 		player.shake = minf(0.6, player.shake + 0.12)
 	if scored:
 		GameState.register_kill(int(e.score))   # streak-multiplied (Phase J)
+		# V2.2 L3b: salvage — guaranteed from heavies, a 30% roll from the rest
+		if e.get("is_boss", false):
+			drop_spawned.emit(e.node.position, e.ring, "salvage", 50)
+		elif e.get("type", "") == "hulk":
+			drop_spawned.emit(e.node.position, e.ring, "salvage", 15)
+		elif e.get("type", "") == "turret":
+			drop_spawned.emit(e.node.position, e.ring, "salvage", 10)
+		elif randf() < 0.30:
+			drop_spawned.emit(e.node.position, e.ring, "salvage", 5)
 		# Phase J drop roll — one chance per scored kill (never the boss itself;
 		# its reward is the exit ring). Hulks are tanky, so they drop more often.
 		if not e.get("is_boss", false):
 			var mult: float = 1.6 if e.get("type", "") == "hulk" else 1.0
 			var roll := randf()
 			if roll < 0.12 * mult:
-				drop_spawned.emit(e.node.position, e.ring, "shield")
+				drop_spawned.emit(e.node.position, e.ring, "shield", 0)
 			elif roll < 0.22 * mult:
-				drop_spawned.emit(e.node.position, e.ring, "energy")
+				drop_spawned.emit(e.node.position, e.ring, "energy", 0)
 			elif roll < 0.30 * mult:
-				drop_spawned.emit(e.node.position, e.ring, "missile")
+				drop_spawned.emit(e.node.position, e.ring, "missile", 0)
 			elif roll < 0.34 * mult:
-				drop_spawned.emit(e.node.position, e.ring, "bomb")   # V2.0: rare
+				drop_spawned.emit(e.node.position, e.ring, "bomb", 0)   # V2.0: rare
 	enemy_killed.emit(e.arena_id)
 	_release_node(e.node)
 	enemies.remove_at(index)

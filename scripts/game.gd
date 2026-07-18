@@ -21,9 +21,12 @@ var shot_mgr: ShotManager
 var pickup_mgr: PickupManager
 var prop_mgr: PropManager       # K3 fuel cells
 var hazard_mgr: HazardManager   # K3 crushers
+var gib_mgr: GibManager         # V2.2 L1 debris + hit-stop
+var spur_mgr: SpurManager       # V2.2 L5 side-spurs (hatch + ring-snap + cache)
 var hud: Hud
 var overlays: Overlays
 var view: SubViewport
+var automap: Automap             # V2.2 L4a: Tab automap, inside the 320x200 SubViewport
 var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
 var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipped
 var env: Environment            # K1: per-level fog/ambient moods retune this
@@ -35,6 +38,7 @@ var _arena_spawned := {}
 var _arena_kills := {}
 var _boss_arena_start := -1   # Phase J: first ring of the boss room (-1 = no boss)
 var _boss_announced := false
+var _last_style := 0   # V2.2 L2c: sting fires on upward grade changes only
 var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
 var _warmup_rig: Node3D
@@ -77,9 +81,9 @@ func _ready() -> void:
 	_gauntlet_def.display_name = "VOID GAUNTLET"
 	_gauntlet_def.kind = "endless"
 	_gauntlet_def.objective = "SURVIVE — EVERY METRE SCORES"
-	_gauntlet_def.briefing = "No exit gate on this run. The tunnel goes on for as " \
-		+ "long as you do, and the void keeps sending more. Fly far, fly sharp — " \
-		+ "your distance is the record."
+	# narrative half lives in Lore.story(-1); this stays the tactical line (<=3 wrapped)
+	_gauntlet_def.briefing = "The tunnel goes on as long as you do, and the void " \
+		+ "keeps sending more. Fly far, fly sharp — your distance is the record."
 	_gauntlet_def.rings = 200   # initial batch; extend_to() grows it in flight
 	_build_game_view()
 	_build_environment()
@@ -97,9 +101,20 @@ func _ready() -> void:
 	view.add_child(prop_mgr)
 	hazard_mgr = HazardManager.new()
 	view.add_child(hazard_mgr)
+	gib_mgr = GibManager.new()
+	view.add_child(gib_mgr)
+	spur_mgr = SpurManager.new()
+	view.add_child(spur_mgr)
 	hud = Hud.new()
 	hud.layer = 1
 	view.add_child(hud)
+	# V2.2 L4a: Tab automap on its own layer above the HUD (1), below the dither (5),
+	# so the map draws chunky + dithered like the rest of the 320x200 viewport
+	var automap_layer := CanvasLayer.new()
+	automap_layer.layer = 4
+	automap = Automap.new()
+	automap_layer.add_child(automap)
+	view.add_child(automap_layer)
 	_build_dither_layer()
 	overlays = Overlays.new()
 	overlays.layer = 10
@@ -107,6 +122,7 @@ func _ready() -> void:
 	# wiring
 	shot_mgr.player = player
 	shot_mgr.enemy_mgr = enemy_mgr
+	shot_mgr.weapons = weapons   # V2.2 L3c: pellet_count seam
 	enemy_mgr.player = player
 	world.tunnel_spawn_requested.connect(_on_tunnel_spawn)
 	enemy_mgr.enemy_fired.connect(shot_mgr.fire_enemy)
@@ -116,16 +132,28 @@ func _ready() -> void:
 		func(pos: Vector3) -> void: prop_mgr.splash(pos, PropManager.CHAIN_RADIUS))
 	enemy_mgr.boss_killed.connect(_on_boss_killed)
 	enemy_mgr.boss_phase.connect(_on_boss_phase)
+	enemy_mgr.gibs_requested.connect(gib_mgr.burst)
+	# V2.2 L1: nearby explosions rattle the camera, scaled by proximity
+	enemy_mgr.exploded.connect(func(pos: Vector3, big: bool) -> void:
+		var d2 := pos.distance_squared_to(player.position)
+		if d2 < 1600.0:
+			player.add_shake((0.45 if big else 0.2) * (1.0 - sqrt(d2) / 40.0)))
 	pickup_mgr.player = player
 	enemy_mgr.drop_spawned.connect(pickup_mgr.spawn_drop)
 	pickup_mgr.collected.connect(_on_pickup_collected)
+	spur_mgr.cache_collected.connect(func(_id: int) -> void:
+		hud.show_message("SUPPLY CACHE +300", 2.0)
+		AudioSys.play_portal())
 	prop_mgr.player = player
 	prop_mgr.enemy_mgr = enemy_mgr
 	prop_mgr.shot_mgr = shot_mgr
 	shot_mgr.prop_mgr = prop_mgr
 	prop_mgr.cell_destroyed.connect(_on_cell_destroyed)
 	hazard_mgr.player = player
-	shot_mgr.player_hit.connect(func(dmg: float) -> void: player.take_damage(dmg, "SHIELD HIT"))
+	# V2.2 L1e: shield hits also flash a directional arc toward the shooter
+	shot_mgr.player_hit.connect(func(dmg: float, from_pos: Vector3) -> void:
+		player.take_damage(dmg, "SHIELD HIT")
+		hud.show_damage_from(from_pos))
 	player.damaged.connect(func(_a: float, msg: String) -> void: hud.show_message(msg))
 	player.notified.connect(func(msg: String) -> void: hud.show_message(msg))
 	player.dodged.connect(func(dir: Vector3) -> void:
@@ -141,6 +169,11 @@ func _ready() -> void:
 	for w in weapons:
 		names.append(w.display_name)
 	hud.setup(player, enemy_mgr, shot_mgr, names)
+	AudioSys.set_combat_refs(enemy_mgr, shot_mgr, player)   # V2.2 L2b: music feeds
+	GameState.style_changed.connect(func(grade: int) -> void:   # L2c: sting on ups only
+		if grade > _last_style:
+			AudioSys.style_sting(grade)
+		_last_style = grade)
 	var level_names: Array[String] = []
 	for l in levels:
 		level_names.append(l.display_name)
@@ -261,10 +294,13 @@ func _load_level_world(index: int) -> void:
 	path = PathGen.new()
 	path.generate(level.rings, level.level_seed, level.spawn_arena,
 		level.kind == "boss", _gauntlet)
+	path.add_spurs(level.spur_count)   # V2.2 L5: campaign spurs (guarded for boss/endless/0)
 	player.path = path
 	enemy_mgr.path = path
 	enemy_mgr.level = level
 	pickup_mgr.path = path
+	gib_mgr.path = path
+	automap.setup(path, player)   # V2.2 L4a: explored map resets to the new level
 	var theme: Dictionary = TextureGen.THEMES[level.theme_id]
 	_apply_theme_mood(theme, level)
 	world.rebuild(path, TextureGen.theme_set(level.theme_id, level.level_seed),
@@ -275,11 +311,13 @@ func _load_level_world(index: int) -> void:
 	pickup_mgr.clear_all()
 	prop_mgr.clear_all()
 	hazard_mgr.clear_all()
+	gib_mgr.clear_all()
 	hazard_mgr.path = path
 	hazard_mgr.setup(world.mats.wall, theme.accent2)
 	_place_props(level)
 	_place_hazards(level)
 	_place_secrets(level)
+	spur_mgr.setup(path, player, pickup_mgr, world.mats.wall, theme.accent2)   # V2.2 L5
 	_arena_spawned.clear()
 	_arena_kills.clear()
 	_door_queue.clear()
@@ -293,6 +331,12 @@ func _load_level_world(index: int) -> void:
 		_arena_kills[arena.id] = 0
 		if arena.spawn_rings.is_empty():
 			world.open_door(arena.id)
+	# V2.2 L5c: 1-2 guards inside each spur. Fresh NEGATIVE arena_id — the kill
+	# handler early-outs on negatives, so spur kills never touch door/lock logic.
+	for sp in path.spurs:
+		enemy_mgr.spawn(sp.start + 3, -100 - sp.id, _pick_enemy_type(level))
+		if sp.cache - sp.start > 8:
+			enemy_mgr.spawn(sp.cache - 2, -100 - sp.id, _pick_enemy_type(level))
 	# Phase J: boss levels put a single boss deep in the final room and keep the
 	# exit ring dark until it falls (no bulkheads on boss levels — see PathGen).
 	_boss_arena_start = -1
@@ -466,6 +510,8 @@ func _update_secrets() -> void:
 			for kind in kinds:
 				pickup_mgr.spawn_drop(
 					player.position + ring.d * randf_range(2.0, 6.0), s.ring, kind)
+			pickup_mgr.spawn_drop(   # V2.2 L3b: caches always hide scrap
+				player.position + ring.d * randf_range(2.0, 6.0), s.ring, "salvage", 25)
 
 
 ## K5: the active tuning source — campaign levels from resources, gauntlet from
@@ -536,9 +582,11 @@ func _launch_level() -> void:
 	GameState.heat = 0.0
 	GameState.is_overheated = false
 	GameState.weapon_index = 0
-	GameState.missiles = GameState.MISSILES_PER_LEVEL   # I2: refill ammo each level start
+	GameState.missiles = GameState.missile_cap()   # I2→L3c: full rack each level start
 	_overheat_t = 0.0
 	_fire_cd = 0.0
+	GameState.arena_locked = false   # V2.2 L2b: fresh music state per level
+	GameState.boss_active = false
 	GameState.reset_level_stats()
 	_end_warmup()
 	# the briefing screen already built this level's world (and warmed its shaders);
@@ -563,12 +611,14 @@ func _level_complete() -> void:
 	AudioSys.stop_engine()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	var idx := GameState.level_index
+	var earned := GameState.salvage_run   # V2.2 L3: haul this level, captured before banking
 	var bonus := 500 + idx * 250
 	# K3: secondary objective — every fuel cell destroyed
 	var secondary_done := GameState.level_props_total > 0 \
 		and GameState.level_props >= GameState.level_props_total
 	if secondary_done:
 		bonus += 400
+	bonus += GameState.peak_style * 100   # V2.2 L2c: style pays
 	GameState.score += bonus
 	# Phase J: rank the run, remember progress
 	var level := levels[idx]
@@ -583,6 +633,7 @@ func _level_complete() -> void:
 	GameState.unlocked_level = mini(
 		maxi(GameState.unlocked_level, idx + 1), levels.size() - 1)
 	var new_record := GameState.record_progress(rank)
+	GameState.bank_salvage()   # V2.2 L3: this level's salvage haul → persistent bank
 	if idx >= levels.size() - 1:
 		state = State.VICTORY
 		overlays.set_final_score("victory", GameState.score, new_record)
@@ -592,7 +643,8 @@ func _level_complete() -> void:
 		overlays.set_level_clear(
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
 			GameState.level_kills, acc, player.elapsed, rank, secondary_done,
-			GameState.level_secrets, GameState.level_secrets_total)
+			GameState.level_secrets, GameState.level_secrets_total, GameState.peak_style, earned,
+			spur_mgr.caches_found, path.spurs.size())
 		overlays.show_only("level_clear")
 
 
@@ -623,6 +675,7 @@ func _on_player_died() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _gauntlet:
 		# K5: a gauntlet run scores by distance; records stay campaign-separate
+		GameState.bank_salvage()   # V2.2 L3e: the run's salvage haul banks at run end
 		var dist := int(player.ring_idx * PathGen.SEG)
 		var new_best := GameState.record_gauntlet(dist)
 		overlays.set_final_score("game_over", GameState.score, new_best, dist)
@@ -649,6 +702,7 @@ func _on_launch() -> void:
 
 ## K5: Void Gauntlet entry from the start screen.
 func _on_gauntlet() -> void:
+	GameState.reset_run()   # V2.2 L3e: gauntlet always starts at MK I (no bay mid-run)
 	_gauntlet = true
 	GameState.gauntlet_mode = true
 	_built_level = -1
@@ -686,7 +740,8 @@ func _show_briefing() -> void:
 ## variants compile here too, so the first live shot no longer stalls.
 func _web_load_and_warm() -> void:
 	_warming = true
-	_web_show_loading("ENTERING SECTOR")
+	_web_show_loading("ENTERING SECTOR",
+		Lore.load_lines(-1 if _gauntlet else GameState.level_index))
 	await get_tree().process_frame
 	await get_tree().process_frame            # give the browser a frame to paint the overlay
 	_load_level_world(GameState.level_index)
@@ -711,9 +766,12 @@ func _web_load_and_warm() -> void:
 	_warming = false
 
 
-func _web_show_loading(msg := "LOADING") -> void:
+func _web_show_loading(msg := "LOADING", lines := PackedStringArray()) -> void:
+	# V2.2 story pass: `lines` become the overlay's rotating lore transmissions —
+	# their crossfade is pure CSS, so it keeps moving while shader compiles block JS.
 	if OS.has_feature("web"):
-		JavaScriptBridge.eval("window.vrShowLoading && window.vrShowLoading(%s);" % JSON.stringify(msg), true)
+		JavaScriptBridge.eval("window.vrShowLoading && window.vrShowLoading(%s, %s);" \
+			% [JSON.stringify(msg), JSON.stringify(Array(lines))], true)
 
 
 func _web_hide_loading() -> void:
@@ -736,6 +794,7 @@ func _start_warmup() -> void:
 	texes.append_array(shot_mgr.warmup_textures(weapons))
 	texes.append_array(pickup_mgr.warmup_textures())
 	texes.append_array(prop_mgr.warmup_textures())
+	texes.append_array(SpriteGen.gib_frames())   # V2.2 L1: gib chunks join the rig
 	for i in texes.size():
 		var s := SpriteGen.make_sprite(texes[i], 0.7)
 		s.position = base + right * ((i % 6) - 2.5) * 1.1 \
@@ -782,6 +841,7 @@ func _process(delta: float) -> void:
 	if state != State.PLAYING:
 		return
 	player.update_flight(delta)
+	automap.note_ring(player.ring_idx)   # V2.2 L4a: track the high-water explored ring
 	if _gauntlet:
 		_gauntlet_stream()
 		var tier := player.ring_idx / 60
@@ -796,15 +856,18 @@ func _process(delta: float) -> void:
 	_update_firing(delta)
 	enemy_mgr.update_enemies(delta)
 	shot_mgr.update_shots(delta)
+	gib_mgr.update_gibs(delta)
 	pickup_mgr.update_pickups(delta)
 	prop_mgr.update_props(delta)
 	hazard_mgr.update_traps(delta)
 	_update_secrets()
+	spur_mgr.update(delta)
 	_update_arena_lock()
 	if _boss_arena_start >= 0 and not _boss_announced \
 			and player.ring_idx >= _boss_arena_start - 4:
 		_boss_announced = true
-		hud.show_message("WARNING · CLASS-X SIGNATURE", 3.0)
+		GameState.boss_active = true   # V2.2 L2b: engagement, not spawn — the
+		hud.show_message("WARNING · CLASS-X SIGNATURE", 3.0)   # entry tunnel stays calm
 		AudioSys.play_overheat()
 	# Phase J: one-shot shields-critical callout with hysteresis
 	if GameState.shields < 25.0 and not _low_shield_warned:
@@ -845,13 +908,15 @@ func _update_firing(delta: float) -> void:
 	if w.energy_cost > 0.0 and GameState.energy < w.energy_cost:
 		_notify_cant_fire("LOW ENERGY")
 		return
-	_fire_cd = w.cooldown
+	# V2.2 L3c: NEUTRON marks shorten the interval; heat sinks cool every weapon
+	_fire_cd = w.cooldown * GameState.weapon_mult(GameState.weapon_index, "interval")
 	shot_mgr.fire_player(w)
+	player.add_kick(GameState.weapon_index)   # V2.2 L1: per-weapon muzzle kick
 	if w.uses_ammo:
 		GameState.missiles -= 1
 	if w.energy_cost > 0.0:
 		GameState.energy -= w.energy_cost   # shared afterburner pool; regens in player.gd
-	GameState.heat += w.heat
+	GameState.heat += w.heat * GameState.heat_mult()
 	if GameState.heat >= 100.0:
 		GameState.is_overheated = true
 		_overheat_t = OVERHEAT_LOCK
@@ -891,12 +956,14 @@ func _update_arena_lock() -> void:
 		if arena.door_ring < 0 or world.is_door_open(arena.id):
 			continue
 		if player.ring_idx >= arena.start - 2 and player.ring_idx <= arena.door_ring:
+			GameState.arena_locked = true   # V2.2 L2b: music heat floor
 			hud.set_kill_counter(_arena_kills.get(arena.id, 0), _arena_spawned.get(arena.id, 0))
 			return
+	GameState.arena_locked = false
 	hud.set_kill_counter(0, 0)
 
 
-func _on_pickup_collected(kind: String) -> void:
+func _on_pickup_collected(kind: String, value := 0) -> void:
 	match kind:
 		"shield":
 			hud.show_message("SHIELD CELL +20")
@@ -906,10 +973,14 @@ func _on_pickup_collected(kind: String) -> void:
 			hud.show_message("MISSILE PACK +3")
 		"bomb":
 			hud.show_message("PLASMA BOMB +1")
+		"salvage":   # V2.2 L3b
+			hud.show_message("SALVAGE +%d" % value)
 	AudioSys.play_select()
 
 
 func _on_boss_killed() -> void:
+	GameState.boss_active = false   # V2.2 L2b: let the music breathe again
+	gib_mgr.hit_stop(250, 0.25, true)   # V2.2 L1: boss-death slow-mo beats the cooldown
 	world.set_portal_active(true)
 	hud.show_message("SIGNATURE ELIMINATED — GATE OPEN", 3.0)
 	AudioSys.play_portal()
@@ -917,6 +988,7 @@ func _on_boss_killed() -> void:
 
 
 func _on_boss_phase(phase: int) -> void:
+	gib_mgr.hit_stop(90)   # V2.2 L1: phase transitions land with a beat
 	if phase == 2:
 		hud.show_message("SIGNATURE SHIFTING — VOLLEY PATTERN", 2.5)
 	elif phase == 3:
@@ -926,6 +998,7 @@ func _on_boss_phase(phase: int) -> void:
 
 
 func _on_enemy_killed(arena_id: int) -> void:
+	hud.flash_kill_tick()   # V2.2 L1e: every kill, arena or tunnel
 	if arena_id < 0:
 		return
 	_arena_kills[arena_id] = _arena_kills.get(arena_id, 0) + 1
@@ -964,6 +1037,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if state != State.PLAYING:
 		return
+	if event.is_action_pressed("automap"):
+		_open_automap()
+		get_viewport().set_input_as_handled()   # don't leak the Tab to the now-paused map
+		return
 	# I4: the player lives inside the SubViewport, which doesn't receive unhandled
 	# input — mouse look is forwarded from here (root viewport) instead.
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -982,6 +1059,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if event.is_action_pressed("weapon_cycle"):
 		_select_weapon((GameState.weapon_index + 1) % weapons.size())
+
+
+## V2.2 L4a: gather current map markers (found secrets, woken portal), then open the
+## paused automap. Closing is handled by the map itself (it processes when paused).
+func _open_automap() -> void:
+	var secret_rings := PackedInt32Array()
+	for s in _secrets:
+		if s.found:
+			secret_rings.append(s.ring)
+	var portal_ring := (path.rings.size() - 1) if world.portal_active else -1
+	automap.set_markers(secret_rings, portal_ring)
+	automap.open()
 
 
 func _select_weapon(i: int) -> void:

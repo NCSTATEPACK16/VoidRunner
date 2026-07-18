@@ -148,6 +148,42 @@ body {
 	margin-top: 0.55rem;
 }
 
+/* Rotating lore transmissions. The crossfade is a pure-CSS keyframe animation on
+   opacity, so it keeps cycling even while synchronous shader compiles block the
+   main thread — exactly the window this overlay exists to cover. Four stacked
+   lines, 14 s loop, ~3.5 s each. */
+#vr-loading .vr-lore {
+	position: relative;
+	width: 100%;
+	height: 1.4rem;
+	margin-top: 1.4rem;
+	text-align: center;
+}
+
+#vr-loading .vr-lore div {
+	position: absolute;
+	left: 0;
+	right: 0;
+	font-size: 0.72rem;
+	color: #8fb8cc;
+	letter-spacing: 0.16em;
+	opacity: 0;
+	will-change: opacity;
+	animation: vr-lore-cycle 14s linear infinite;
+}
+
+#vr-loading .vr-lore div:nth-child(2) { animation-delay: 3.5s; }
+#vr-loading .vr-lore div:nth-child(3) { animation-delay: 7s; }
+#vr-loading .vr-lore div:nth-child(4) { animation-delay: 10.5s; }
+
+@keyframes vr-lore-cycle {
+	0% { opacity: 0; }
+	3% { opacity: 1; }
+	22% { opacity: 1; }
+	25% { opacity: 0; }
+	100% { opacity: 0; }
+}
+
 @keyframes vr-spin {
 	to { transform: rotate(360deg); }
 }
@@ -174,17 +210,38 @@ body {
 			<div class="vr-ring"></div>
 			<div class="vr-msg" id="vr-loading-msg">INITIALIZING&hellip;</div>
 			<div class="vr-hint">compiling shaders &mdash; first run is slowest</div>
+			<!-- boot lore, baked in so it rotates before the engine even loads;
+			     vrShowLoading swaps these for per-sector lines -->
+			<div class="vr-lore" id="vr-lore">
+				<div>STARLIGHT STATION &mdash; LINK ESTABLISHED</div>
+				<div>RIFT ACTIVITY: CLIMBING</div>
+				<div>HIVE SIGNALS ON ALL OUTER BANDS</div>
+				<div>VOID RUNNER, YOU ARE GO FOR LAUNCH</div>
+			</div>
 		</div>
 
 		<script>
 		// GDScript drives these via JavaScriptBridge.eval (see game.gd).
 		(function () {
-			window.vrShowLoading = function (msg) {
+			window.vrShowLoading = function (msg, lines) {
 				var el = document.getElementById('vr-loading');
 				if (!el) { return; }
 				if (msg) {
 					var m = document.getElementById('vr-loading-msg');
 					if (m) { m.textContent = msg; }
+				}
+				// swap in per-sector lore; new nodes restart the CSS cycle at their
+				// stagger offsets. Pad to 4 so every delay slot stays filled.
+				if (lines && lines.length) {
+					var lore = document.getElementById('vr-lore');
+					if (lore) {
+						lore.textContent = '';
+						for (var i = 0; i < 4; i++) {
+							var d = document.createElement('div');
+							d.textContent = lines[i % lines.length];
+							lore.appendChild(d);
+						}
+					}
 				}
 				el.style.display = 'flex';
 				// re-show on the next frame so the opacity transition can play

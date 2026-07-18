@@ -10,8 +10,21 @@ const POOL_SIZE := 8
 var _pool: Array[AudioStreamPlayer] = []
 var _pool_cursor := 0
 var _engine: AudioStreamPlayer
-var _music: AudioStreamPlayer
+# V2.2 L2: three sample-aligned music beds (calm/combat/frenzy), started in the
+# same frame and crossfaded by the intensity engine — never re-timed.
+var _music: Array[AudioStreamPlayer] = []
+var _ramp_floor := 0.0   # gauntlet depth ramp: a floor under the live intensity
+var _intensity := 0.0    # 0 CALM → 1 COMBAT → 2 FRENZY, continuous
+var _calm_t := 0.0
+var _music_lin: Array[float] = [0.0, 0.001, 0.001]   # crossfade state, linear
+var _duck_amt := 0.0     # V2.2 L2d: dB offset on heavy kills, eases back to 0
+var _duck_until_ms := 0
+var _enemy_mgr: Node = null   # combat feeds, wired once by game._ready
+var _shot_mgr: Node = null
+var _listener: Node3D = null
 var _unlocked := false
+
+const MUSIC_DB := -13.0
 
 var _laser_cache := {}
 var _boom_small: AudioStreamWAV
@@ -24,6 +37,9 @@ var _clank: AudioStreamWAV
 var _dodge: AudioStreamWAV
 var _bomb: AudioStreamWAV
 var _engine_loop: AudioStreamWAV
+var _gib_tick: AudioStreamWAV
+var _sting: AudioStreamWAV   # V2.2 L2c: style-grade fanfare, repitched per grade
+var _gib_voices: Array[AudioStreamPlayer] = []   # V2.2 L1f: dedicated, caps ticks at 2
 
 
 func _ready() -> void:
@@ -42,14 +58,26 @@ func _ready() -> void:
 	_dodge = _render_dodge()
 	_bomb = _render_bomb()
 	_engine_loop = _render_engine_loop()
+	_gib_tick = _render_gib_tick()
+	_sting = _render_sting()
+	for i in 2:
+		var g := AudioStreamPlayer.new()
+		g.bus = "Master"
+		g.volume_db = -16.0
+		add_child(g)
+		_gib_voices.append(g)
 	_engine = AudioStreamPlayer.new()
 	_engine.stream = _engine_loop
 	_engine.volume_db = -80.0
 	add_child(_engine)
-	_music = AudioStreamPlayer.new()
-	_music.stream = MusicGen.render_loop()
-	_music.volume_db = -13.0
-	add_child(_music)
+	for m in 3:
+		var mp := AudioStreamPlayer.new()
+		mp.stream = MusicGen.render_loop(m)
+		mp.bus = "Master"
+		mp.volume_db = MUSIC_DB if m == 0 else -60.0
+		add_child(mp)
+		_music.append(mp)
+	_music_lin[0] = db_to_linear(MUSIC_DB)
 
 
 func unlock() -> void:
@@ -58,7 +86,8 @@ func unlock() -> void:
 		return
 	_unlocked = true
 	_engine.play()
-	_music.play()
+	for mp in _music:   # same frame = same start sample = phase lock forever
+		mp.play()
 
 
 func set_engine(speed: float, max_speed: float) -> void:
@@ -73,10 +102,70 @@ func stop_engine() -> void:
 	_engine.volume_db = -80.0
 
 
-## K5: gauntlet pressure ramp — the loop leans in as the run gets deep. Volume
-## only (repitching the tracker loop reads as a bug, not intensity).
+## K5→V2.2 L2: gauntlet pressure ramp, now a floor under the live combat
+## intensity — depth guarantees at least this much heat; combat can exceed it.
 func set_music_intensity(t: float) -> void:
-	_music.volume_db = -13.0 + 4.0 * clampf(t, 0.0, 1.0)
+	_ramp_floor = clampf(t, 0.0, 2.0)
+
+
+## V2.2 L2b: one game._ready wiring line hands over the combat feeds.
+func set_combat_refs(enemies: Node, shots: Node, listener: Node3D) -> void:
+	_enemy_mgr = enemies
+	_shot_mgr = shots
+	_listener = listener
+
+
+## V2.2 L2b: intensity engine. Rises instantly with pressure, holds through
+## 4 s of quiet, then bleeds off at 0.5/s — so music never yo-yos mid-fight.
+func _update_intensity(dt: float, ppos: Vector3) -> void:
+	var target := 0.0
+	if _enemy_mgr != null:
+		target += minf(_enemy_mgr.near_count(ppos, 120.0) * 0.35, 1.4)
+	if _shot_mgr != null:
+		target += minf(_shot_mgr.eshot_cache.size() * 0.15, 0.6)
+	target += (GameState.combo_mult() - 1) * 0.3
+	target = maxf(target, _ramp_floor)
+	if GameState.arena_locked:
+		target = maxf(target, 1.0)
+	if GameState.boss_active:
+		target = 2.0
+	target = clampf(target, 0.0, 2.0)
+	if target >= _intensity:
+		_intensity = target
+		_calm_t = 0.0
+	else:
+		_calm_t += dt
+		if _calm_t > 4.0:
+			_intensity = maxf(target, _intensity - 0.5 * dt)
+
+
+func _mix_weights(i: float) -> Vector3:   # (calm, combat, frenzy)
+	return Vector3(clampf(1.0 - i, 0.0, 1.0),
+			clampf(1.0 - absf(i - 1.0), 0.0, 1.0),
+			clampf(i - 1.0, 0.0, 1.0))
+
+
+## V2.2 L2d: heavy kills push the music down −8 dB for a beat, restoring over
+## ~0.2 s — the same per-frame volume writes carry it, no tween nodes.
+func duck(ms := 100) -> void:
+	_duck_until_ms = Time.get_ticks_msec() + ms
+	_duck_amt = -8.0
+
+
+func _process(delta: float) -> void:
+	if _music.is_empty():
+		return
+	if _listener != null:
+		_update_intensity(delta, _listener.position)
+	if _duck_amt < 0.0 and Time.get_ticks_msec() >= _duck_until_ms:
+		_duck_amt = minf(_duck_amt + 40.0 * delta, 0.0)
+	# crossfade each bed toward its weight — 3 volume writes, invisible on perf
+	var w := _mix_weights(_intensity)
+	var full := db_to_linear(MUSIC_DB)
+	var k := minf(delta / 1.2, 1.0)
+	for m in 3:
+		_music_lin[m] = maxf(lerpf(_music_lin[m], full * w[m], k), 0.001)
+		_music[m].volume_db = linear_to_db(_music_lin[m]) + _duck_amt
 
 
 func play_laser(freq: float) -> void:
@@ -117,12 +206,31 @@ func play_bomb() -> void:
 	_play(_bomb)
 
 
-func _play(stream: AudioStreamWAV) -> void:
+## V2.2 L1f: quiet debris click on gib ricochet. Dedicated 2-voice pool — when
+## both are busy the tick is simply dropped, so a 48-gib storm can't spam.
+func gib_tick() -> void:
+	if not _unlocked:
+		return
+	for g in _gib_voices:
+		if not g.playing:
+			g.stream = _gib_tick
+			g.pitch_scale = 0.85 + randf() * 0.4
+			g.play()
+			return
+
+
+## V2.2 L2c: rising arpeggio on style-grade ups; pitch climbs with the grade.
+func style_sting(grade: int) -> void:
+	_play(_sting, 1.0 + 0.15 * maxi(grade - 1, 0))
+
+
+func _play(stream: AudioStreamWAV, pitch := 1.0) -> void:
 	if not _unlocked:
 		return
 	var p := _pool[_pool_cursor]
 	_pool_cursor = (_pool_cursor + 1) % POOL_SIZE
 	p.stream = stream
+	p.pitch_scale = pitch   # always written — stings can't leak pitch into SFX
 	p.play()
 
 
@@ -175,6 +283,38 @@ func _render_boom(big: bool) -> AudioStreamWAV:
 		var alpha := clampf(cutoff / (SAMPLE_RATE * 0.5), 0.0, 1.0)
 		lp += (rng.randf_range(-1.0, 1.0) - lp) * alpha * 4.0
 		out[i] = clampf(lp, -1.0, 1.0) * (0.5 if big else 0.3) * exp(-t * 7.0)
+	return _make_wav(out)
+
+
+func _render_sting() -> AudioStreamWAV:
+	# quick 3-note rising square arpeggio (C5-E5-A5) — the style fanfare
+	var n := int(SAMPLE_RATE * 0.26)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var notes := [0, 4, 9]
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		var ni := mini(int(t / 0.085), 2)
+		var f := 523.25 * pow(2.0, float(notes[ni]) / 12.0)
+		phase += f / SAMPLE_RATE
+		var in_note := fmod(t, 0.085)
+		out[i] = (1.0 if fmod(phase, 1.0) < 0.4 else -1.0) * 0.12 * exp(-in_note * 14.0)
+	return _make_wav(out)
+
+
+func _render_gib_tick() -> AudioStreamWAV:
+	# 30 ms low-passed noise blip — debris tapping the wall.
+	var n := int(SAMPLE_RATE * 0.03)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.55
+		out[i] = lp * 0.5 * exp(-t * 220.0)
 	return _make_wav(out)
 
 

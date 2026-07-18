@@ -12,6 +12,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
+	print("smoke: _run entered")
 	# the test completes levels — snapshot and restore the player's real records
 	var saved := {}
 	for f in ["user://records.cfg", "user://settings.cfg"]:
@@ -63,6 +64,13 @@ func _run() -> void:
 		i += 1
 		count += 1
 	assert(count == 9)
+	# --- V2.2 L1a: gib fragment textures ---
+	var gframes: Array = SpriteGen.gib_frames()
+	assert(gframes.size() == 4)
+	for gf in gframes:
+		assert(gf is Texture2D and gf.get_width() >= 8)
+	assert(SpriteGen.gib_frames()[0] == gframes[0])   # cached, not re-rendered
+	print("gib frames ok — %d shapes" % gframes.size())
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()
 	add_child(game)
 	await get_tree().process_frame
@@ -95,6 +103,14 @@ func _run() -> void:
 			near_visible = near_visible or c.node.visible
 	assert(all_far_hidden and near_visible)
 	print("prebuild ok — %d rings built at briefing, draw window active" % built0)
+	# --- V2.2 L4a: Tab automap — explored polyline built, opening pauses, closing resumes ---
+	game.automap.note_ring(30)
+	game.automap.open()
+	assert(get_tree().paused and game.automap.is_open())
+	assert(game.automap._pts.size() >= 30)   # explored rings 0..30(+lookahead) drawn
+	game.automap.close()
+	assert(not get_tree().paused and not game.automap.is_open())
+	print("automap ok — %d-ring explored polyline, pauses + resumes" % game.automap._pts.size())
 	# --- K3: L1 has fuel cells (secondary objective) but no crushers ---
 	assert(GameState.level_props_total > 0)
 	assert(game.prop_mgr.props.size() == GameState.level_props_total)
@@ -175,6 +191,155 @@ func _run() -> void:
 	assert(game.shot_mgr._explosions.is_empty() and game.shot_mgr._sparks.is_empty())
 	print("pool ok — total=%d free=%d after 50-boom burst" % [
 		game.shot_mgr._pool_total, game.shot_mgr._pool_free.size()])
+	# --- V2.2 L1b: gibs — burst past the cap, ricochet sim, full drain ---
+	var gm: GibManager = game.gib_mgr
+	gm.burst(game.player.position + game.player.forward() * 10.0, Vector3(4, 2, -6),
+		game.player.ring_idx, 60, Color.RED)   # 60 asked > 48 cap
+	assert(gm.active_count() <= 48)
+	assert(gm.active_count() > 0)
+	for f in 400:   # ~4 s of physics — every chunk must expire and free its slot
+		gm._sim(0.01)
+	assert(gm.active_count() == 0)
+	print("gibs ok — cap held, pool drained")
+	# --- V2.2 L1c: hit-stop — crushes time, cooldown gates spam, real-time restore ---
+	gm._stop_cooldown_ms = 0   # earlier live-fire kills may have armed the cooldown
+	gm.hit_stop(50)
+	assert(Engine.time_scale < 0.5)
+	gm._stop_cooldown_ms = Time.get_ticks_msec() + 10000   # pin: cooldown live regardless of run speed
+	var restore_before: int = gm._stop_restore_ms
+	gm.hit_stop(200)   # lands inside the cooldown: must be ignored
+	assert(gm._stop_restore_ms == restore_before)
+	gm._stop_cooldown_ms = 0
+	gm._stop_restore_ms = Time.get_ticks_msec() - 1   # force the restore due now
+	gm._process(0.016)
+	assert(is_equal_approx(Engine.time_scale, 1.0))
+	print("hit-stop ok — crush + cooldown + restore")
+	# --- V2.2 L1d: camera kick + shake respect the SCREEN SHAKE setting ---
+	GameState.screen_shake = true
+	game.player.shake = 0.0
+	game.player.add_shake(0.5)
+	assert(game.player.shake > 0.0)
+	GameState.screen_shake = false
+	game.player.shake = 0.0
+	game.player.add_shake(0.5)
+	assert(game.player.shake == 0.0)
+	game.player._kick_pitch = 0.0   # clear residual decay from the earlier live-fire sim
+	game.player.add_kick(1)
+	assert(game.player._kick_pitch == 0.0)   # kick gated by the setting too
+	GameState.screen_shake = true
+	game.player.add_kick(1)
+	assert(game.player._kick_pitch > 0.0)
+	game.player._kick_pitch = 0.0
+	print("shake ok — kick + shake behind SCREEN SHAKE setting")
+	# --- V2.2 L1e: hit feedback — kill tick + directional damage arcs ---
+	game.hud.flash_kill_tick()
+	assert(game.hud._kill_tick_t > 0.0)   # kill tick armed
+	game.hud.show_damage_from(game.player.position + Vector3(30, 0, 0))
+	assert(game.hud._dmg_arcs.size() > 0)   # damage arc registered
+	print("feedback ok — kill tick + damage arcs")
+	# --- V2.2 L2a: three phase-aligned music mixes on synced players ---
+	var mix_a: AudioStream = MusicGen.render_loop(0)
+	var mix_b: AudioStream = MusicGen.render_loop(2)
+	assert(is_equal_approx(mix_a.get_length(), mix_b.get_length()))   # phase-aligned
+	assert(AudioSys._music.size() == 3)   # three synced players
+	print("mixes ok — 3 phase-aligned music beds")
+	# --- V2.2 L2b: combat-intensity engine — boss forces frenzy, calm decays ---
+	GameState.boss_active = true
+	AudioSys._update_intensity(0.1, game.player.position)
+	assert(AudioSys._intensity >= 2.0)   # boss forces FRENZY
+	GameState.boss_active = false
+	GameState.arena_locked = false
+	AudioSys._ramp_floor = 0.0
+	AudioSys._intensity = 2.0
+	for _calm_step in 100:
+		AudioSys._update_intensity(0.1, Vector3(9999, 0, 9999))   # 10 s of calm
+	assert(AudioSys._intensity < 1.0)   # decays once the calm window lapses
+	print("intensity ok — frenzy on boss, decay after calm")
+	# --- V2.2 L2c: style meter grades the combo streak ---
+	GameState.reset_level_stats()
+	for _sk in 6:
+		GameState.register_kill(10)
+	assert(GameState.style_grade() >= 2)   # 6-kill streak = STELLAR
+	assert(GameState.peak_style >= 2)      # peak recorded for the tally
+	GameState.reset_level_stats()
+	assert(GameState.peak_style == 0)      # peak is per-level
+	print("style ok — grades + peak")
+	# --- V2.2 L3a: salvage economy + upgrade accessors ---
+	GameState.reset_run()
+	GameState.salvage_run = 50
+	GameState.salvage_bank = 30
+	assert(GameState.salvage_total() == 80)
+	assert(GameState.spend_salvage(60) and GameState.salvage_run == 0 \
+		and GameState.salvage_bank == 20)   # spend drains run first, then bank
+	assert(not GameState.spend_salvage(999))   # can't overdraw
+	GameState.weapon_marks[0] = 2
+	assert(is_equal_approx(GameState.weapon_mult(0, "damage"), 1.75))   # NEUTRON MK III
+	assert(GameState.weapon_add(1, "pellets") == 0)   # SCATTER still MK I
+	GameState.ship_ranks.shield = 1
+	assert(is_equal_approx(GameState.max_shields(), 120.0))   # shield cap rank 1
+	GameState.save_records()
+	GameState.ship_ranks.shield = 0
+	GameState.load_records()
+	assert(GameState.ship_ranks.shield == 1)   # ship rank persists
+	GameState.reset_run()
+	assert(GameState.weapon_marks[0] == 0)     # marks are per-run
+	GameState.ship_ranks.shield = 0            # scrub test state for later sections
+	GameState.salvage_bank = 0
+	print("economy ok — salvage + marks + ranks")
+	# --- V2.2 L3b: salvage drops ride the pickup pipeline ---
+	GameState.reset_level_stats()
+	game.pickup_mgr.clear_all()
+	var pre_enemies: int = game.enemy_mgr.enemies.size()
+	game.enemy_mgr.spawn(game.player.ring_idx + 3, -1, "hulk")
+	assert(game.enemy_mgr.enemies.size() == pre_enemies + 1)
+	game.enemy_mgr._kill(game.enemy_mgr.enemies.size() - 1, true)   # scored hulk kill
+	var salv_pick: Dictionary = {}
+	for pk in game.pickup_mgr._pickups:
+		if pk.kind == "salvage":
+			salv_pick = pk
+	assert(not salv_pick.is_empty())   # hulk ALWAYS drops salvage
+	assert(salv_pick.value == 15)
+	game.player.position = salv_pick.node.position   # stand on it
+	game.pickup_mgr.update_pickups(0.016)
+	assert(GameState.salvage_run == 15)   # collected through the manager path
+	print("salvage ok — hulk drop collected for 15")
+	# --- V2.2 L3c: upgrade accessors reach every consumption site ---
+	var base_pellets: int = game.shot_mgr.pellet_count(1)
+	GameState.weapon_marks[1] = 2      # SCATTER MK III
+	assert(game.shot_mgr.pellet_count(1) == base_pellets + 2)   # +2 pellets
+	GameState.weapon_marks[1] = 0
+	GameState.ship_ranks.hull = 1
+	assert(is_equal_approx(game.player.wall_damage_mult(), 0.7))   # hull plating
+	GameState.ship_ranks.hull = 0
+	print("apply ok — marks + ranks reach the consumption sites")
+	# --- V2.2 L3d: Upgrade Bay — buy weapon marks + ship ranks, bank at level end ---
+	GameState.reset_run()
+	GameState.salvage_run = 0
+	GameState.salvage_bank = 500
+	GameState.ship_ranks.shield = 0
+	GameState.ship_ranks.magnet = 0
+	assert(game.overlays.bay_buy_weapon(0))                       # MK I -> II, 60
+	assert(GameState.weapon_marks[0] == 1 and GameState.salvage_total() == 440)
+	assert(game.overlays.bay_buy_weapon(0))                       # MK II -> III, 140
+	assert(GameState.weapon_marks[0] == 2 and GameState.salvage_total() == 300)
+	assert(not game.overlays.bay_buy_weapon(0))                   # maxed — no charge
+	assert(GameState.salvage_total() == 300)
+	assert(game.overlays.bay_buy_ship("shield"))                 # rank 0 -> 1, 120
+	assert(GameState.ship_ranks.shield == 1 and GameState.salvage_total() == 180)
+	assert(game.overlays.bay_buy_ship("magnet"))                 # single rank, 180
+	assert(GameState.ship_ranks.magnet == 1 and GameState.salvage_total() == 0)
+	assert(not game.overlays.bay_buy_ship("magnet"))             # already maxed
+	assert(not game.overlays.bay_buy_ship("shield"))             # can't afford rank 2 (260)
+	# banking: the level's unbanked haul folds into the persistent bank
+	GameState.reset_run()
+	GameState.salvage_run = 45
+	GameState.bank_salvage()
+	assert(GameState.salvage_run == 0 and GameState.salvage_bank == 45)
+	GameState.reset_run()
+	GameState.salvage_bank = 0            # scrub bank + ranks for later sections
+	GameState.ship_ranks.shield = 0
+	GameState.ship_ranks.magnet = 0
+	print("bay ok — marks + ranks bought, banking works")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1
@@ -236,8 +401,10 @@ func _run() -> void:
 	print("boss ok — hp %d -> dead, portal awake, score=%d" % [hp0, GameState.score])
 	# --- K5: Void Gauntlet — endless path grows, arenas stream in, chunks stay bounded ---
 	GameState.reset_run()
+	GameState.weapon_marks = [2, 2, 2, 2]   # a prior campaign's marks must not leak in
 	seed(20260711)          # pin the run layout — the gauntlet seed comes from randi()
 	game._on_gauntlet()     # MENU-independent: flips mode + builds behind a briefing
+	assert(GameState.weapon_marks == [0, 0, 0, 0])   # L3e: gauntlet resets to MK I
 	game._launch_level()
 	await get_tree().process_frame
 	assert(game.path.is_endless)
@@ -265,6 +432,12 @@ func _run() -> void:
 	assert(gdist > 800)                              # bulkheads never soft-locked the run
 	GameState.record_gauntlet(gdist)
 	assert(GameState.gauntlet_best_dist >= gdist)
+	# L3e: the gauntlet run's salvage haul banks when the run ends (death path)
+	GameState.salvage_bank = 0
+	GameState.salvage_run = 20
+	game._on_player_died()
+	assert(GameState.salvage_bank == 20 and GameState.salvage_run == 0)
+	GameState.salvage_bank = 0   # scrub for later sections
 	print("gauntlet ok — dist=%dm rings=%d arenas=%d tier=%d" % [
 		gdist, game.path.rings.size(), game.path.arenas.size(), game._gauntlet_tier])
 	# --- K6: opt-in gamepad — joy bindings appear and disappear with the toggle ---
@@ -304,6 +477,149 @@ func _run() -> void:
 	game._fire_plasma_bomb()   # empty rack: no crash, stays at zero
 	assert(GameState.plasma_bombs == 0)
 	print("plasma bomb ok — room cleared, counter %d, keys remapped" % GameState.plasma_bombs)
+	# --- V2.2 L5a: PathGen dead-end spurs — appended, tagged, main path untouched ---
+	var spg := PathGen.new()
+	spg.generate(220, 424242, 0.18, false, false)
+	var main_len: int = spg.rings.size()
+	var main_end_p: Vector3 = spg.rings[main_len - 1].p
+	spg.add_spurs(2)
+	assert(spg.main_ring_count == main_len)              # main-path/spur boundary marked
+	assert(spg.rings.size() > main_len)                  # spur rings appended past it
+	assert(spg.rings[main_len - 1].p == main_end_p)      # main path byte-identical (cursor restored)
+	assert(spg.spurs.size() == 2)
+	for sp in spg.spurs:
+		assert(sp.start > sp.entry and sp.end >= sp.start + 11)   # appended, >= 12 rings
+		assert(spg.rings[sp.start].get("spur", -1) == sp.id)      # spur rings carry the id
+		assert(spg.rings[sp.cache].hw > 10.0)                     # wide cache chamber
+		assert(spg.rings[sp.entry].arena_id >= 0)                 # branches off a real arena
+	var bpg := PathGen.new()
+	bpg.generate(120, 7, 0.2, true, false)   # boss level
+	bpg.add_spurs(2)
+	assert(bpg.spurs.is_empty())             # boss levels never spur
+	print("spurs ok — %d spurs appended, main path intact" % spg.spurs.size())
+	# --- V2.2 L5b: spur hatch + ring-snap — crossing the mouth swaps ring index space ---
+	game._gauntlet = false          # the gauntlet section above left this set
+	GameState.gauntlet_mode = false
+	GameState.reset_run()
+	GameState.level_index = 4        # L5 · HIVE TRENCHES (spur_count = 2)
+	game._launch_level()
+	await get_tree().process_frame
+	assert(not game.path.spurs.is_empty())                         # game wired add_spurs
+	assert(game.spur_mgr._spurs.size() == game.path.spurs.size())  # a hatch per spur
+	var msp: Dictionary = game.path.spurs[0]
+	var mouth: Vector3 = game.path.rings[msp.start].p
+	var toward_arena: Vector3 = (game.path.rings[msp.entry].p - mouth).normalized()
+	# ENTER: tracked as the arena ring, just inside the mouth -> snap into the spur
+	game.player.ring_idx = msp.entry
+	game.player.position = mouth + toward_arena * 5.0
+	game.spur_mgr.update(0.016)
+	assert(game.player.ring_idx == msp.start)
+	# reach the cache chamber: re-arms the snap and pays the +300/+25 bundle once
+	var cache_score_before: int = GameState.score
+	game.player.position = game.path.rings[msp.cache].p
+	game.spur_mgr.update(0.016)
+	assert(game.spur_mgr.caches_found >= 1)
+	assert(GameState.score >= cache_score_before + 300)
+	# EXIT: tracked as a spur ring, back at the mouth -> snap to the arena
+	game.player.ring_idx = msp.cache
+	game.player.position = mouth + toward_arena * 5.0
+	game.spur_mgr.update(0.016)
+	assert(game.player.ring_idx == msp.entry)
+	print("spur snap ok — mouth crossing swaps ring index both ways; cache paid")
+	# --- V2.2 L5c: spur guards spawned + contained; automap reveals seen spurs ---
+	var guard_rings: Array[int] = []
+	for e in game.enemy_mgr.enemies:
+		if e.ring >= msp.start and e.ring <= msp.end:
+			guard_rings.append(e.ring)
+	assert(not guard_rings.is_empty())       # >=1 guard spawned inside spur 0
+	game.player.ring_idx = msp.start + 2     # park mid-spur so guards track locally
+	game.player.position = game.path.rings[msp.start + 2].p
+	for _gstep in 100:
+		game.enemy_mgr.update_enemies(0.016)
+	var guard_contained := false
+	for e in game.enemy_mgr.enemies:
+		if e.ring >= msp.start and e.ring <= msp.end:
+			guard_contained = true
+	assert(guard_contained)                  # clamp_to_ring keeps guards in the spur
+	game.automap.note_ring(msp.start + 2)    # seeing a spur ring reveals its branch
+	game.automap._rebuild()
+	assert(game.automap._spur_runs.size() >= 1)
+	assert(game.automap._spur_runs[0].size() >= 3)
+	print("spur guards+map ok — %d guard(s) contained; automap draws the branch" \
+		% guard_rings.size())
+	# --- V2.2 L5d: end-to-end spur pass on L2 — fly in, grab the cache, fly out ---
+	GameState.reset_run()
+	GameState.level_index = 1        # L2 · spur_count = 1
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game.path.spurs.size() == 1)
+	var esp: Dictionary = game.path.spurs[0]
+	var e_mouth: Vector3 = game.path.rings[esp.start].p
+	var e_phase := 0                 # 0 fly-in, 1 to mouth, 2 to cache, 3 return + clear
+	var prev_ring: int = game.player.ring_idx
+	var e_done := false
+	for f in 60 * 240:               # hard ceiling: 4 sim-minutes
+		GameState.shields = 100.0    # the probe flies, it doesn't fight fair
+		if e_phase == 0 and game.player.ring_idx >= esp.entry - 6:
+			e_phase = 1
+		if e_phase == 0:             # rail-steer the main tunnel (gauntlet idiom)
+			var pd: Vector3 = game.path.rings[mini(game.player.ring_idx + 2, esp.entry)].d
+			game.player.yaw = atan2(-pd.x, -pd.z)
+			game.player.pitch = clampf(asin(pd.y), -0.6, 0.6)
+		else:                        # position-steer at the current waypoint
+			var e_target := e_mouth
+			if e_phase == 1 and game.player.ring_idx >= esp.start:
+				e_phase = 2          # mouth snap landed — we are in spur index space
+			if e_phase == 2:
+				e_target = game.path.rings[mini(
+					maxi(game.player.ring_idx, esp.start) + 2, esp.cache)].p
+				if game.spur_mgr.caches_found >= 1:
+					e_phase = 3
+			elif e_phase == 3 and game.player.ring_idx < esp.start:
+				e_target = game.path.rings[esp.entry].p    # snapped back — clear the mouth
+				if game.player.position.distance_squared_to(e_mouth) > 400.0:
+					e_done = true
+			var dirv: Vector3 = (e_target - game.player.position).normalized()
+			game.player.yaw = atan2(-dirv.x, -dirv.z)
+			game.player.pitch = clampf(asin(dirv.y), -0.9, 0.9)
+		if f % 240 == 0:             # clear arena stands so bulkheads open
+			game.enemy_mgr.splash_damage(game.player.position, 200.0, 999)
+		game._process(dt)
+		# ring continuity: only the mouth snap may leap index space
+		if absi(game.player.ring_idx - prev_ring) > 30:
+			assert(game.player.position.distance_squared_to(e_mouth) < 200.0)
+		prev_ring = game.player.ring_idx
+		if e_done:
+			break
+	assert(e_done)                   # full in-cache-out pass completed
+	assert(game.spur_mgr.caches_found == 1)
+	game.overlays.set_level_clear("L2", 0, 0, "L3", 0, 0, 0.0, "C", false, 0, 0, 0, 0,
+		game.spur_mgr.caches_found, game.path.spurs.size())
+	var clear_body: String = \
+		(game.overlays._panels.level_clear.get_node("Body") as Label).text
+	assert("CACHES 1/1" in clear_body)
+	print("spur e2e ok — flew in, cached, flew out; tally CACHES 1/1")
+	# --- V2.2 story pass: lore coverage + the briefing bands never overlap ---
+	for lidx in 9:
+		assert(Lore.story(lidx).length() > 20)            # every sector has a story
+		assert(Lore.load_lines(lidx).size() >= 3)         # and overlay transmissions
+	assert(Lore.story(-1).length() > 20)                  # gauntlet variant
+	assert(Lore.load_lines(-1).size() >= 3)
+	GameState.gauntlet_mode = false
+	GameState.level_index = 4          # spur level: worst-case 3-line objective
+	game.overlays.set_briefing(game.levels[4])
+	await get_tree().process_frame
+	var lore_p: Control = game.overlays._panels.briefing
+	var lore_s: Label = lore_p.get_node("Story")
+	var lore_o: Label = lore_p.get_node("Objective")
+	var lore_b: Label = lore_p.get_node("Body")
+	assert(lore_s.get_line_count() <= 3)                  # story fits its band
+	assert(lore_b.get_line_count() <= 3)                  # tactical body fits its band
+	assert(lore_o.text.count("\n") <= 2)                  # objective is at most 3 lines
+	assert(lore_s.position.y + lore_s.size.y * lore_s.scale.y <= lore_o.position.y)
+	assert(lore_o.position.y + 3 * 11.0 <= lore_b.position.y)
+	assert(lore_b.position.y + lore_b.size.y * lore_b.scale.y <= 164.0)   # above buttons
+	print("lore ok — 9+gauntlet stories + load lines; briefing bands don't overlap")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

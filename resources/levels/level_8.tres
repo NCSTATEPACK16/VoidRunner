@@ -5,11 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L8 · THE RIFT GATE"
-briefing = "The longest run of the campaign, straight into the anomaly. The swarm
-will throw everything it has to keep you away from the gate.
-
-Whatever opened the Rift is on the other side. Breach the gate and
-you will be face to face with it. Good hunting, Runner."
+briefing = "The swarm will throw everything it has to keep you from the gate. Breach it. Good hunting, Runner."
 objective = "BREACH THE RIFT GATE"
 rings = 210
 spawn_tunnel = 0.14
@@ -20,3 +16,4 @@ enemy_fire = 1.6
 theme_id = "void"
 level_seed = 505
 enemy_types = PackedStringArray("weaver", "weaver", "hulk", "hulk", "drone", "turret", "turret")
+spur_count = 2

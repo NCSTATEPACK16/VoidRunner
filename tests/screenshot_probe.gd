@@ -3,6 +3,7 @@ extends Node
 ## (NO --headless — it needs the real rasterizer). Boots the game, flies three
 ## representative moments, and saves the native 320x200 SubViewport frame as PNG:
 ##   1. L1 plain corridor in flight   -> shot_corridor.png
+##   1b. Tab automap over explored L1  -> shot_automap.png
 ##   2. L1 first arena, guards live   -> shot_arena.png
 ##   3. L3 boss room, boss in view    -> shot_boss.png
 ## Output dir: VR_SHOT_DIR env var, else user://shots. Restores records/settings.
@@ -23,6 +24,15 @@ func _shot_dir() -> String:
 func _capture(game: Node3D, file_name: String, dir: String) -> void:
 	await RenderingServer.frame_post_draw
 	var img: Image = (game.view as SubViewport).get_texture().get_image()
+	img.save_png(dir + "/" + file_name)
+	print("[shot] %s/%s" % [dir, file_name])
+
+
+## Root-window capture — overlays (briefing/menus) render at native res OUTSIDE
+## the 320x200 game SubViewport, so the in-view capture above can't see them.
+func _capture_root(file_name: String, dir: String) -> void:
+	await RenderingServer.frame_post_draw
+	var img: Image = get_viewport().get_texture().get_image()
 	img.save_png(dir + "/" + file_name)
 	print("[shot] %s/%s" % [dir, file_name])
 
@@ -54,11 +64,17 @@ func _run() -> void:
 	game._show_briefing()
 	for i in 30:
 		await get_tree().process_frame   # warm-up rig compiles behind the briefing
+	# 0) the briefing itself — story/objective/body bands must not overlap (V2.2)
+	await _capture_root("shot_briefing.png", dir)
 	game._on_launch()
 	await get_tree().process_frame
 	# 1) corridor in flight — far enough in that fog/strip/lighting all read
 	await _fly(game, 60 * 6)
 	await _capture(game, "shot_corridor.png", dir)
+	# 1b) Tab automap over the explored corridor — must read as a 1995 automap
+	game._open_automap()
+	await _capture(game, "shot_automap.png", dir)
+	game.automap.close()
 	# 2) first arena with its guards still alive
 	var arena: Dictionary = game.path.arenas[0]
 	var aring: Dictionary = game.path.rings[arena.start + 2]

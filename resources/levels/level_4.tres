@@ -5,11 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L4 · REACTOR MAZE"
-briefing = "The reactor galleries were carved straight into the asteroid rock.
-Tight turns, deep shadow, and drones that hit harder than the last sector.
-
-The BOLT cannon one-shots a standard drone — but mind your heat gauge
-in the long dark stretches."
+briefing = "The BOLT cannon one-shots a standard drone — but mind your heat gauge in the long dark stretches."
 objective = "CROSS THE REACTOR GALLERIES"
 rings = 155
 spawn_tunnel = 0.1
@@ -20,3 +16,4 @@ enemy_fire = 2.2
 theme_id = "rock"
 level_seed = 303
 enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk", "turret")
+spur_count = 1

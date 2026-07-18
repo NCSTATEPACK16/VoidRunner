@@ -28,6 +28,7 @@ func _init() -> void:
 	_key_action("plasma_bomb", KEY_P)
 	_key_action("pause_game", KEY_ENTER)
 	_add_key("pause_game", KEY_ESCAPE)
+	_key_action("automap", KEY_TAB)   # V2.2 L4a: Tab opens the paused automap
 
 
 ## K6: opt-in gamepad bindings — a settings toggle, OFF by default (John's call).
@@ -59,6 +60,8 @@ func set_gamepad(enabled: bool) -> void:
 	_pad_button("pause_game", JOY_BUTTON_START)
 	if InputMap.has_action("plasma_bomb"):
 		_pad_button("plasma_bomb", JOY_BUTTON_Y)
+	if InputMap.has_action("automap"):
+		_pad_button("automap", JOY_BUTTON_BACK)   # V2.2 L4a: Back toggles the map
 
 
 func _pad_button(action: StringName, button: JoyButton) -> void:

@@ -71,6 +71,15 @@ var _c_dodge := false
 var _c_hot := false
 var _c_vel := -1
 var _c_metric := -1
+# V2.2 L1e: transient feedback — the crosshair layer redraws only while these live
+var _kill_tick_t := 0.0
+var _dmg_arcs: Array = []   # {angle: float, t: float}, newest appended
+# V2.2 L2c: style meter — grade name pops on transitions, bar drains with the window
+const STYLE_TH := [0, 3, 6, 10, 15]
+var _style_name: Label
+var _style_draw: Control
+var _style_pop_t := 0.0
+var _c_style_live := false
 
 
 func _ready() -> void:
@@ -118,6 +127,15 @@ func _ready() -> void:
 	_score = _label(root, Vector2(26, 16), "SCORE 0", Color("ffd34d"), 8)
 	# Phase J: kill-streak multiplier readout
 	_combo = _label(root, Vector2(26, 26), "", Color("ff9a30"), 8)
+	# V2.2 L2c: style grade + drain bar directly under the combo readout
+	_style_name = _label(root, Vector2(26, 36), "", Color("62ffd0"), 8)
+	_style_name.visible = false
+	_style_draw = Control.new()
+	_style_draw.position = Vector2(26, 47)
+	_style_draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_style_draw.draw.connect(_draw_style)
+	root.add_child(_style_draw)
+	GameState.style_changed.connect(_on_style_changed)
 	_combo.visible = false
 	# ---- bottom console ----
 	_console_static = Control.new()
@@ -185,6 +203,21 @@ func set_boss_name(text: String) -> void:
 	_boss_name.text = text
 
 
+## V2.2 L1e: 4 corner ticks pop off the crosshair for a beat on every kill.
+func flash_kill_tick() -> void:
+	_kill_tick_t = 0.15
+	_crosshair.queue_redraw()
+
+
+## V2.2 L1e: red arc at the screen edge pointing at whoever just hit us.
+func show_damage_from(world_pos: Vector3) -> void:
+	if player == null:
+		return
+	var local := (world_pos - player.position).rotated(Vector3.UP, -player.rotation.y)
+	_dmg_arcs.append({"angle": atan2(local.x, -local.z), "t": 0.4})
+	_crosshair.queue_redraw()
+
+
 func _process(delta: float) -> void:
 	_msg_t -= delta
 	_msg.visible = _msg_t > 0.0
@@ -236,6 +269,52 @@ func _process(delta: float) -> void:
 	if GameState.is_overheated != _c_hot:
 		_c_hot = GameState.is_overheated
 		_crosshair.queue_redraw()
+	# V2.2 L1e: tick down transient feedback; keep redrawing while live (the
+	# final redraw after a timer expires is what clears it from the layer)
+	if _kill_tick_t > 0.0:
+		_kill_tick_t -= delta
+		_crosshair.queue_redraw()
+	if not _dmg_arcs.is_empty():
+		for i in range(_dmg_arcs.size() - 1, -1, -1):
+			_dmg_arcs[i].t -= delta
+			if _dmg_arcs[i].t <= 0.0:
+				_dmg_arcs.remove_at(i)
+		_crosshair.queue_redraw()
+	# V2.2 L2c: style meter animates only while a streak is live (dirty rule:
+	# the one extra redraw after it dies is what clears the bar)
+	if _style_pop_t > 0.0:
+		_style_pop_t -= delta
+		_style_name.scale = Vector2.ONE * (2.0 if _style_pop_t > 0.45 else 1.0)
+	var style_live := GameState.style_grade() > 0
+	if style_live:
+		_style_name.text = GameState.STYLE_NAMES[GameState.style_grade()]
+		_style_draw.queue_redraw()
+	elif _c_style_live:
+		_style_draw.queue_redraw()
+	_style_name.visible = style_live
+	_c_style_live = style_live
+
+
+## V2.2 L2c: signal-driven pop so the name scales up for a beat on every grade-up.
+func _on_style_changed(grade: int) -> void:
+	if grade > 0:
+		_style_pop_t = 0.6
+	_style_draw.queue_redraw()
+
+
+## Bar fill = window time remaining × progress toward the next grade — it reads
+## as "keep killing to hold the rank", which is exactly the mechanic.
+func _draw_style() -> void:
+	var g := GameState.style_grade()
+	if g <= 0:
+		return
+	var time_frac := clampf(GameState.combo_t / GameState.COMBO_WINDOW, 0.0, 1.0)
+	var prog := 1.0
+	if g < 4:
+		prog = float(GameState.combo - STYLE_TH[g]) / float(STYLE_TH[g + 1] - STYLE_TH[g])
+	var fill := clampf(time_frac * clampf(prog, 0.0, 1.0), 0.0, 1.0)
+	_style_draw.draw_rect(Rect2(0, 0, 42, 5), PANEL_DARK)
+	_style_draw.draw_rect(Rect2(1, 1, 40.0 * fill, 3), Color("62ffd0"))
 
 
 func _draw_crosshair() -> void:
@@ -243,6 +322,16 @@ func _draw_crosshair() -> void:
 	var col := Color("ff5030") if hot else Color("62ffd0")
 	for arm in [Vector2(0, -1), Vector2(0, 1), Vector2(-1, 0), Vector2(1, 0)]:
 		_crosshair.draw_line(arm * 3.0, arm * 8.0, col, 1.0)
+	# V2.2 L1e: kill tick — short diagonals off the crosshair corners
+	if _kill_tick_t > 0.0:
+		for d in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
+			_crosshair.draw_line(d * 9.0, d * 13.0, Color("ffd34d"), 1.0)
+	# V2.2 L1e: damage arcs — screen-edge segments toward the shooter, angle 0 =
+	# dead ahead = top of screen; draw_arc's 0 rad points right, hence the -PI/2
+	for a in _dmg_arcs:
+		var ca: float = a.angle - PI / 2.0
+		_crosshair.draw_arc(Vector2.ZERO, 58.0, ca - 0.45, ca + 0.45, 10,
+			Color(1.0, 0.28, 0.16, clampf(a.t / 0.4, 0.0, 1.0)), 3.0)
 
 
 ## G4: canopy frame — angled side struts with brace lines and the THREAT panel
@@ -373,8 +462,8 @@ func _draw_text3x5(ci: CanvasItem, pos: Vector2, text: String, px: int, color: C
 
 
 func _update_bars() -> void:
-	_shield_bar.size.x = BAR_W * GameState.shields / GameState.MAX_SHIELDS
-	_energy_bar.size.x = BAR_W * GameState.energy / GameState.MAX_ENERGY
+	_shield_bar.size.x = BAR_W * GameState.shields / GameState.max_shields()
+	_energy_bar.size.x = BAR_W * GameState.energy / GameState.max_energy()
 	_heat_bar.size.x = BAR_W * GameState.heat / GameState.MAX_HEAT
 	_shield_num.text = str(int(GameState.shields))
 	_heat_bar.color = Color("ff3010") if GameState.is_overheated else Color("ff9a30")

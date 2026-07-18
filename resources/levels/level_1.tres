@@ -5,11 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L1 · STARLIGHT APPROACH"
-briefing = "The outer tunnels of Starlight Station went dark when the Rift opened.
-Drone patrols hold the approach corridors.
-
-Clear a path through the supply tunnels. Locked bulkheads will not open
-until every hostile in the chamber is down."
+briefing = "Clear a path through the supply tunnels. Locked bulkheads will not open until every hostile in the chamber is down."
 objective = "REACH THE EXIT GATE"
 rings = 110
 spawn_tunnel = 0.06

@@ -5,11 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L2 · SUPPLY ARTERY"
-briefing = "The station's main supply artery feeds every deck. The swarm is using
-it as a highway — and they have had time to dig in.
-
-Expect heavier patrols. Watch the radar and keep moving; a still ship
-is an easy target."
+briefing = "Expect heavier patrols. Watch the radar and keep moving — a still ship is an easy target."
 objective = "PUNCH THROUGH THE ARTERY"
 rings = 130
 spawn_tunnel = 0.08
@@ -20,3 +16,4 @@ enemy_fire = 2.5
 theme_id = "navy"
 level_seed = 202
 enemy_types = PackedStringArray("drone", "drone", "drone", "weaver", "turret")
+spur_count = 1
