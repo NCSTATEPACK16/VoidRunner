@@ -103,6 +103,14 @@ func _run() -> void:
 			near_visible = near_visible or c.node.visible
 	assert(all_far_hidden and near_visible)
 	print("prebuild ok — %d rings built at briefing, draw window active" % built0)
+	# --- V2.2 L4a: Tab automap — explored polyline built, opening pauses, closing resumes ---
+	game.automap.note_ring(30)
+	game.automap.open()
+	assert(get_tree().paused and game.automap.is_open())
+	assert(game.automap._pts.size() >= 30)   # explored rings 0..30(+lookahead) drawn
+	game.automap.close()
+	assert(not get_tree().paused and not game.automap.is_open())
+	print("automap ok — %d-ring explored polyline, pauses + resumes" % game.automap._pts.size())
 	# --- K3: L1 has fuel cells (secondary objective) but no crushers ---
 	assert(GameState.level_props_total > 0)
 	assert(game.prop_mgr.props.size() == GameState.level_props_total)

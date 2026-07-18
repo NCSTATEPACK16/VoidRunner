@@ -25,6 +25,7 @@ var gib_mgr: GibManager         # V2.2 L1 debris + hit-stop
 var hud: Hud
 var overlays: Overlays
 var view: SubViewport
+var automap: Automap             # V2.2 L4a: Tab automap, inside the 320x200 SubViewport
 var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
 var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipped
 var env: Environment            # K1: per-level fog/ambient moods retune this
@@ -104,6 +105,13 @@ func _ready() -> void:
 	hud = Hud.new()
 	hud.layer = 1
 	view.add_child(hud)
+	# V2.2 L4a: Tab automap on its own layer above the HUD (1), below the dither (5),
+	# so the map draws chunky + dithered like the rest of the 320x200 viewport
+	var automap_layer := CanvasLayer.new()
+	automap_layer.layer = 4
+	automap = Automap.new()
+	automap_layer.add_child(automap)
+	view.add_child(automap_layer)
 	_build_dither_layer()
 	overlays = Overlays.new()
 	overlays.layer = 10
@@ -285,6 +293,7 @@ func _load_level_world(index: int) -> void:
 	enemy_mgr.level = level
 	pickup_mgr.path = path
 	gib_mgr.path = path
+	automap.setup(path, player)   # V2.2 L4a: explored map resets to the new level
 	var theme: Dictionary = TextureGen.THEMES[level.theme_id]
 	_apply_theme_mood(theme, level)
 	world.rebuild(path, TextureGen.theme_set(level.theme_id, level.level_seed),
@@ -813,6 +822,7 @@ func _process(delta: float) -> void:
 	if state != State.PLAYING:
 		return
 	player.update_flight(delta)
+	automap.note_ring(player.ring_idx)   # V2.2 L4a: track the high-water explored ring
 	if _gauntlet:
 		_gauntlet_stream()
 		var tier := player.ring_idx / 60
@@ -1007,6 +1017,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if state != State.PLAYING:
 		return
+	if event.is_action_pressed("automap"):
+		_open_automap()
+		get_viewport().set_input_as_handled()   # don't leak the Tab to the now-paused map
+		return
 	# I4: the player lives inside the SubViewport, which doesn't receive unhandled
 	# input — mouse look is forwarded from here (root viewport) instead.
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -1025,6 +1039,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if event.is_action_pressed("weapon_cycle"):
 		_select_weapon((GameState.weapon_index + 1) % weapons.size())
+
+
+## V2.2 L4a: gather current map markers (found secrets, woken portal), then open the
+## paused automap. Closing is handled by the map itself (it processes when paused).
+func _open_automap() -> void:
+	var secret_rings := PackedInt32Array()
+	for s in _secrets:
+		if s.found:
+			secret_rings.append(s.ring)
+	var portal_ring := (path.rings.size() - 1) if world.portal_active else -1
+	automap.set_markers(secret_rings, portal_ring)
+	automap.open()
 
 
 func _select_weapon(i: int) -> void:
