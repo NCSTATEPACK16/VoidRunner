@@ -5,11 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L5 · HIVE TRENCHES"
-briefing = "This is where the swarm nests. The trench walls run red and the
-chambers are packed — every bulkhead here is kill-locked.
-
-The MISSILE detonates on a two-second fuse. You do not need a direct
-hit; put it in the middle of a cluster and let the blast work."
+briefing = "Every bulkhead here is kill-locked. Put a MISSILE in the middle of a cluster and let the two-second fuse work."
 objective = "BURN OUT THE NEST"
 rings = 180
 spawn_tunnel = 0.12

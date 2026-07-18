@@ -5,12 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L3 · DOCK SENTINEL"
-briefing = "Something big is parked in the old docking bay at the end of this
-approach — a Sentinel-class guardian, the first of its kind we have seen.
-Standard cannons will hurt it, but slowly. Save your missiles.
-
-It gets meaner as it takes damage. When it finally goes down, the exit
-gate will light up. Fly through the ring and get clear."
+briefing = "Standard cannons hurt it slowly — save your missiles. It gets meaner as it drops. When it falls, fly the exit ring."
 objective = "DESTROY THE DOCK SENTINEL"
 rings = 54
 spawn_tunnel = 0.07

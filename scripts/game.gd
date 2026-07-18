@@ -81,9 +81,9 @@ func _ready() -> void:
 	_gauntlet_def.display_name = "VOID GAUNTLET"
 	_gauntlet_def.kind = "endless"
 	_gauntlet_def.objective = "SURVIVE — EVERY METRE SCORES"
-	_gauntlet_def.briefing = "No exit gate on this run. The tunnel goes on for as " \
-		+ "long as you do, and the void keeps sending more. Fly far, fly sharp — " \
-		+ "your distance is the record."
+	# narrative half lives in Lore.story(-1); this stays the tactical line (<=3 wrapped)
+	_gauntlet_def.briefing = "The tunnel goes on as long as you do, and the void " \
+		+ "keeps sending more. Fly far, fly sharp — your distance is the record."
 	_gauntlet_def.rings = 200   # initial batch; extend_to() grows it in flight
 	_build_game_view()
 	_build_environment()
@@ -740,7 +740,8 @@ func _show_briefing() -> void:
 ## variants compile here too, so the first live shot no longer stalls.
 func _web_load_and_warm() -> void:
 	_warming = true
-	_web_show_loading("ENTERING SECTOR")
+	_web_show_loading("ENTERING SECTOR",
+		Lore.load_lines(-1 if _gauntlet else GameState.level_index))
 	await get_tree().process_frame
 	await get_tree().process_frame            # give the browser a frame to paint the overlay
 	_load_level_world(GameState.level_index)
@@ -765,9 +766,12 @@ func _web_load_and_warm() -> void:
 	_warming = false
 
 
-func _web_show_loading(msg := "LOADING") -> void:
+func _web_show_loading(msg := "LOADING", lines := PackedStringArray()) -> void:
+	# V2.2 story pass: `lines` become the overlay's rotating lore transmissions —
+	# their crossfade is pure CSS, so it keeps moving while shader compiles block JS.
 	if OS.has_feature("web"):
-		JavaScriptBridge.eval("window.vrShowLoading && window.vrShowLoading(%s);" % JSON.stringify(msg), true)
+		JavaScriptBridge.eval("window.vrShowLoading && window.vrShowLoading(%s, %s);" \
+			% [JSON.stringify(msg), JSON.stringify(Array(lines))], true)
 
 
 func _web_hide_loading() -> void:

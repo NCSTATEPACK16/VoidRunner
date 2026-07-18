@@ -116,6 +116,9 @@ func set_briefing(level: LevelDef) -> void:
 		objective += "\nOPTIONAL: SUPPLY CACHE DETECTED (%d)" % level.spur_count
 	(p.get_node("Objective") as Label).text = objective
 	(p.get_node("Body") as Label).text = level.briefing
+	# V2.2 story pass: the narrative paragraph comes from the lore module (-1 = gauntlet)
+	(p.get_node("Story") as Label).text = \
+		Lore.story(-1 if GameState.gauntlet_mode else GameState.level_index)
 
 
 func set_level_clear(level_name: String, bonus: int, score: int, next_name: String,
@@ -243,12 +246,20 @@ func _build_briefing() -> void:
 	var p := _panel("briefing")
 	var t := _title(p, "", 14, TITLE_COL)
 	t.name = "Title"
-	var o := _line(p, 60, "", 8, KEY_COL)
+	# V2.2 story pass: three stacked bands — dim story paragraph (lore), objective
+	# block (up to 3 lines on spur levels), tactical body — sized so the worst case
+	# never overlaps and the body bottom stays above the buttons at y=164.
+	var s := _line(p, 48, "", 8, Color("5fb6d8"))
+	s.name = "Story"
+	s.position.x = 30
+	s.size = Vector2(260, 36) * 2  # _line labels are 2x-size, 0.5-scale (see _line)
+	s.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var o := _line(p, 86, "", 8, KEY_COL)
 	o.name = "Objective"
-	var b := _line(p, 76, "", 8, TEXT_COL)
+	var b := _line(p, 124, "", 8, TEXT_COL)
 	b.name = "Body"
 	b.position.x = 30
-	b.size = Vector2(260, 80) * 2  # _line labels are 2x-size, 0.5-scale (see _line)
+	b.size = Vector2(260, 36) * 2
 	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_button(p, Vector2(58, 164), "* UPGRADE BAY", func() -> void:

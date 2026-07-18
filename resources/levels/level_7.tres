@@ -5,11 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L7 · GLACIAL CONDUITS"
-briefing = "Coolant conduits on the dark side of the station, frozen over for
-years. The ice plays tricks with your radar and the swarm loves the cold.
-
-Long stretches, fast patrols. Manage your energy — the afterburner is
-your best way out when a chamber gets crowded."
+briefing = "Long stretches, fast patrols. Manage your energy — the afterburner is your way out of a crowded chamber."
 objective = "TRAVERSE THE CONDUITS"
 rings = 195
 spawn_tunnel = 0.13

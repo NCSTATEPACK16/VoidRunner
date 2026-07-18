@@ -5,11 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L6 · BROOD MOTHER"
-briefing = "The heart of the nest. The thing that has been building all those
-drones is waiting in the brood chamber, and it is not happy to see you.
-
-It fires in spreads — keep moving sideways and the volleys will miss.
-Drop it, then take the ring out before the nest wakes up."
+briefing = "It fires in spreads — keep strafing and the volleys miss. Drop it, then take the ring before the nest wakes."
 objective = "DESTROY THE BROOD MOTHER"
 rings = 56
 spawn_tunnel = 0.09

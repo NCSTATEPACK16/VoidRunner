@@ -5,11 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L9 · THE RIFT MAW"
-briefing = "This is it. The thing that opened the Rift is coiled in the maw at
-the end of this run — bigger, faster, and angrier than anything before it.
-
-Everything you have learned applies here. Watch the volleys, use the
-whole chamber, and do not stop moving. Shut the Rift for good, Runner."
+briefing = "Watch the volleys, use the whole chamber, and do not stop moving. Shut the Rift for good, Runner."
 objective = "SLAY THE RIFT MAW · SHUT THE RIFT"
 rings = 58
 spawn_tunnel = 0.11

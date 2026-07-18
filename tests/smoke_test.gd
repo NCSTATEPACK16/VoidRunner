@@ -599,6 +599,27 @@ func _run() -> void:
 		(game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert("CACHES 1/1" in clear_body)
 	print("spur e2e ok — flew in, cached, flew out; tally CACHES 1/1")
+	# --- V2.2 story pass: lore coverage + the briefing bands never overlap ---
+	for lidx in 9:
+		assert(Lore.story(lidx).length() > 20)            # every sector has a story
+		assert(Lore.load_lines(lidx).size() >= 3)         # and overlay transmissions
+	assert(Lore.story(-1).length() > 20)                  # gauntlet variant
+	assert(Lore.load_lines(-1).size() >= 3)
+	GameState.gauntlet_mode = false
+	GameState.level_index = 4          # spur level: worst-case 3-line objective
+	game.overlays.set_briefing(game.levels[4])
+	await get_tree().process_frame
+	var lore_p: Control = game.overlays._panels.briefing
+	var lore_s: Label = lore_p.get_node("Story")
+	var lore_o: Label = lore_p.get_node("Objective")
+	var lore_b: Label = lore_p.get_node("Body")
+	assert(lore_s.get_line_count() <= 3)                  # story fits its band
+	assert(lore_b.get_line_count() <= 3)                  # tactical body fits its band
+	assert(lore_o.text.count("\n") <= 2)                  # objective is at most 3 lines
+	assert(lore_s.position.y + lore_s.size.y * lore_s.scale.y <= lore_o.position.y)
+	assert(lore_o.position.y + 3 * 11.0 <= lore_b.position.y)
+	assert(lore_b.position.y + lore_b.size.y * lore_b.scale.y <= 164.0)   # above buttons
+	print("lore ok — 9+gauntlet stories + load lines; briefing bands don't overlap")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

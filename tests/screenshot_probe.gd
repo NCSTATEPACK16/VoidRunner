@@ -28,6 +28,15 @@ func _capture(game: Node3D, file_name: String, dir: String) -> void:
 	print("[shot] %s/%s" % [dir, file_name])
 
 
+## Root-window capture — overlays (briefing/menus) render at native res OUTSIDE
+## the 320x200 game SubViewport, so the in-view capture above can't see them.
+func _capture_root(file_name: String, dir: String) -> void:
+	await RenderingServer.frame_post_draw
+	var img: Image = get_viewport().get_texture().get_image()
+	img.save_png(dir + "/" + file_name)
+	print("[shot] %s/%s" % [dir, file_name])
+
+
 ## Rail-steer like the smoke test so corners never stall the flight.
 func _fly(game: Node3D, frames: int) -> void:
 	for f in frames:
@@ -55,6 +64,8 @@ func _run() -> void:
 	game._show_briefing()
 	for i in 30:
 		await get_tree().process_frame   # warm-up rig compiles behind the briefing
+	# 0) the briefing itself — story/objective/body bands must not overlap (V2.2)
+	await _capture_root("shot_briefing.png", dir)
 	game._on_launch()
 	await get_tree().process_frame
 	# 1) corridor in flight — far enough in that fog/strip/lighting all read
