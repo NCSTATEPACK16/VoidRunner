@@ -23,6 +23,12 @@ const BOSS_ROOM_RINGS := 24
 var rings: Array[Dictionary] = []
 ## Arena runs: { id, start, end, door_ring (-1 = unlocked), spawn_rings: Array[int], is_final }
 var arenas: Array[Dictionary] = []
+## V2.2 L5: dead-end supply spurs appended AFTER the main path — each is
+## { id, entry, start, end, cache, side }. Spur rings carry a `spur` id key; main
+## rings do not (read with .get("spur", -1)). main_ring_count marks the boundary so
+## the exit cap/portal land at the real level end, not inside a spur.
+var spurs: Array[Dictionary] = []
+var main_ring_count := 0
 var is_boss := false
 var is_endless := false      # K5 Void Gauntlet: no end cap, no portal, rings grow on demand
 
@@ -56,6 +62,7 @@ func generate(total_rings: int, level_seed: int, arena_spawn_chance: float,
 		boss := false, endless := false) -> void:
 	rings.clear()
 	arenas.clear()
+	spurs.clear()
 	_rng.seed = level_seed
 	_pos = Vector3.ZERO
 	_yaw = 0.0
@@ -85,6 +92,7 @@ func generate(total_rings: int, level_seed: int, arena_spawn_chance: float,
 		_gen_ring()
 	if not endless:
 		_find_arenas(arena_spawn_chance)
+	main_ring_count = rings.size()   # V2.2 L5: boundary before any spurs are appended
 
 
 ## K5: grow an endless path so rings always exist well ahead of the player.
@@ -227,6 +235,71 @@ func _add_arena(start: int, end: int, is_final: bool, spawn_chance: float) -> vo
 		"id": id, "start": start, "end": end, "door_ring": door_ring,
 		"spawn_rings": spawn_rings, "is_final": is_final,
 	})
+
+
+## V2.2 L5a: branch dead-end supply spurs off non-final arenas. Spur rings APPEND to
+## the same rings array (indices >= main_ring_count) so clamp_to_ring / corner / world
+## building work unchanged; each carries a `spur` id. The whole generator cursor is
+## snapshotted and restored so the main path is byte-identical afterward. Campaign,
+## non-boss only — a no-op otherwise. Called by game._load_level_world after generate().
+func add_spurs(count: int) -> void:
+	if is_boss or is_endless or count <= 0 or arenas.size() < 2:
+		return
+	var save := {"pos": _pos, "yaw": _yaw, "pitch": _pitch, "yaw_v": _yaw_v,
+		"pitch_v": _pitch_v, "count": _count, "hw": _hw, "hh": _hh,
+		"fo": _fo, "co": _co, "arena_in": _arena_in}
+	var eligible: Array[int] = []
+	for i in range(1, arenas.size()):   # skip arena 0 (near spawn) and the final arena
+		if not arenas[i].get("is_final", false):
+			eligible.append(i)
+	var made := 0
+	var idx := 0
+	while made < count and idx < eligible.size():
+		_grow_spur(made, eligible[idx])
+		made += 1
+		idx += maxi(1, eligible.size() / count)   # spread the spurs across the level
+	_pos = save.pos; _yaw = save.yaw; _pitch = save.pitch
+	_yaw_v = save.yaw_v; _pitch_v = save.pitch_v; _count = save.count
+	_hw = save.hw; _hh = save.hh; _fo = save.fo; _co = save.co; _arena_in = save.arena_in
+
+
+func _grow_spur(id: int, ai: int) -> void:
+	var arena: Dictionary = arenas[ai]
+	var entry: int = (arena.start + arena.end) / 2
+	var er: Dictionary = rings[entry]
+	var side: float = -1.0 if (id % 2 == 0) else 1.0
+	# head off toward the `side` wall at 60..110 deg from the arena heading
+	var entry_yaw: float = atan2(-er.d.x, -er.d.z)
+	_yaw = entry_yaw - side * deg_to_rad(60.0 + _rng.randf() * 50.0)
+	_pitch = 0.0
+	_yaw_v = 0.0
+	_pitch_v = 0.0
+	_fo = 0.0
+	_co = 0.0
+	_arena_in = 0
+	# first spur ring sits ON the arena wall so the hatch-crossing snap lands right here
+	_hw = 6.0
+	_hh = 4.5
+	_pos = er.p + er.r * (side * er.hw)
+	_push_ring()
+	var start := rings.size() - 1
+	rings[start]["spur"] = id
+	var body := 8 + _rng.randi_range(0, 8)   # 8..16 narrow rings winding outward
+	for k in body:
+		_yaw += (_rng.randf() - 0.5) * 0.06
+		_pitch = clampf(_pitch + (_rng.randf() - 0.5) * 0.03, -0.15, 0.15)
+		_pos += forward_from(_yaw, _pitch) * SEG
+		_push_ring()
+		rings[rings.size() - 1]["spur"] = id
+	var cache_start := rings.size()          # 4-ring turnaround cache chamber
+	for k in 4:
+		_hw = 14.0
+		_hh = 8.0
+		_pos += forward_from(_yaw, _pitch) * SEG
+		_push_ring()
+		rings[rings.size() - 1]["spur"] = id
+	spurs.append({"id": id, "entry": entry, "start": start,
+		"end": rings.size() - 1, "cache": cache_start + 1, "side": side})
 
 
 # ---------- spatial queries (ports of nearestRing / clampToRing) ----------

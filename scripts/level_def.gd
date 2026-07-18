@@ -33,3 +33,8 @@ extends Resource
 ## at fight start and any collected ones respawn at each boss phase transition.
 @export var boss_shield_cells := 0
 @export var boss_missile_cells := 0
+
+# --- V2.2 L5: branching side-spurs (campaign, non-boss only) ---
+## Dead-end supply spurs branching off arenas: 0-2 per level. Each holds a cache
+## chamber; the risky ring-snap entry mechanism lives in spur_manager.gd.
+@export var spur_count := 0

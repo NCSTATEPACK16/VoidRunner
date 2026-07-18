@@ -60,7 +60,7 @@ func rebuild(new_path: PathGen, theme_mats: Dictionary, accent: Color,
 	# K5 endless: no far cap and no exit portal — the tunnel just runs into the fog;
 	# arenas (and their doors) are discovered and built while streaming instead
 	if not path.is_endless:
-		_build_cap(path.rings.size() - 1)
+		_build_cap(_main_last())   # V2.2 L5: cap the real level end, not the last spur
 		_spawn_portal()
 	_build_doors()
 
@@ -263,6 +263,10 @@ func _build_chunk(s: int, e: int) -> void:
 	for key in surfaces:
 		surfaces[key].begin(Mesh.PRIMITIVE_TRIANGLES)
 	for i in range(s, e):
+		# V2.2 L5: never stitch a quad across a spur boundary — spur rings append far
+		# from where they branch, so main-end->spur-start (and spur->spur) are disjoint
+		if path.rings[i].get("spur", -1) != path.rings[i + 1].get("spur", -1):
+			continue
 		var r0: Dictionary = path.rings[i]
 		var r1: Dictionary = path.rings[i + 1]
 		var u0 := i * 1.3
@@ -358,6 +362,12 @@ func _quad(st: SurfaceTool, normal: Vector3, a: Vector3, b: Vector3, c: Vector3,
 			st.add_vertex([a, b, c, d][idx])
 
 
+## V2.2 L5: the level's real exit is the main path's end, not the last spur ring.
+## Falls back to the full ring count for any path built before generate() ran.
+func _main_last() -> int:
+	return (path.main_ring_count if path.main_ring_count > 0 else path.rings.size()) - 1
+
+
 func _build_cap(idx: int) -> void:
 	var ring: Dictionary = path.rings[idx]
 	var mi := MeshInstance3D.new()
@@ -395,7 +405,7 @@ func _ring_transform(ring: Dictionary) -> Transform3D:
 
 
 func _spawn_portal() -> void:
-	var ring: Dictionary = path.rings[path.rings.size() - 6]
+	var ring: Dictionary = path.rings[maxi(_main_last() - 5, 0)]
 	_portal = Node3D.new()
 	_portal_ring = MeshInstance3D.new()
 	var torus := TorusMesh.new()

@@ -477,6 +477,26 @@ func _run() -> void:
 	game._fire_plasma_bomb()   # empty rack: no crash, stays at zero
 	assert(GameState.plasma_bombs == 0)
 	print("plasma bomb ok — room cleared, counter %d, keys remapped" % GameState.plasma_bombs)
+	# --- V2.2 L5a: PathGen dead-end spurs — appended, tagged, main path untouched ---
+	var spg := PathGen.new()
+	spg.generate(220, 424242, 0.18, false, false)
+	var main_len: int = spg.rings.size()
+	var main_end_p: Vector3 = spg.rings[main_len - 1].p
+	spg.add_spurs(2)
+	assert(spg.main_ring_count == main_len)              # main-path/spur boundary marked
+	assert(spg.rings.size() > main_len)                  # spur rings appended past it
+	assert(spg.rings[main_len - 1].p == main_end_p)      # main path byte-identical (cursor restored)
+	assert(spg.spurs.size() == 2)
+	for sp in spg.spurs:
+		assert(sp.start > sp.entry and sp.end >= sp.start + 11)   # appended, >= 12 rings
+		assert(spg.rings[sp.start].get("spur", -1) == sp.id)      # spur rings carry the id
+		assert(spg.rings[sp.cache].hw > 10.0)                     # wide cache chamber
+		assert(spg.rings[sp.entry].arena_id >= 0)                 # branches off a real arena
+	var bpg := PathGen.new()
+	bpg.generate(120, 7, 0.2, true, false)   # boss level
+	bpg.add_spurs(2)
+	assert(bpg.spurs.is_empty())             # boss levels never spur
+	print("spurs ok — %d spurs appended, main path intact" % spg.spurs.size())
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
