@@ -331,6 +331,12 @@ func _load_level_world(index: int) -> void:
 		_arena_kills[arena.id] = 0
 		if arena.spawn_rings.is_empty():
 			world.open_door(arena.id)
+	# V2.2 L5c: 1-2 guards inside each spur. Fresh NEGATIVE arena_id — the kill
+	# handler early-outs on negatives, so spur kills never touch door/lock logic.
+	for sp in path.spurs:
+		enemy_mgr.spawn(sp.start + 3, -100 - sp.id, _pick_enemy_type(level))
+		if sp.cache - sp.start > 8:
+			enemy_mgr.spawn(sp.cache - 2, -100 - sp.id, _pick_enemy_type(level))
 	# Phase J: boss levels put a single boss deep in the final room and keep the
 	# exit ring dark until it falls (no bulkheads on boss levels — see PathGen).
 	_boss_arena_start = -1

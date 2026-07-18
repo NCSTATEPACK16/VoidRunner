@@ -30,6 +30,9 @@ var _blink := 0.0
 var _blink_on := true
 var _secret_rings: PackedInt32Array = PackedInt32Array()
 var _portal_ring := -1
+var _main_end := 0          # last main-path ring index (spur rings append after this)
+var _spur_seen := {}        # spur id -> true once the player has entered it
+var _spur_runs: Array = []  # one PackedVector2Array polyline per seen spur
 
 
 func _ready() -> void:
@@ -48,10 +51,22 @@ func setup(path, player) -> void:
 	_zoom = 1.0
 	_secret_rings = PackedInt32Array()
 	_portal_ring = -1
+	_spur_seen = {}
+	_spur_runs = []
+	_main_end = path.rings.size() - 1
+	if not path.spurs.is_empty():          # V2.2 L5c: spur rings live past the main path
+		_main_end = path.spurs[0].start - 1
 	_dirty = true
 
 
 func note_ring(idx: int) -> void:
+	if idx > _main_end and _path != null:
+		# V2.2 L5c: a ring inside a spur reveals that whole branch, not the main line
+		for sp in _path.spurs:
+			if idx >= sp.start and idx <= sp.end and not _spur_seen.has(sp.id):
+				_spur_seen[sp.id] = true
+				_dirty = true
+		return
 	if idx > _max_ring:
 		_max_ring = idx
 		_dirty = true
@@ -121,11 +136,23 @@ func _rebuild() -> void:
 	_dirty = false
 	if _path == null or _path.rings.is_empty():
 		return
-	var hi: int = mini(_max_ring + 2, _path.rings.size() - 1)   # +2 ring lookahead
+	var hi: int = mini(_max_ring + 2, _main_end)   # +2 ring lookahead, main path only
 	for i in hi + 1:
 		var r: Dictionary = _path.rings[i]
 		_pts.append(Vector2(r.p.x, r.p.z))
 		_widths.append(r.hw)
+	# V2.2 L5c: each seen spur draws as its own branch line, rooted at its entry ring
+	_spur_runs = []
+	for sp in _path.spurs:
+		if not _spur_seen.has(sp.id):
+			continue
+		var run := PackedVector2Array()
+		var ep: Vector3 = _path.rings[sp.entry].p
+		run.append(Vector2(ep.x, ep.z))
+		for i in range(sp.start, sp.end + 1):
+			var rp: Vector3 = _path.rings[i].p
+			run.append(Vector2(rp.x, rp.z))
+		_spur_runs.append(run)
 
 
 func _draw() -> void:
@@ -140,6 +167,10 @@ func _draw() -> void:
 	for p in _pts:
 		lo.x = minf(lo.x, p.x); lo.y = minf(lo.y, p.y)
 		hi.x = maxf(hi.x, p.x); hi.y = maxf(hi.y, p.y)
+	for run in _spur_runs:   # V2.2 L5c: seen branches count toward the fit
+		for p in run:
+			lo.x = minf(lo.x, p.x); lo.y = minf(lo.y, p.y)
+			hi.x = maxf(hi.x, p.x); hi.y = maxf(hi.y, p.y)
 	var span := hi - lo
 	var s: float = minf((320.0 - 2.0 * MARGIN) / maxf(span.x, 1.0),
 		(200.0 - 2.0 * MARGIN) / maxf(span.y, 1.0)) * _zoom
@@ -154,6 +185,10 @@ func _draw() -> void:
 			col = BOSS_COL if _path.is_boss else ARENA_COL
 		draw_line(to_screen.call(_pts[i - 1]), to_screen.call(_pts[i]), col,
 			clampf(_widths[i] * s * 0.12, 1.0, 6.0))
+	# V2.2 L5c: seen spur branches — thin lines off the main route
+	for run in _spur_runs:
+		for i in range(1, run.size()):
+			draw_line(to_screen.call(run[i - 1]), to_screen.call(run[i]), WALL_COL, 1.5)
 	# markers
 	for sr in _secret_rings:
 		if sr >= 0 and sr < _pts.size():
@@ -166,7 +201,9 @@ func _draw() -> void:
 			PORTAL_COL)   # exit-portal diamond
 	# player: blinking triangle at its ring centre, pointing along yaw (north-up)
 	if _player != null and _blink_on:
-		var pc: Vector2 = to_screen.call(_pts[clampi(_player.ring_idx, 0, _pts.size() - 1)])
+		# ring position straight from the path so the blip is right inside spurs too
+		var pr: Vector3 = _path.rings[clampi(_player.ring_idx, 0, _path.rings.size() - 1)].p
+		var pc: Vector2 = to_screen.call(Vector2(pr.x, pr.z))
 		var fwd := Vector2(-sin(_player.yaw), -cos(_player.yaw))
 		var side := Vector2(-fwd.y, fwd.x)
 		draw_colored_polygon(PackedVector2Array([

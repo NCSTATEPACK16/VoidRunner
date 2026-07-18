@@ -526,6 +526,27 @@ func _run() -> void:
 	game.spur_mgr.update(0.016)
 	assert(game.player.ring_idx == msp.entry)
 	print("spur snap ok — mouth crossing swaps ring index both ways; cache paid")
+	# --- V2.2 L5c: spur guards spawned + contained; automap reveals seen spurs ---
+	var guard_rings: Array[int] = []
+	for e in game.enemy_mgr.enemies:
+		if e.ring >= msp.start and e.ring <= msp.end:
+			guard_rings.append(e.ring)
+	assert(not guard_rings.is_empty())       # >=1 guard spawned inside spur 0
+	game.player.ring_idx = msp.start + 2     # park mid-spur so guards track locally
+	game.player.position = game.path.rings[msp.start + 2].p
+	for _gstep in 100:
+		game.enemy_mgr.update_enemies(0.016)
+	var guard_contained := false
+	for e in game.enemy_mgr.enemies:
+		if e.ring >= msp.start and e.ring <= msp.end:
+			guard_contained = true
+	assert(guard_contained)                  # clamp_to_ring keeps guards in the spur
+	game.automap.note_ring(msp.start + 2)    # seeing a spur ring reveals its branch
+	game.automap._rebuild()
+	assert(game.automap._spur_runs.size() >= 1)
+	assert(game.automap._spur_runs[0].size() >= 3)
+	print("spur guards+map ok — %d guard(s) contained; automap draws the branch" \
+		% guard_rings.size())
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
