@@ -547,6 +547,58 @@ func _run() -> void:
 	assert(game.automap._spur_runs[0].size() >= 3)
 	print("spur guards+map ok — %d guard(s) contained; automap draws the branch" \
 		% guard_rings.size())
+	# --- V2.2 L5d: end-to-end spur pass on L2 — fly in, grab the cache, fly out ---
+	GameState.reset_run()
+	GameState.level_index = 1        # L2 · spur_count = 1
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game.path.spurs.size() == 1)
+	var esp: Dictionary = game.path.spurs[0]
+	var e_mouth: Vector3 = game.path.rings[esp.start].p
+	var e_phase := 0                 # 0 fly-in, 1 to mouth, 2 to cache, 3 return + clear
+	var prev_ring: int = game.player.ring_idx
+	var e_done := false
+	for f in 60 * 240:               # hard ceiling: 4 sim-minutes
+		GameState.shields = 100.0    # the probe flies, it doesn't fight fair
+		if e_phase == 0 and game.player.ring_idx >= esp.entry - 6:
+			e_phase = 1
+		if e_phase == 0:             # rail-steer the main tunnel (gauntlet idiom)
+			var pd: Vector3 = game.path.rings[mini(game.player.ring_idx + 2, esp.entry)].d
+			game.player.yaw = atan2(-pd.x, -pd.z)
+			game.player.pitch = clampf(asin(pd.y), -0.6, 0.6)
+		else:                        # position-steer at the current waypoint
+			var e_target := e_mouth
+			if e_phase == 1 and game.player.ring_idx >= esp.start:
+				e_phase = 2          # mouth snap landed — we are in spur index space
+			if e_phase == 2:
+				e_target = game.path.rings[mini(
+					maxi(game.player.ring_idx, esp.start) + 2, esp.cache)].p
+				if game.spur_mgr.caches_found >= 1:
+					e_phase = 3
+			elif e_phase == 3 and game.player.ring_idx < esp.start:
+				e_target = game.path.rings[esp.entry].p    # snapped back — clear the mouth
+				if game.player.position.distance_squared_to(e_mouth) > 400.0:
+					e_done = true
+			var dirv: Vector3 = (e_target - game.player.position).normalized()
+			game.player.yaw = atan2(-dirv.x, -dirv.z)
+			game.player.pitch = clampf(asin(dirv.y), -0.9, 0.9)
+		if f % 240 == 0:             # clear arena stands so bulkheads open
+			game.enemy_mgr.splash_damage(game.player.position, 200.0, 999)
+		game._process(dt)
+		# ring continuity: only the mouth snap may leap index space
+		if absi(game.player.ring_idx - prev_ring) > 30:
+			assert(game.player.position.distance_squared_to(e_mouth) < 200.0)
+		prev_ring = game.player.ring_idx
+		if e_done:
+			break
+	assert(e_done)                   # full in-cache-out pass completed
+	assert(game.spur_mgr.caches_found == 1)
+	game.overlays.set_level_clear("L2", 0, 0, "L3", 0, 0, 0.0, "C", false, 0, 0, 0, 0,
+		game.spur_mgr.caches_found, game.path.spurs.size())
+	var clear_body: String = \
+		(game.overlays._panels.level_clear.get_node("Body") as Label).text
+	assert("CACHES 1/1" in clear_body)
+	print("spur e2e ok — flew in, cached, flew out; tally CACHES 1/1")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
