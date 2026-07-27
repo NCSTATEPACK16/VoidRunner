@@ -61,16 +61,29 @@ fixed here.
 
 Replace the four flat flavor lines (`"Your fighter runs the labyrinth..."`
 etc.) with one `_box` titled `[ SYSTEM_BACKSTORY.DAT ]` (green border,
-`TITLE_COL`), containing:
-- One line of in-fiction backstory, reusing existing lore copy rather than
-  new invented text: `Lore._STORIES[0]` — *"The Rift tore open at 0400.
-  Starlight's outer ring went dark in minutes. You are the last Void
-  Runner on the board."* (wrapped/trimmed to fit the box width at font
-  size 8; `Lore.story()` is `static` and already used elsewhere as the
-  reference way to pull sector copy, so call it the same way here rather
-  than reaching into the private constant directly).
-- A second short line: `"TERMINAL STATUS: CRITICAL"` in `KEY_COL` (amber),
-  echoing the Figma design's status chip.
+`TITLE_COL`), containing three lines instead of one, so it reads as a
+short DOS-terminal "transmission log" rather than a single dry fact —
+matching the Figma page's `YEAR 1994: THE PROTOCOL WENT ROGUE` device
+(a retro Radix-style boot-screen conceit) without contradicting this
+game's actual sci-fi story (Rift / Starlight Station / the Hive), which
+stays the real premise:
+- A subheading line, `"TRANSMISSION LOG — SECTOR ALPHA"`, in `KEY_COL`
+  (amber) — the DOS/Radix-homage framing device, standing in for the
+  Figma copy's `YEAR 1994` chip.
+- The existing lore line via `Lore.story(0)` (`Lore._STORIES[0]` —
+  *"The Rift tore open at 0400. Starlight's outer ring went dark in
+  minutes."*), `TEXT_COL`, wrapped to the box width at font size 8.
+- One added line of original connective flavor text (not in `lore.gd`,
+  written for this box specifically, since `_STORIES[0]` stops short of a
+  call-to-action): *"You are the last Void Runner on the board — fly the
+  tunnels, or the dark wins."* `TEXT_COL`.
+- A closing status chip, `"TERMINAL STATUS: CRITICAL"`, in `KEY_COL`
+  (amber), echoing the Figma design's status chip.
+
+Four short lines total in the box (subheading + 2 body + status), still
+sized to fit a single 320×200 screen alongside the hero and CTA above/below
+it — no scrolling, no added panel height beyond what `_box` needs for four
+font-size-8 lines plus its border/label margin.
 
 ### 4. Terminal-prompt CTA
 
