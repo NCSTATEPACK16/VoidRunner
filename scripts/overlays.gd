@@ -16,6 +16,7 @@ const BG := Color(0.008, 0.012, 0.03, 0.975)   # near-opaque so the HUD (score, 
 const TITLE_COL := Color("62ffd0")
 const TEXT_COL := Color("8fb8cc")
 const KEY_COL := Color("ffd34d")
+const ORANGE_COL := Color("ff9c40")
 
 # V2.2 L3d: Upgrade Bay — cost to reach the NEXT tier, indexed by current tier.
 const WEAPON_COST := [60, 140]              # MK I->II, MK II->III
@@ -194,25 +195,32 @@ func _panel(panel_name: String) -> Control:
 
 func _build_start() -> void:
 	var p := _panel("start")
-	_title(p, "VOID RUNNER", 24, TITLE_COL)
-	_line(p, 58, "9-LEVEL CAMPAIGN · SECTOR RUN", 8, Color("5fb6d8"))
-	_high_label = _line(p, 70, "", 8, KEY_COL)
-	_line(p, 82, "Your fighter runs the labyrinth at constant burn.", 8, TEXT_COL)
-	_line(p, 92, "Clear tunnels, survive arenas, watch the radar.", 8, TEXT_COL)
-	_line(p, 102, "Cannons build HEAT — redline locks them 3 s.", 8, TEXT_COL)
-	_line(p, 112, "Wall hits drain shields. At zero: hull breach.", 8, TEXT_COL)
-	_button(p, Vector2(84, 126), "<", func() -> void: _adjust_sector(-1))
-	_sector_label = _line(p, 132, "", 8, KEY_COL)
-	_button(p, Vector2(216, 126), ">", func() -> void: _adjust_sector(1))
-	_button(p, Vector2(88, 152), "> START", func() -> void:
+	_title(p, "BEYOND THE", 10, TITLE_COL, 6)
+	_title(p, "VOID RUNNER", 18, TITLE_COL, 18)
+	_line(p, 38, "RUN. SURVIVE. ESCAPE THE VOID.", 7, Color("5fb6d8"))
+	_line(p, 44, "9-LEVEL CAMPAIGN · SECTOR RUN", 7, Color("5fb6d8"))
+	_high_label = _line(p, 50, "", 7, KEY_COL)
+	_box(p, Rect2(8, 71, 304, 60), TITLE_COL, "SYSTEM_BACKSTORY.DAT")
+	_line(p, 73, "TRANSMISSION LOG — SECTOR ALPHA", 7, KEY_COL)
+	_wrap_line(p, 85, Lore.story(0), 7, TEXT_COL, 30, 260)
+	_wrap_line(p, 107,
+		"Fly the tunnels, or the dark wins.",
+		7, TEXT_COL, 24, 272)
+	_line(p, 119, "TERMINAL STATUS: CRITICAL", 7, KEY_COL)
+	_button(p, Vector2(84, 133), "<", func() -> void: _adjust_sector(-1))
+	_sector_label = _line(p, 139, "", 8, KEY_COL)
+	_button(p, Vector2(216, 133), ">", func() -> void: _adjust_sector(1))
+	_box(p, Rect2(30, 155, 260, 18), TITLE_COL, "TERMINAL_PROMPT.EXE")
+	_button(p, Vector2(38, 157), "C:VOID_RUNNER> RUN.EXE", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
-	_button(p, Vector2(168, 152), "? CONTROLS", func() -> void: show_only("help"))
-	_button(p, Vector2(70, 174), "* SETTINGS", func() -> void:
+	_button(p, Vector2(16, 176), "? CONTROLS", func() -> void: show_only("help"),
+		Color("55ffee"))
+	_button(p, Vector2(120, 176), "* SETTINGS", func() -> void:
 		_settings_return = "start"
-		show_only("settings"))
+		show_only("settings"), ORANGE_COL)
 	# K5: endless survival mode — the button doubles as the audio-unlock gesture
-	_button(p, Vector2(170, 174), "% GAUNTLET", func() -> void:
+	_button(p, Vector2(224, 176), "% GAUNTLET", func() -> void:
 		AudioSys.unlock()
 		gauntlet_requested.emit())
 
@@ -479,10 +487,10 @@ func _refresh_bay() -> void:
 
 # ---------- widget helpers ----------
 
-func _title(p: Control, text: String, font_size: int, color: Color) -> Label:
+func _title(p: Control, text: String, font_size: int, color: Color, y: float = 28) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.position = Vector2(0, 28)
+	l.position = Vector2(0, y)
 	l.size = Vector2(320, 30)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.add_theme_font_size_override("font_size", font_size)
@@ -508,6 +516,27 @@ func _line(p: Control, y: float, text: String, font_size: int, color: Color) -> 
 	return l
 
 
+## A _line()-style label that actually word-wraps to a narrower width. Godot's
+## Control.size clamps up to the Label's combined minimum size, and once a
+## Label with autowrap still OFF has been added to the tree at a wide size,
+## setting autowrap_mode + a narrower .size afterward does NOT shrink it back
+## (verified: the wide size sticks even across frames) — so autowrap_mode and
+## the final .size must both be set BEFORE the label joins the tree.
+func _wrap_line(p: Control, y: float, text: String, font_size: int, color: Color,
+		x: float, width: float) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.scale = Vector2(0.5, 0.5)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", font_size * 2)
+	l.add_theme_color_override("font_color", color)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.position = Vector2(x, y)
+	l.size = Vector2(width, 24) * 2
+	p.add_child(l)
+	return l
+
+
 func _at(p: Control, pos: Vector2, text: String, font_size: int, color: Color) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -518,12 +547,33 @@ func _at(p: Control, pos: Vector2, text: String, font_size: int, color: Color) -
 	return l
 
 
-func _button(p: Control, pos: Vector2, text: String, on_press: Callable) -> Button:
+func _button(p: Control, pos: Vector2, text: String, on_press: Callable, color: Color = TITLE_COL) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.position = pos
 	b.add_theme_font_size_override("font_size", 8)
-	b.add_theme_color_override("font_color", TITLE_COL)
+	b.add_theme_color_override("font_color", color)
 	b.pressed.connect(on_press)
 	p.add_child(b)
+	return b
+
+
+func _box(p: Control, rect: Rect2, color: Color, label: String) -> Panel:
+	var b := Panel.new()
+	b.position = rect.position
+	b.size = rect.size
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.border_color = color
+	sb.set_border_width_all(1)
+	b.add_theme_stylebox_override("panel", sb)
+	b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(b)
+	if label != "":
+		var l := Label.new()
+		l.text = "[ %s ]" % label
+		l.position = Vector2(rect.position.x + 4, rect.position.y - 9)
+		l.add_theme_font_size_override("font_size", 7)
+		l.add_theme_color_override("font_color", color)
+		p.add_child(l)
 	return b

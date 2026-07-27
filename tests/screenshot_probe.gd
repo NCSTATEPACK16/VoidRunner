@@ -61,6 +61,8 @@ func _run() -> void:
 	game.overlays._sector = 0
 	GameState.level_index = 0
 	GameState.score = 0
+	game.overlays.show_only("start")
+	await _capture_root("shot_start.png", dir)
 	game._show_briefing()
 	for i in 30:
 		await get_tree().process_frame   # warm-up rig compiles behind the briefing
