@@ -200,10 +200,19 @@ func _build_start() -> void:
 	_line(p, 38, "RUN. SURVIVE. ESCAPE THE VOID.", 7, Color("5fb6d8"))
 	_line(p, 47, "9-LEVEL CAMPAIGN · SECTOR RUN", 7, Color("5fb6d8"))
 	_high_label = _line(p, 56, "", 7, KEY_COL)
-	_line(p, 82, "Your fighter runs the labyrinth at constant burn.", 8, TEXT_COL)
-	_line(p, 92, "Clear tunnels, survive arenas, watch the radar.", 8, TEXT_COL)
-	_line(p, 102, "Cannons build HEAT — redline locks them 3 s.", 8, TEXT_COL)
-	_line(p, 112, "Wall hits drain shields. At zero: hull breach.", 8, TEXT_COL)
+	_box(p, Rect2(8, 64, 304, 58), TITLE_COL, "SYSTEM_BACKSTORY.DAT")
+	_line(p, 68, "TRANSMISSION LOG — SECTOR ALPHA", 7, KEY_COL)
+	var _story_l := _line(p, 78, Lore.story(0), 7, TEXT_COL)
+	_story_l.position.x = 30
+	_story_l.size = Vector2(260, 24) * 2   # _line labels are 2x-size, 0.5-scale
+	_story_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var _flavor_l := _line(p, 98,
+		"You are the last Void Runner on the board — fly the tunnels, or the dark wins.",
+		7, TEXT_COL)
+	_flavor_l.position.x = 30
+	_flavor_l.size = Vector2(260, 24) * 2
+	_flavor_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_line(p, 116, "TERMINAL STATUS: CRITICAL", 7, KEY_COL)
 	_button(p, Vector2(84, 126), "<", func() -> void: _adjust_sector(-1))
 	_sector_label = _line(p, 132, "", 8, KEY_COL)
 	_button(p, Vector2(216, 126), ">", func() -> void: _adjust_sector(1))
