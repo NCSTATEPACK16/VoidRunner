@@ -195,9 +195,11 @@ func _panel(panel_name: String) -> Control:
 
 func _build_start() -> void:
 	var p := _panel("start")
-	_title(p, "VOID RUNNER", 24, TITLE_COL)
-	_line(p, 58, "9-LEVEL CAMPAIGN · SECTOR RUN", 8, Color("5fb6d8"))
-	_high_label = _line(p, 70, "", 8, KEY_COL)
+	_title(p, "BEYOND THE", 10, TITLE_COL, 6)
+	_title(p, "VOID RUNNER", 18, TITLE_COL, 18)
+	_line(p, 38, "RUN. SURVIVE. ESCAPE THE VOID.", 7, Color("5fb6d8"))
+	_line(p, 47, "9-LEVEL CAMPAIGN · SECTOR RUN", 7, Color("5fb6d8"))
+	_high_label = _line(p, 56, "", 7, KEY_COL)
 	_line(p, 82, "Your fighter runs the labyrinth at constant burn.", 8, TEXT_COL)
 	_line(p, 92, "Clear tunnels, survive arenas, watch the radar.", 8, TEXT_COL)
 	_line(p, 102, "Cannons build HEAT — redline locks them 3 s.", 8, TEXT_COL)
