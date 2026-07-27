@@ -216,15 +216,17 @@ func _build_start() -> void:
 	_button(p, Vector2(84, 126), "<", func() -> void: _adjust_sector(-1))
 	_sector_label = _line(p, 132, "", 8, KEY_COL)
 	_button(p, Vector2(216, 126), ">", func() -> void: _adjust_sector(1))
-	_button(p, Vector2(88, 152), "> START", func() -> void:
+	_box(p, Rect2(30, 148, 260, 18), TITLE_COL, "TERMINAL_PROMPT.EXE")
+	_button(p, Vector2(38, 150), "C:VOID_RUNNER> RUN.EXE", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
-	_button(p, Vector2(168, 152), "? CONTROLS", func() -> void: show_only("help"))
-	_button(p, Vector2(70, 174), "* SETTINGS", func() -> void:
+	_button(p, Vector2(16, 176), "? CONTROLS", func() -> void: show_only("help"),
+		Color("55ffee"))
+	_button(p, Vector2(120, 176), "* SETTINGS", func() -> void:
 		_settings_return = "start"
-		show_only("settings"))
+		show_only("settings"), ORANGE_COL)
 	# K5: endless survival mode — the button doubles as the audio-unlock gesture
-	_button(p, Vector2(170, 174), "% GAUNTLET", func() -> void:
+	_button(p, Vector2(224, 176), "% GAUNTLET", func() -> void:
 		AudioSys.unlock()
 		gauntlet_requested.emit())
 
