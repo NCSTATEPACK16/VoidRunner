@@ -16,6 +16,7 @@ const BG := Color(0.008, 0.012, 0.03, 0.975)   # near-opaque so the HUD (score, 
 const TITLE_COL := Color("62ffd0")
 const TEXT_COL := Color("8fb8cc")
 const KEY_COL := Color("ffd34d")
+const ORANGE_COL := Color("ff9c40")
 
 # V2.2 L3d: Upgrade Bay — cost to reach the NEXT tier, indexed by current tier.
 const WEAPON_COST := [60, 140]              # MK I->II, MK II->III
@@ -479,10 +480,10 @@ func _refresh_bay() -> void:
 
 # ---------- widget helpers ----------
 
-func _title(p: Control, text: String, font_size: int, color: Color) -> Label:
+func _title(p: Control, text: String, font_size: int, color: Color, y: float = 28) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.position = Vector2(0, 28)
+	l.position = Vector2(0, y)
 	l.size = Vector2(320, 30)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.add_theme_font_size_override("font_size", font_size)
@@ -518,12 +519,33 @@ func _at(p: Control, pos: Vector2, text: String, font_size: int, color: Color) -
 	return l
 
 
-func _button(p: Control, pos: Vector2, text: String, on_press: Callable) -> Button:
+func _button(p: Control, pos: Vector2, text: String, on_press: Callable, color: Color = TITLE_COL) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.position = pos
 	b.add_theme_font_size_override("font_size", 8)
-	b.add_theme_color_override("font_color", TITLE_COL)
+	b.add_theme_color_override("font_color", color)
 	b.pressed.connect(on_press)
 	p.add_child(b)
+	return b
+
+
+func _box(p: Control, rect: Rect2, color: Color, label: String) -> Panel:
+	var b := Panel.new()
+	b.position = rect.position
+	b.size = rect.size
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.border_color = color
+	sb.set_border_width_all(1)
+	b.add_theme_stylebox_override("panel", sb)
+	b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(b)
+	if label != "":
+		var l := Label.new()
+		l.text = "[ %s ]" % label
+		l.position = Vector2(rect.position.x + 4, rect.position.y - 9)
+		l.add_theme_font_size_override("font_size", 7)
+		l.add_theme_color_override("font_color", color)
+		p.add_child(l)
 	return b
