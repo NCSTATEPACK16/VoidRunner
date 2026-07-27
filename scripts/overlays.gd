@@ -204,7 +204,7 @@ func _build_start() -> void:
 	_line(p, 73, "TRANSMISSION LOG — SECTOR ALPHA", 7, KEY_COL)
 	_wrap_line(p, 85, Lore.story(0), 7, TEXT_COL, 30, 260)
 	_wrap_line(p, 107,
-		"You are the last Void Runner on the board — fly the tunnels, or the dark wins.",
+		"Fly the tunnels, or the dark wins.",
 		7, TEXT_COL, 24, 272)
 	_line(p, 119, "TERMINAL STATUS: CRITICAL", 7, KEY_COL)
 	_button(p, Vector2(84, 133), "<", func() -> void: _adjust_sector(-1))
