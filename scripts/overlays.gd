@@ -198,26 +198,20 @@ func _build_start() -> void:
 	_title(p, "BEYOND THE", 10, TITLE_COL, 6)
 	_title(p, "VOID RUNNER", 18, TITLE_COL, 18)
 	_line(p, 38, "RUN. SURVIVE. ESCAPE THE VOID.", 7, Color("5fb6d8"))
-	_line(p, 47, "9-LEVEL CAMPAIGN · SECTOR RUN", 7, Color("5fb6d8"))
-	_high_label = _line(p, 56, "", 7, KEY_COL)
-	_box(p, Rect2(8, 64, 304, 58), TITLE_COL, "SYSTEM_BACKSTORY.DAT")
-	_line(p, 68, "TRANSMISSION LOG — SECTOR ALPHA", 7, KEY_COL)
-	var _story_l := _line(p, 78, Lore.story(0), 7, TEXT_COL)
-	_story_l.position.x = 30
-	_story_l.size = Vector2(260, 24) * 2   # _line labels are 2x-size, 0.5-scale
-	_story_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var _flavor_l := _line(p, 98,
+	_line(p, 44, "9-LEVEL CAMPAIGN · SECTOR RUN", 7, Color("5fb6d8"))
+	_high_label = _line(p, 50, "", 7, KEY_COL)
+	_box(p, Rect2(8, 71, 304, 60), TITLE_COL, "SYSTEM_BACKSTORY.DAT")
+	_line(p, 73, "TRANSMISSION LOG — SECTOR ALPHA", 7, KEY_COL)
+	_wrap_line(p, 85, Lore.story(0), 7, TEXT_COL, 30, 260)
+	_wrap_line(p, 107,
 		"You are the last Void Runner on the board — fly the tunnels, or the dark wins.",
-		7, TEXT_COL)
-	_flavor_l.position.x = 30
-	_flavor_l.size = Vector2(260, 24) * 2
-	_flavor_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_line(p, 116, "TERMINAL STATUS: CRITICAL", 7, KEY_COL)
-	_button(p, Vector2(84, 126), "<", func() -> void: _adjust_sector(-1))
-	_sector_label = _line(p, 132, "", 8, KEY_COL)
-	_button(p, Vector2(216, 126), ">", func() -> void: _adjust_sector(1))
-	_box(p, Rect2(30, 148, 260, 18), TITLE_COL, "TERMINAL_PROMPT.EXE")
-	_button(p, Vector2(38, 150), "C:VOID_RUNNER> RUN.EXE", func() -> void:
+		7, TEXT_COL, 24, 272)
+	_line(p, 119, "TERMINAL STATUS: CRITICAL", 7, KEY_COL)
+	_button(p, Vector2(84, 133), "<", func() -> void: _adjust_sector(-1))
+	_sector_label = _line(p, 139, "", 8, KEY_COL)
+	_button(p, Vector2(216, 133), ">", func() -> void: _adjust_sector(1))
+	_box(p, Rect2(30, 155, 260, 18), TITLE_COL, "TERMINAL_PROMPT.EXE")
+	_button(p, Vector2(38, 157), "C:VOID_RUNNER> RUN.EXE", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
 	_button(p, Vector2(16, 176), "? CONTROLS", func() -> void: show_only("help"),
@@ -518,6 +512,27 @@ func _line(p: Control, y: float, text: String, font_size: int, color: Color) -> 
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.add_theme_font_size_override("font_size", font_size * 2)
 	l.add_theme_color_override("font_color", color)
+	p.add_child(l)
+	return l
+
+
+## A _line()-style label that actually word-wraps to a narrower width. Godot's
+## Control.size clamps up to the Label's combined minimum size, and once a
+## Label with autowrap still OFF has been added to the tree at a wide size,
+## setting autowrap_mode + a narrower .size afterward does NOT shrink it back
+## (verified: the wide size sticks even across frames) — so autowrap_mode and
+## the final .size must both be set BEFORE the label joins the tree.
+func _wrap_line(p: Control, y: float, text: String, font_size: int, color: Color,
+		x: float, width: float) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.scale = Vector2(0.5, 0.5)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", font_size * 2)
+	l.add_theme_color_override("font_color", color)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.position = Vector2(x, y)
+	l.size = Vector2(width, 24) * 2
 	p.add_child(l)
 	return l
 
