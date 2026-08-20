@@ -325,6 +325,36 @@ body {
 			}
 		}());
 
+		// M3: anonymous counters + the feedback form, both driven from GDScript.
+		// Codes are injected from scripts/feedback.gd at export time; blank means the
+		// analytics script is never even fetched, and every call below no-ops. The
+		// game must not depend on either service being reachable.
+		(function () {
+			var GC_CODE = '';
+			var FORM_URL = '';
+			window.vrOpenForm = function () {
+				if (!FORM_URL) { return; }
+				window.open(FORM_URL, '_blank', 'noopener');
+			};
+			window.vrCount = function (name) {
+				try {
+					if (window.goatcounter && window.goatcounter.count) {
+						window.goatcounter.count({ path: name, title: name, event: true });
+					}
+				} catch (e) { /* blocked or offline — counting is never load-bearing */ }
+			};
+			if (!GC_CODE) { return; }
+			var sc = document.createElement('script');
+			sc.async = true;
+			sc.src = 'https://gc.zgo.at/count.js';
+			sc.setAttribute('data-goatcounter',
+				'https://' + GC_CODE + '.goatcounter.com/count');
+			// no automatic pageview: this is a single canvas that never navigates, so
+			// the only meaningful measurements are the explicit counters above
+			sc.setAttribute('data-goatcounter-settings', '{"no_onload": true}');
+			document.head.appendChild(sc);
+		}());
+
 		// GDScript drives these via JavaScriptBridge.eval (see game.gd).
 		(function () {
 			window.vrShowLoading = function (msg, lines) {

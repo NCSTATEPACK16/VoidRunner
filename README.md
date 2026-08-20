@@ -39,6 +39,22 @@ godot --headless --export-release "Web" dist/index.html
 python3 -m http.server -d dist 8060   # then open http://localhost:8060
 ```
 
+## Beta feedback
+
+This is a public beta. Press **F** at any time in-game to open a short feedback
+form, or open an issue here — bug reports are most useful with the build stamp
+shown on the start screen plus your browser and device.
+
+## Privacy
+
+The build counts four anonymous things: that the game loaded, that a sector was
+started, that a sector was finished, and that the feedback form was opened. That
+is the whole list, and the sector number is the entire payload. No cookies, no
+accounts, no personal data, nothing that could single anyone out. Analytics run
+on [GoatCounter](https://www.goatcounter.com/), which is open source and
+cookieless; the counters live in `scripts/feedback.gd` where you can read exactly
+what fires and when.
+
 ## License
 
 MIT for all code in this repository. All art, audio, and text are original and generated

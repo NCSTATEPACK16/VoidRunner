@@ -712,6 +712,62 @@ func _run() -> void:
 		var a_r: float = a.position.x + maxf(a.size.x, 8.0)
 		assert(a_r <= label_left or a_l >= label_right)
 	print("M1/M2 ok — settings round-trip, flash + roll + invert, stamp, arrows clear")
+	# --- M3: feedback path + anonymous counters ---
+	# the five questions are the single source shared by the form, the post and the
+	# in-game prompt; drift between them makes answers incomparable
+	assert(Feedback.QUESTIONS.size() == 5)
+	for q in Feedback.QUESTIONS:
+		assert((q as String).length() > 15)
+	# counters never carry anything but an event name and a sector number
+	assert(Feedback.EV_LOADED != "" and Feedback.EV_LEVEL_STARTED != "")
+	assert(Feedback.EV_LEVEL_CLEARED != "" and Feedback.EV_FEEDBACK != "")
+	# every call is inert off the web and inert unconfigured — no crash, no error
+	Feedback.count(Feedback.EV_LOADED)
+	Feedback.count_level(Feedback.EV_LEVEL_STARTED, 0)
+	Feedback.open_form()
+	# the F key exists and is bound
+	assert(InputMap.has_action("feedback"))
+	var f_bound := false
+	for ev in InputMap.action_get_events("feedback"):
+		if ev is InputEventKey and (ev as InputEventKey).physical_keycode == KEY_F:
+			f_bound = true
+	assert(f_bound)
+	# a button that does nothing is worse than no button: with no form configured
+	# the feedback buttons must be absent from game-over and victory alike
+	for panel_name in ["game_over", "victory"]:
+		var fb := 0
+		for child in (game.overlays._panels[panel_name] as Control).get_children():
+			if child is Button and "FEEDBACK" in (child as Button).text:
+				fb += 1
+		assert(fb == (1 if Feedback.is_configured() else 0))
+	# the configured layout is the one that ships, so assert it rather than the
+	# empty one: with a form set, the help screen gains an F row and NOTHING may
+	# land on the gamepad row or run off the 200 px panel
+	Feedback.FORM_URL = "https://tally.so/r/SMOKE1"
+	(game.overlays._panels.help as Control).queue_free()
+	game.overlays._build_help()
+	await get_tree().process_frame
+	var help_p: Control = game.overlays._panels.help
+	var pad_y: float = game.overlays._help_pad.position.y
+	var rows: Array[float] = []
+	for child in help_p.get_children():
+		if child is Label or child is Button:
+			var c := child as Control
+			assert(c.position.y + 20.0 <= 200.0)          # nothing runs off the panel
+			if child is Label and (child as Label).text.begins_with("F  send"):
+				rows.append(c.position.y)
+	assert(rows.size() == 1)                              # the F row exists exactly once
+	assert(not is_equal_approx(rows[0], pad_y))           # and never sits on the gamepad row
+	var fb_seen := 0
+	Feedback.FORM_URL = ""
+	help_p.queue_free()               # _build_help() makes a fresh panel each call
+	game.overlays._build_help()
+	await get_tree().process_frame
+	for child in (game.overlays._panels.help as Control).get_children():
+		if child is Label and (child as Label).text.begins_with("F  send"):
+			fb_seen += 1
+	assert(fb_seen == 0)                                  # and vanishes again when unset
+	print("M3 ok — 5 questions, 4 counters inert unconfigured, F bound, buttons gated")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

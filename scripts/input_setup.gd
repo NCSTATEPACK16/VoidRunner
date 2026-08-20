@@ -29,6 +29,7 @@ func _init() -> void:
 	_key_action("pause_game", KEY_ENTER)
 	_add_key("pause_game", KEY_ESCAPE)
 	_key_action("automap", KEY_TAB)   # V2.2 L4a: Tab opens the paused automap
+	_key_action("feedback", KEY_F)   # M3: opens the beta feedback form in a new tab
 
 
 ## K6: opt-in gamepad bindings — a settings toggle, OFF by default (John's call).

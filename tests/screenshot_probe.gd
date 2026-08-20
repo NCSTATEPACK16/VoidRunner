@@ -69,6 +69,8 @@ func _run() -> void:
 	await _capture_root("shot_warning.png", dir)
 	game.overlays.show_only("settings")
 	await _capture_root("shot_settings.png", dir)
+	game.overlays.show_only("help")
+	await _capture_root("shot_help.png", dir)   # M3 privacy + feedback lines
 	game.overlays.show_only("start")
 	await get_tree().process_frame
 	game._show_briefing()

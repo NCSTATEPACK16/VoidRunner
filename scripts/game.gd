@@ -187,6 +187,7 @@ func _ready() -> void:
 	_load_level_world(0)
 	player.reset_to_start()
 	player.active = false
+	Feedback.count(Feedback.EV_LOADED)   # M3: one anonymous "someone arrived" tick
 	# M1.2: a first-time player meets the photosensitivity notice before the menu.
 	overlays.show_only("start" if GameState.seen_warning else "warning")
 	# On web the HTML boot overlay is masking the menu backdrop's first-frame shader
@@ -579,6 +580,7 @@ func _apply_gauntlet_tier(tier: int) -> void:
 func _launch_level() -> void:
 	if _warming:
 		return   # a Launch click landed mid warm-up (web); ignore until the rig is done
+	Feedback.count_level(Feedback.EV_LEVEL_STARTED, GameState.level_index)   # M3
 	GameState.level_start_score = GameState.score
 	GameState.heat = 0.0
 	GameState.is_overheated = false
@@ -633,6 +635,7 @@ func _level_complete() -> void:
 	var rank := _compute_rank(acc, player.elapsed, par)
 	GameState.unlocked_level = mini(
 		maxi(GameState.unlocked_level, idx + 1), levels.size() - 1)
+	Feedback.count_level(Feedback.EV_LEVEL_CLEARED, idx)   # M3: pairs with level-started
 	var new_record := GameState.record_progress(rank)
 	GameState.bank_salvage()   # V2.2 L3: this level's salvage haul → persistent bank
 	if idx >= levels.size() - 1:
@@ -1030,6 +1033,11 @@ func _pick_enemy_type(level: LevelDef) -> String:
 # ---------- input ----------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("feedback"):
+		# M3: reachable from every state — the moment someone has an opinion is
+		# usually the moment they died, not the moment they reached a menu
+		Feedback.open_form()
+		return
 	if event.is_action_pressed("pause_game"):
 		_toggle_pause()
 		return

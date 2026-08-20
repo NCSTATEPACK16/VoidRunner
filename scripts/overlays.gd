@@ -239,6 +239,11 @@ func _build_help() -> void:
 		"FLIGHT", "MOUSE / ARROWS  steer", "W or RMB  afterburner", "S  retro brake",
 		"A / D  evade roll", "", "SYSTEM", "ENTER or ESC  pause",
 	]
+	# M3: the beta ask belongs with the other key bindings, and appending it here
+	# (rather than placing it absolutely) keeps _help_pad and everything below it
+	# flowing — an absolute line landed exactly on the gamepad row.
+	if Feedback.is_configured():
+		left.append("F  send beta feedback")
 	var right := [
 		"WEAPONS", "LMB / SPACE / X  fire", "1 NEUTRON  2 SCATTER", "3 BOLT  4 MISSILE",
 		"BACKSPACE  cycle", "P  plasma bomb", "", "Locked bulkheads open when",
@@ -251,10 +256,13 @@ func _build_help() -> void:
 	for i in right.size():
 		_at(p, Vector2(172, 52 + i * 11), right[i], 8,
 			TITLE_COL if right[i] == "WEAPONS" else TEXT_COL)
-	_button(p, Vector2(88, 160), "> START", func() -> void:
+	# M3: the short version. The full privacy note lives in the README and on the
+	# form itself — anything longer than one line here and nobody reads any of it.
+	_line(p, 162, "No cookies, no accounts, no personal data.", 7, Color("55647d"))
+	_button(p, Vector2(88, 172), "> START", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
-	_button(p, Vector2(168, 160), "< BACK", func() -> void: show_only("start"))
+	_button(p, Vector2(168, 172), "< BACK", func() -> void: show_only("start"))
 
 
 func _build_briefing() -> void:
@@ -302,6 +310,7 @@ func _build_game_over() -> void:
 	var rec := _line(p, 104, "", 8, Color("5fb6d8"))
 	rec.name = "Record"
 	_button(p, Vector2(120, 132), "@ RETRY LEVEL", func() -> void: retry_requested.emit())
+	_feedback_button(p, Vector2(104, 158))   # M3
 
 
 func _build_level_clear() -> void:
@@ -329,6 +338,7 @@ func _build_victory() -> void:
 	var rec := _line(p, 108, "", 8, Color("5fb6d8"))
 	rec.name = "Record"
 	_button(p, Vector2(112, 136), "@ NEW CAMPAIGN", func() -> void: new_campaign_requested.emit())
+	_feedback_button(p, Vector2(104, 160))   # M3
 
 
 ## H: volume + mouse sensitivity (stepper rows) and a dither on/off toggle. All
@@ -611,6 +621,15 @@ func _button(p: Control, pos: Vector2, text: String, on_press: Callable, color: 
 	b.pressed.connect(on_press)
 	p.add_child(b)
 	return b
+
+
+## M3: one feedback button, built the same way everywhere it appears. Absent
+## rather than dead when no form is configured — a button that does nothing is
+## worse than no button.
+func _feedback_button(p: Control, pos: Vector2) -> void:
+	if not Feedback.is_configured():
+		return
+	_button(p, pos, "F  SEND FEEDBACK", func() -> void: Feedback.open_form(), ORANGE_COL)
 
 
 ## M2: Godot's default Button stylebox carries enough content margin that at font
