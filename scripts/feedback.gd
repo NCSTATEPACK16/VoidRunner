@@ -13,7 +13,7 @@ extends RefCounted
 class_name Feedback
 
 ## Paste the Tally form's share URL here (https://tally.so/r/XXXXXX).
-static var FORM_URL := ""
+static var FORM_URL := "https://tally.so/r/KYrvyk"
 ## Paste the GoatCounter site code here — just the subdomain, e.g. "voidrunner"
 ## for voidrunner.goatcounter.com. Blank means no analytics script is injected.
 static var ANALYTICS_CODE := "ncstatepack16"

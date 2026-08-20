@@ -743,6 +743,7 @@ func _run() -> void:
 	# the configured layout is the one that ships, so assert it rather than the
 	# empty one: with a form set, the help screen gains an F row and NOTHING may
 	# land on the gamepad row or run off the 200 px panel
+	var shipped_form: String = Feedback.FORM_URL   # restore the real value after
 	Feedback.FORM_URL = "https://tally.so/r/SMOKE1"
 	(game.overlays._panels.help as Control).queue_free()
 	game.overlays._build_help()
@@ -767,6 +768,10 @@ func _run() -> void:
 		if child is Label and (child as Label).text.begins_with("F  send"):
 			fb_seen += 1
 	assert(fb_seen == 0)                                  # and vanishes again when unset
+	Feedback.FORM_URL = shipped_form
+	(game.overlays._panels.help as Control).queue_free()
+	game.overlays._build_help()
+	await get_tree().process_frame
 	print("M3 ok — 5 questions, 4 counters inert unconfigured, F bound, buttons gated")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
