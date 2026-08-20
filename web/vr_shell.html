@@ -220,6 +220,23 @@ body {
 	text-shadow: 0 0 8px rgba(255, 154, 48, 0.35);
 }
 
+#vr-loading .vr-diag {
+	margin-top: 1.1rem;
+	font-size: 0.72rem;
+	letter-spacing: 0.06em;
+	color: #6b7486;
+	max-width: 32rem;
+	line-height: 1.6;
+	text-align: center;
+	padding: 0 1rem;
+	white-space: pre-wrap;
+}
+
+#vr-loading .vr-diag.vr-err {
+	color: #ff6b52;
+	font-size: 0.8rem;
+}
+
 #vr-loading .vr-ring {
 	width: 44px;
 	height: 44px;
@@ -323,6 +340,7 @@ body {
 			<div class="vr-ring"></div>
 			<div class="vr-msg" id="vr-loading-msg">INITIALIZING&hellip;</div>
 			<div class="vr-hint">compiling shaders &mdash; first run is slowest</div>
+			<div class="vr-diag" id="vr-diag"></div>
 			<!-- boot lore, baked in so it rotates before the engine even loads;
 			     vrShowLoading swaps these for per-sector lines -->
 			<div class="vr-lore" id="vr-lore">
@@ -438,6 +456,19 @@ body {
 				// re-show on the next frame so the opacity transition can play
 				window.requestAnimationFrame(function () { el.classList.remove('vr-gone'); });
 			};
+			// The engine's own progress bar and, more importantly, its failure notice
+			// live in #status — which sits BELOW this overlay. Without mirroring them
+			// up here, a failed boot looks identical to a slow one: a spinner forever.
+			window.vrDiag = function (text, isError) {
+				var d = document.getElementById('vr-diag');
+				if (!d) { return; }
+				d.textContent = text || '';
+				d.className = 'vr-diag' + (isError ? ' vr-err' : '');
+				if (isError) {
+					var r = document.querySelector('#vr-loading .vr-ring');
+					if (r) { r.style.display = 'none'; }   // a spinner implies progress
+				}
+			};
 			window.vrHideLoading = function () {
 				var el = document.getElementById('vr-loading');
 				if (!el) { return; }
@@ -539,19 +570,55 @@ const engine = new Engine(GODOT_CONFIG);
 		}
 	} else {
 		setStatusMode('progress');
+		let booted = false;
+		let lastPct = -1;
+		let downloaded = false;
 		engine.startGame({
 			'onProgress': function (current, total) {
 				if (current > 0 && total > 0) {
 					statusProgress.value = current;
 					statusProgress.max = total;
+					const pct = Math.floor((current / total) * 100);
+					if (pct !== lastPct) {
+						lastPct = pct;
+						if (window.vrDiag) { window.vrDiag('DOWNLOADING ' + pct + '%'); }
+					}
+					if (current >= total) { downloaded = true; }
 				} else {
 					statusProgress.removeAttribute('value');
 					statusProgress.removeAttribute('max');
 				}
 			},
 		}).then(() => {
+			booted = true;
 			setStatusMode('hidden');
-		}, displayFailureNotice);
+			if (window.vrDiag) { window.vrDiag('STARTING ENGINE'); }
+		}, function (err) {
+			booted = true;   // resolved, badly — stop the watchdog from piling on
+			displayFailureNotice(err);
+			// surface it ABOVE the overlay, otherwise this message is invisible
+			if (window.vrDiag) {
+				window.vrDiag('FAILED TO START\n'
+					+ ((err && err.message) ? err.message : String(err)), true);
+			}
+		});
+		// Watchdog: on a device we cannot attach a console to, a stall has to
+		// explain itself. Reports where it got to and what the browser offers.
+		window.setTimeout(function () {
+			if (booted || !window.vrDiag) { return; }
+			let gl = 'none';
+			try {
+				const c = document.createElement('canvas');
+				if (c.getContext('webgl2')) { gl = 'webgl2'; }
+				else if (c.getContext('webgl')) { gl = 'webgl1 (Godot needs webgl2)'; }
+			} catch (e) { gl = 'blocked'; }
+			window.vrDiag('STILL WORKING AFTER 25s\n'
+				+ (downloaded ? 'download complete' : 'download at ' + lastPct + '%') + '\n'
+				+ 'webgl: ' + gl + '\n'
+				+ 'memory hint: ' + (navigator.deviceMemory || 'unknown') + '\n'
+				+ 'threads: ' + GODOT_THREADS_ENABLED + '\n'
+				+ 'ua: ' + navigator.userAgent.slice(0, 90));
+		}, 25000);
 	}
 }());
 		</script>

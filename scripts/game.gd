@@ -68,6 +68,11 @@ var _secrets: Array[Dictionary] = []
 
 
 func _ready() -> void:
+	# M4a diagnostics: proves GDScript is actually executing on a device we can't
+	# attach a console to. If the overlay never gets past "STARTING ENGINE", the
+	# engine started but the game did not.
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.vrDiag && window.vrDiag('GAME BOOTING');", true)
 	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
 	GameState.load_records()    # Phase J: high score / best ranks / unlocked sector
 	for w in ["neutron", "scatter", "bolt", "missile"]:
@@ -208,6 +213,7 @@ func _ready() -> void:
 	# On web the HTML boot overlay is masking the menu backdrop's first-frame shader
 	# compile; drop it once that heavy frame has actually rendered (see web/vr_shell.html).
 	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.vrDiag && window.vrDiag('WARMING SHADERS');", true)
 		for i in WARM_FRAMES:
 			await get_tree().process_frame
 		_web_hide_loading()
