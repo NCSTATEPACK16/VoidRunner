@@ -6,7 +6,7 @@ extends RefCounted
 ## "dev" placeholder — which is itself useful information in a report.
 class_name BuildInfo
 
-const ID := "dev"
+const ID := "dev"   # always committed as "dev"; stamp_build.sh rewrites it at export
 const CHANNEL := "beta"
 
 

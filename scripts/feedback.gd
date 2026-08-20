@@ -16,7 +16,7 @@ class_name Feedback
 static var FORM_URL := ""
 ## Paste the GoatCounter site code here — just the subdomain, e.g. "voidrunner"
 ## for voidrunner.goatcounter.com. Blank means no analytics script is injected.
-static var ANALYTICS_CODE := ""
+static var ANALYTICS_CODE := "ncstatepack16"
 
 ## The five questions. Short enough that people finish, specific enough that the
 ## answers are actionable. Ask more and the completion rate is what suffers.
