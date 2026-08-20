@@ -352,6 +352,42 @@ body {
 		</div>
 
 		<script>
+		// Boot state shared with the engine bootstrap below. Registered FIRST and in
+		// its own block so that a throw anywhere later — including the engine script
+		// failing to load, which leaves `Engine` undefined — still gets reported.
+		// The earlier version put the watchdog inside the bootstrap, so the one case
+		// it most needed to catch was the one case it could not.
+		(function () {
+			window.vrBoot = { pct: -1, downloaded: false, booted: false, err: null };
+			function report(msg) {
+				window.vrBoot.err = msg;
+				if (window.vrDiag) { window.vrDiag('ERROR\n' + msg, true); }
+			}
+			window.addEventListener('error', function (e) {
+				if (e && e.message) { report(e.message); }
+				else if (e && e.target && e.target.src) { report('failed to load ' + e.target.src); }
+			}, true);   // capture phase, so subresource load failures are seen too
+			window.addEventListener('unhandledrejection', function (e) {
+				var r = e && e.reason;
+				report((r && r.message) ? r.message : String(r));
+			});
+			window.setTimeout(function () {
+				var b = window.vrBoot;
+				if (b.booted || b.err || !window.vrDiag) { return; }
+				var gl = 'none';
+				try {
+					var c = document.createElement('canvas');
+					if (c.getContext('webgl2')) { gl = 'webgl2'; }
+					else if (c.getContext('webgl')) { gl = 'webgl1 (Godot needs webgl2)'; }
+				} catch (e) { gl = 'blocked'; }
+				window.vrDiag('STALLED AFTER 20s\n'
+					+ (b.downloaded ? 'download complete' : 'download at ' + b.pct + '%') + '\n'
+					+ 'engine object: ' + (typeof window.Engine) + '\n'
+					+ 'webgl: ' + gl + '\n'
+					+ 'ua: ' + navigator.userAgent.slice(0, 80));
+			}, 20000);
+		}());
+
 		// M4a: ?touch=1 opts a device into the touch build being measured. Until the
 		// spike passes, the default phone experience is still the capability card.
 		(function () {
@@ -522,6 +558,12 @@ const engine = new Engine(GODOT_CONFIG);
 
 	function displayFailureNotice(err) {
 		console.error(err);
+		// #status sits below the loading overlay, so mirror it up or it is invisible
+		if (window.vrDiag) {
+			window.vrDiag('FAILED TO START\n'
+				+ ((err && err.message) ? err.message : String(err)), true);
+		}
+		if (window.vrBoot) { window.vrBoot.booted = true; }
 		if (err instanceof Error) {
 			setStatusNotice(err.message);
 		} else if (typeof err === 'string') {
@@ -570,9 +612,7 @@ const engine = new Engine(GODOT_CONFIG);
 		}
 	} else {
 		setStatusMode('progress');
-		let booted = false;
 		let lastPct = -1;
-		let downloaded = false;
 		engine.startGame({
 			'onProgress': function (current, total) {
 				if (current > 0 && total > 0) {
@@ -581,44 +621,21 @@ const engine = new Engine(GODOT_CONFIG);
 					const pct = Math.floor((current / total) * 100);
 					if (pct !== lastPct) {
 						lastPct = pct;
+						window.vrBoot.pct = pct;
 						if (window.vrDiag) { window.vrDiag('DOWNLOADING ' + pct + '%'); }
 					}
-					if (current >= total) { downloaded = true; }
+					if (current >= total) { window.vrBoot.downloaded = true; }
 				} else {
 					statusProgress.removeAttribute('value');
 					statusProgress.removeAttribute('max');
 				}
 			},
 		}).then(() => {
-			booted = true;
+			window.vrBoot.booted = true;
 			setStatusMode('hidden');
 			if (window.vrDiag) { window.vrDiag('STARTING ENGINE'); }
-		}, function (err) {
-			booted = true;   // resolved, badly — stop the watchdog from piling on
-			displayFailureNotice(err);
-			// surface it ABOVE the overlay, otherwise this message is invisible
-			if (window.vrDiag) {
-				window.vrDiag('FAILED TO START\n'
-					+ ((err && err.message) ? err.message : String(err)), true);
-			}
-		});
-		// Watchdog: on a device we cannot attach a console to, a stall has to
-		// explain itself. Reports where it got to and what the browser offers.
-		window.setTimeout(function () {
-			if (booted || !window.vrDiag) { return; }
-			let gl = 'none';
-			try {
-				const c = document.createElement('canvas');
-				if (c.getContext('webgl2')) { gl = 'webgl2'; }
-				else if (c.getContext('webgl')) { gl = 'webgl1 (Godot needs webgl2)'; }
-			} catch (e) { gl = 'blocked'; }
-			window.vrDiag('STILL WORKING AFTER 25s\n'
-				+ (downloaded ? 'download complete' : 'download at ' + lastPct + '%') + '\n'
-				+ 'webgl: ' + gl + '\n'
-				+ 'memory hint: ' + (navigator.deviceMemory || 'unknown') + '\n'
-				+ 'threads: ' + GODOT_THREADS_ENABLED + '\n'
-				+ 'ua: ' + navigator.userAgent.slice(0, 90));
-		}, 25000);
+		}, displayFailureNotice);
+
 	}
 }());
 		</script>
