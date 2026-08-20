@@ -620,6 +620,98 @@ func _run() -> void:
 	assert(lore_o.position.y + 3 * 11.0 <= lore_b.position.y)
 	assert(lore_b.position.y + lore_b.size.y * lore_b.scale.y <= 164.0)   # above buttons
 	print("lore ok — 9+gauntlet stories + load lines; briefing bands don't overlap")
+	# --- M1/M2 beta readiness: safety notice, comfort settings, build stamp ---
+	# every new setting round-trips through settings.cfg
+	GameState.reduce_flashing = true
+	GameState.reduce_roll = true
+	GameState.invert_y = true
+	GameState.view_fov = 92.0
+	GameState.seen_warning = true
+	GameState.apply_settings()
+	GameState.reduce_flashing = false
+	GameState.reduce_roll = false
+	GameState.invert_y = false
+	GameState.view_fov = 78.0
+	GameState.seen_warning = false
+	GameState.load_settings()
+	assert(GameState.reduce_flashing and GameState.reduce_roll and GameState.invert_y)
+	assert(is_equal_approx(GameState.view_fov, 92.0))
+	assert(GameState.seen_warning)
+	# the settings panel exposes a control for every one of them
+	var set_p: Control = game.overlays._panels.settings
+	for k in ["volume", "sens", "fov", "dither", "amber", "gamepad", "shake",
+			"reduce_flash", "reduce_roll", "invert_y"]:
+		assert(game.overlays._settings_labels.has(k))
+	# and none of its controls escapes the 320x200 design box
+	for child in set_p.get_children():
+		if child is Button or child is Label:
+			var c := child as Control
+			assert(c.position.x >= 0.0 and c.position.y >= 0.0)
+			assert(c.position.y <= 190.0)
+	# FOV clamps at both ends rather than running away
+	for _i in 20:
+		game.overlays._adjust_setting("fov", 1)
+	assert(GameState.view_fov <= 100.0)
+	for _i in 30:
+		game.overlays._adjust_setting("fov", -1)
+	assert(GameState.view_fov >= 60.0)
+	# M1.2: reduce-flash suppresses the plasma white-out
+	GameState.reduce_flashing = false
+	game.hud.flash_white()
+	var bright: float = game.hud._bomb_flash.color.a
+	GameState.reduce_flashing = true
+	game.hud.flash_white()
+	assert(game.hud._bomb_flash.color.a < bright * 0.5)
+	# ...and holds animated arena lights steady instead of strobing them
+	game.world.animate(0.25)
+	game.world.animate(0.25)
+	for l in game.world._lights:
+		assert(is_equal_approx(l.light.light_energy, l.energy))
+	GameState.reduce_flashing = false
+	# M2.2: invert-Y actually flips the pitch response
+	game.player.pitch = 0.0
+	GameState.invert_y = false
+	game.player.apply_mouse_look(Vector2(0.0, 10.0))
+	var normal_pitch: float = game.player.pitch
+	game.player.pitch = 0.0
+	GameState.invert_y = true
+	game.player.apply_mouse_look(Vector2(0.0, 10.0))
+	assert(signf(game.player.pitch) == -signf(normal_pitch))
+	GameState.invert_y = false
+	game.player.pitch = 0.0
+	# M1.2: the warning panel exists and gates the start screen on a fresh profile
+	assert(game.overlays._panels.has("warning"))
+	GameState.seen_warning = false
+	game.overlays.show_only("warning" if not GameState.seen_warning else "start")
+	assert(game.overlays._panels.warning.visible)
+	assert(not game.overlays._panels.start.visible)
+	game.overlays._ack_warning()
+	game.overlays.show_only("start")
+	assert(GameState.seen_warning and game.overlays._panels.start.visible)
+	# M1.4: a build stamp is present and non-placeholder-empty
+	assert(BuildInfo.label().length() > 5)
+	# M1.5: the sector arrows sit clear of the longest sector label. The label is a
+	# 640-wide centred _line scaled 0.5, so its painted span is measured from the
+	# text width, not the node's box.
+	var arrows: Array[Button] = []
+	for child in game.overlays._panels.start.get_children():
+		if child is Button and (child as Button).text in ["<", ">"]:
+			arrows.append(child as Button)
+	assert(arrows.size() == 2)
+	var longest := 0.0
+	for lname in game.levels:
+		var f: Font = game.overlays._sector_label.get_theme_default_font()
+		var fs: int = game.overlays._sector_label.get_theme_font_size("font_size")
+		var w: float = f.get_string_size("SECTOR: %s" % (lname as LevelDef).display_name,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x * 0.5
+		longest = maxf(longest, w)
+	var label_left := 160.0 - longest * 0.5
+	var label_right := 160.0 + longest * 0.5
+	for a in arrows:
+		var a_l: float = a.position.x
+		var a_r: float = a.position.x + maxf(a.size.x, 8.0)
+		assert(a_r <= label_left or a_l >= label_right)
+	print("M1/M2 ok — settings round-trip, flash + roll + invert, stamp, arrows clear")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

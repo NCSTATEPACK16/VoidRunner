@@ -28,6 +28,15 @@ if [ ! -f "${TEMPLATE_DIR}/web_nothreads_release.zip" ]; then
   mv bin/tpl/templates/* "${TEMPLATE_DIR}/"
 fi
 
+# M1.4: stamp the commit into the build so a bug report names its build. Netlify
+# exposes COMMIT_REF; a plain git checkout falls back to git itself; neither being
+# available leaves the committed "dev" placeholder, which is also honest.
+SHA="${COMMIT_REF:-$(git rev-parse --short HEAD 2>/dev/null || echo dev)}"
+SHA="${SHA:0:7}"
+echo "--- Stamping build ${SHA} ---"
+sed -i.bak "s/^const ID := \".*\"$/const ID := \"${SHA}\"/" scripts/build_info.gd
+rm -f scripts/build_info.gd.bak
+
 echo "--- Importing project ---"
 "${GODOT}" --headless --import
 

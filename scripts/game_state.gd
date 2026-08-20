@@ -321,6 +321,21 @@ var dither_enabled := true
 var gamepad_enabled := false   # K6: opt-in, never default
 var amber_mode := false        # amber-monochrome terminal look (via the dither shader)
 var screen_shake := true       # V2.2 L1: camera kick/shake master switch (accessibility)
+# --- M1/M2 beta-readiness accessibility + comfort settings ---
+## M1.2: suppresses the plasma-bomb white-out and freezes strobing/flickering
+## arena lights. The strobe runs at ~1.1 Hz and the flicker is a smooth energy
+## modulation, so the bomb white-out is the real photosensitivity risk — this
+## kills it outright rather than dimming it.
+var reduce_flashing := false
+## M2.1: damps the camera lean applied when turning and when dodge-rolling.
+## Spatial disorientation is this genre's central comfort problem.
+var reduce_roll := false
+## M2.2: inverts the pitch axis for mouse look and the arrow keys alike.
+var invert_y := false
+## M2.2: vertical FOV in degrees; player.gd reads this every frame.
+var view_fov := 78.0
+## M1.2: set once the photosensitivity warning has been acknowledged.
+var seen_warning := false
 # V2.2 L2b: combat-state flags game.gd maintains for the music intensity engine
 var arena_locked := false
 var boss_active := false
@@ -345,6 +360,11 @@ func load_settings() -> void:
 		gamepad_enabled = cfg.get_value("settings", "gamepad", gamepad_enabled)
 		amber_mode = cfg.get_value("settings", "amber", amber_mode)
 		screen_shake = cfg.get_value("settings", "shake", screen_shake)
+		reduce_flashing = cfg.get_value("settings", "reduce_flash", reduce_flashing)
+		reduce_roll = cfg.get_value("settings", "reduce_roll", reduce_roll)
+		invert_y = cfg.get_value("settings", "invert_y", invert_y)
+		view_fov = cfg.get_value("settings", "fov", view_fov)
+		seen_warning = cfg.get_value("settings", "seen_warning", seen_warning)
 
 
 func _save_settings() -> void:
@@ -355,6 +375,11 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "gamepad", gamepad_enabled)
 	cfg.set_value("settings", "amber", amber_mode)
 	cfg.set_value("settings", "shake", screen_shake)
+	cfg.set_value("settings", "reduce_flash", reduce_flashing)
+	cfg.set_value("settings", "reduce_roll", reduce_roll)
+	cfg.set_value("settings", "invert_y", invert_y)
+	cfg.set_value("settings", "fov", view_fov)
+	cfg.set_value("settings", "seen_warning", seen_warning)
 	cfg.save("user://settings.cfg")
 
 

@@ -187,7 +187,8 @@ func _ready() -> void:
 	_load_level_world(0)
 	player.reset_to_start()
 	player.active = false
-	overlays.show_only("start")
+	# M1.2: a first-time player meets the photosensitivity notice before the menu.
+	overlays.show_only("start" if GameState.seen_warning else "warning")
 	# On web the HTML boot overlay is masking the menu backdrop's first-frame shader
 	# compile; drop it once that heavy frame has actually rendered (see web/vr_shell.html).
 	if OS.has_feature("web"):

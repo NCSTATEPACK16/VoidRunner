@@ -4,7 +4,7 @@ A from-scratch, all-procedural homage to the great 1995 DOS 6DOF tunnel shooters
 flight through winding corridors and combat arenas, energy weapons, a shield/heat/energy economy,
 and a chunky 320×200 look with light that dies into black shadow.
 
-**Play it in your browser:** _(Netlify URL goes here after the first deploy)_
+**Play it in your browser:** <https://beyondthevoidrunner.netlify.app/>
 
 ## Controls
 
@@ -15,7 +15,10 @@ and a chunky 320×200 look with light that dies into black shadow.
 | Weapons | 1–4 (Backspace cycles) |
 | Afterburner | W or hold Right mouse |
 | Brake | S |
-| Pause | P |
+| Pause | Enter or Esc |
+| Automap | Tab |
+| Plasma bomb | P |
+| Dodge roll | A / D |
 
 ## Tech
 

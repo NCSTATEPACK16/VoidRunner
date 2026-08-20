@@ -1,0 +1,366 @@
+<title>Void Runner Beta Sequence</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&display=swap">
+<style>
+:root{
+  --ground:#0A0C14; --panel:#141A28; --panel2:#0F1420; --rule:#243048;
+  --text:#B7C0D4; --bright:#E4E9F2; --dim:#6E7791;
+  --amber:#E9A63C; --amber-dim:#8A6524; --red:#B4423A; --green:#5F9E77;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --cond:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--mono);
+  font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:940px;margin:0 auto;padding:56px 24px 96px}
+h1,h2,h3{font-family:var(--cond);text-wrap:balance;margin:0}
+code{font-family:var(--mono);font-size:.92em;color:var(--amber);background:var(--panel2);padding:1px 5px;border:1px solid var(--rule)}
+a{color:var(--amber);text-decoration:none;border-bottom:1px solid var(--amber-dim)}
+a:hover{color:var(--bright)}
+a:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+
+.mast{border:1px solid var(--rule);background:var(--panel2);padding:28px;margin-bottom:14px}
+.eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);margin:0 0 14px}
+h1{font-size:clamp(30px,5.2vw,46px);font-weight:700;letter-spacing:.02em;line-height:1.05;
+  color:var(--bright);text-transform:uppercase}
+.tagline{margin:12px 0 0;max-width:64ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:22px;padding-top:18px;border-top:1px solid var(--rule);
+  font-size:12px;letter-spacing:.06em;color:var(--dim);font-variant-numeric:tabular-nums}
+.meta b{color:var(--text);font-weight:500}
+
+section{margin-top:46px}
+h2{font-size:13px;letter-spacing:.24em;text-transform:uppercase;color:var(--amber);
+  padding-bottom:10px;border-bottom:1px solid var(--rule);margin-bottom:22px}
+.lede{max-width:68ch;margin:0 0 26px}
+p{max-width:68ch}
+
+/* locked decision ledger */
+.ledger{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:2px}
+.lk{border:1px solid var(--rule);border-left:3px solid var(--green);background:var(--panel);padding:12px 14px}
+.lk .id{font-family:var(--cond);font-weight:700;font-size:11px;letter-spacing:.16em;color:var(--green)}
+.lk .val{font-family:var(--cond);font-weight:600;font-size:15px;letter-spacing:.04em;color:var(--bright);margin:3px 0 4px}
+.lk .sub{font-size:12px;color:var(--dim);line-height:1.45}
+
+/* open question */
+.oq{border:1px solid var(--red);background:var(--panel);padding:18px 22px;margin-bottom:2px}
+.oq .qid{font-family:var(--cond);font-weight:700;font-size:11px;letter-spacing:.16em;color:var(--red)}
+.oq h3{font-size:16.5px;margin:4px 0 8px}
+.oq p{margin:0 0 10px;font-size:14px}
+.oq p:last-child{margin:0}
+.ask{margin-top:12px;padding-top:11px;border-top:1px dashed var(--rule);font-size:13.5px}
+.ask b{color:var(--amber);font-weight:500;letter-spacing:.08em;text-transform:uppercase;font-size:11px}
+
+/* phases */
+.phases{display:flex;flex-direction:column;gap:2px}
+.phase{display:grid;grid-template-columns:76px 1fr;border:1px solid var(--rule);background:var(--panel)}
+.phase.cut{opacity:.62;border-style:dashed}
+.pnum{display:flex;flex-direction:column;align-items:center;padding:18px 4px;
+  background:var(--panel2);border-right:1px solid var(--rule)}
+.pnum .n{font-family:var(--cond);font-weight:700;font-size:26px;color:var(--amber);line-height:1;
+  font-variant-numeric:tabular-nums}
+.phase.cut .pnum .n{color:var(--dim)}
+.pnum .tag{font-size:9px;letter-spacing:.12em;color:var(--dim);margin-top:8px;text-transform:uppercase;text-align:center}
+.pbody{padding:18px 22px 20px;min-width:0}
+.phead{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px;margin-bottom:8px}
+h3{font-size:17px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--bright)}
+.size,.gate,.must{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;padding:2px 7px}
+.size{color:var(--dim);border:1px solid var(--rule)}
+.gate{color:var(--amber);border:1px solid var(--amber-dim)}
+.must{color:var(--green);border:1px solid var(--green)}
+.pbody p{margin:0 0 12px}
+ul{margin:0;padding-left:18px}
+li{margin:5px 0;max-width:66ch}
+li::marker{color:var(--amber-dim)}
+.blocked{margin-top:12px;padding-top:11px;border-top:1px dashed var(--rule);font-size:13px;color:var(--dim)}
+.blocked b{color:var(--red);font-weight:500}
+
+.killgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:2px}
+.kill{background:var(--panel2);border:1px solid var(--rule);padding:12px 14px;font-size:13px}
+.kill .kk{display:block;color:var(--red);font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;margin-bottom:4px}
+
+.tblwrap{overflow-x:auto;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;min-width:580px;font-size:13.5px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--cond);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--dim);background:var(--panel2);font-weight:600}
+tr:last-child td{border-bottom:none}
+td.ok{color:var(--green)}td.warn{color:var(--amber)}td.bad{color:var(--red)}
+.num{font-variant-numeric:tabular-nums}
+
+.callout{border:1px solid var(--amber-dim);background:var(--panel);padding:18px 22px;margin-top:22px}
+.callout .lbl{font-family:var(--cond);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--amber);margin-bottom:8px}
+.callout p{margin:0 0 10px}
+.callout p:last-child{margin:0}
+
+.steps{counter-reset:s;list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2px}
+.steps li{counter-increment:s;display:grid;grid-template-columns:auto 1fr;gap:14px;
+  background:var(--panel2);border:1px solid var(--rule);padding:12px 16px;margin:0;max-width:none}
+.steps li::before{content:counter(s);font-family:var(--cond);font-weight:700;color:var(--amber);
+  font-variant-numeric:tabular-nums;min-width:1.2em}
+.steps b{color:var(--bright);font-weight:500}
+
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--rule);font-size:12px;
+  color:var(--dim);letter-spacing:.04em;max-width:none}
+@media (max-width:560px){
+  .wrap{padding:32px 16px 64px}
+  .phase{grid-template-columns:56px 1fr}
+  .pbody{padding:16px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+
+<div class="mast">
+  <p class="eyebrow">Void Runner · Phase M · Beta Readiness</p>
+  <h1>Beta Sequence</h1>
+  <p class="tagline">All eight decisions answered and written into PLAN.md as Phase M. Nine phases,
+  twelve sessions, six kill criteria to clear. Posting is the last thing that happens.</p>
+  <div class="meta">
+    <span>Baseline <b>4e7ab4f · main</b></span>
+    <span>Phases <b class="num">M1–M9</b></span>
+    <span>Sessions <b class="num">~12</b></span>
+    <span>Revised <b>2026-08-19</b></span>
+  </div>
+</div>
+
+<section>
+  <h2>Decisions · all locked</h2>
+  <div class="ledger">
+    <div class="lk"><span class="id">D1</span><div class="val">Play</div><div class="sub">Real touch controls, behind a measured spike.</div></div>
+    <div class="lk"><span class="id">D2</span><div class="val">Baked</div><div class="sub">Sprites ship. Hard rule #1 is rewritten.</div></div>
+    <div class="lk"><span class="id">D3</span><div class="val">Yes</div><div class="sub">Cookieless analytics, four events.</div></div>
+    <div class="lk"><span class="id">D4</span><div class="val">Form</div><div class="sub">Same questions in the post body.</div></div>
+    <div class="lk"><span class="id">D5</span><div class="val">Three</div><div class="sub">Recruit / Runner / Voidborne.</div></div>
+    <div class="lk"><span class="id">D6</span><div class="val">Split</div><div class="sub">Landing page at root, built in code.</div></div>
+    <div class="lk"><span class="id">D7</span><div class="val">Players</div><div class="sub">Testers and recommendations, not contributors.</div></div>
+    <div class="lk"><span class="id">D8</span><div class="val">Staged</div><div class="sub">godot → destroymygame → playmygame.</div></div>
+  </div>
+  <div class="callout">
+    <div class="lbl">The constraint change, stated plainly</div>
+    <p>Hard rule #1 becomes: <i>"Everything shipped is generated from code in this repo — procedurally
+    at runtime, or baked from a committed generator script. No third-party assets, ever, and nothing
+    derived from any original 1995 game."</i></p>
+    <p>It gets written in the <b>same commit as the first baked sprite</b>, never before — until then
+    the old rule is still literally true, and a repo that documents a future state is as dishonest as
+    one that documents a past one. Three files move together: the repo's CLAUDE.md, the parent
+    CLAUDE.md, and the README asset note. Rules #2 through #4 — never the original name, MIT only,
+    child-friendly tone — are unchanged and remain absolute.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The nine phases</h2>
+  <p class="lede">Ordered by dependency. Sprites moved <i>into</i> the critical path rather than after
+  the first post, on your call that sprite quality matters more to the game than the purity of the
+  pitch — and they sit before the capture so the video shows final art. The procedural hook isn't
+  lost, it's reframed: a scripted, fully reproducible Blender bake pipeline is its own r/godot story,
+  as long as the post describes it accurately.</p>
+
+  <div class="phases">
+
+    <div class="phase">
+      <div class="pnum"><span class="n">M1</span><span class="tag">Start now</span></div>
+      <div class="pbody">
+        <div class="phead"><h3>Truth, safety, mobile gate</h3><span class="size">Small</span><span class="must">Clears 2 kill criteria</span></div>
+        <ul>
+          <li>Touch detection and an honest capability card — survives M4 as the fallback for devices touch can't serve.</li>
+          <li>Photosensitivity warning and a reduce-flashing toggle; the plasma white-out and strobe lights likely exceed the three-per-second threshold.</li>
+          <li>README play URL, still unfilled since the first deploy.</li>
+          <li>Version stamp on start and pause, so bug reports are attributable.</li>
+          <li>The sector-arrow collision with long names.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="pnum"><span class="n">M2</span><span class="tag">Start now</span></div>
+      <div class="pbody">
+        <div class="phead"><h3>Comfort and standard options</h3><span class="size">Small</span></div>
+        <ul>
+          <li>Reduce screen-roll — disorientation is this genre's central risk, and it worsens on a phone.</li>
+          <li>Invert-Y and an FOV slider.</li>
+          <li>Damage-direction indicator; unreadable damage is experienced as unfairness.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="pnum"><span class="n">M3</span><span class="tag">Needs input</span></div>
+      <div class="pbody">
+        <div class="phead"><h3>Feedback and measurement</h3><span class="size">Small</span><span class="must">Clears 2 kill criteria</span></div>
+        <ul>
+          <li>Feedback key in-game, plus links on game-over and victory.</li>
+          <li>Five questions written once, used in the form, the post body, and the in-game link — so answers stay comparable.</li>
+          <li>Four cookieless events: loaded, level started, level cleared, feedback opened.</li>
+          <li>Plain-language privacy note.</li>
+          <li>Scope the site-wide COEP header, which buys nothing today and will block the analytics script.</li>
+        </ul>
+        <p class="blocked"><b>Needs from you:</b> the form URL and the analytics site ID.</p>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="pnum"><span class="n">M4</span><span class="tag">Spike first</span></div>
+      <div class="pbody">
+        <div class="phead"><h3>Mobile play</h3><span class="size">Large</span><span class="gate">Most variance</span></div>
+        <ul>
+          <li><b>M4a · Spike.</b> Landscape lock, drag-to-steer, fire button, measured on a real mid-range phone. Go/no-go, decided by the number.</li>
+          <li><b>M4b</b> Touch layer outside the SubViewport, using the pattern the overlays already use.</li>
+          <li><b>M4c</b> A simplified verb set — four weapons plus bomb plus dodge won't fit two thumbs.</li>
+          <li><b>M4d</b> Routing, with M1's card as the fallback.</li>
+        </ul>
+        <p class="blocked"><b>If the spike fails:</b> keep the card, drop M4b–M4d, path shortens by about a week. A legitimate outcome, not a failure.</p>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="pnum"><span class="n">M5</span><span class="tag">Ready</span></div>
+      <div class="pbody">
+        <div class="phead"><h3>Difficulty, checkpoints, onboarding</h3><span class="size">Medium</span><span class="must">Clears 1 kill criterion</span></div>
+        <ul>
+          <li>Three presets, changeable from pause, moving fire rate, projectile speed, shields, and checkpoint density together — never enemy count, which would make feedback incomparable.</li>
+          <li>Checkpointing that survives a closed tab. A browser player quits in one click.</li>
+          <li>Sector-one onboarding: fire, boost, dodge inside ninety seconds, diegetically.</li>
+          <li>Briefings trimmed and skippable.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="pnum"><span class="n">M6</span><span class="tag">Ready</span></div>
+      <div class="pbody">
+        <div class="phead"><h3>Feel pass</h3><span class="size">Medium</span></div>
+        <p>Everything here ships toggleable — the same juice that reads as great feel to one player
+        reads as nausea to another.</p>
+        <ul>
+          <li>Enemy pain states and hit-stop: the biggest single feel win available.</li>
+          <li>Per-weapon view-kick and muzzle flash.</li>
+          <li>Hit-confirm: enemy flash plus an impact layer.</li>
+          <li>Enemy infighting — stray enemy fire damages other enemies. Cheap, spectacular, and <i>more</i> period-accurate.</li>
+          <li>Boost feedback: FOV kick and audio swell.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="pnum"><span class="n">M7</span><span class="tag">Iterative</span></div>
+      <div class="pbody">
+        <div class="phead"><h3>Sprite pipeline</h3><span class="size">Medium</span><span class="gate">Rule change lands here</span></div>
+        <p>Priority order: the player ship first — most looked at, and what procedural generation is
+        worst at — then the three bosses, then the hulk and turret if they don't read at fog distance.</p>
+        <ul>
+          <li>Concept prompt targeting era and genre traits, never a specific 1995 game's artwork.</li>
+          <li>Image generation for look development only — concept art a human judges.</li>
+          <li>Model in Blender via MCP, scripted so it's reproducible as Python, not a binary.</li>
+          <li>Sixteen-angle turnaround plus pain and death frames.</li>
+          <li>Quantise to the game palette; kilobytes per enemy.</li>
+          <li>Verify in-engine at fog distance. If it doesn't beat the generator, it doesn't ship.</li>
+        </ul>
+        <p class="blocked"><b>Design intent:</b> imitate the era, land somewhere distinct. Each subject
+        gets one or two deliberate departures — silhouette language, a signature colour, a structural
+        motif — rather than chasing maximum period fidelity. It should read as your game.</p>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="pnum"><span class="n">M8</span><span class="tag">Ready</span></div>
+      <div class="pbody">
+        <div class="phead"><h3>Landing page and capture</h3><span class="size">Medium</span></div>
+        <ul>
+          <li>A DOS-terminal page at the root, built in code, extending the start screen's language. Static HTML, no build step. Game moves to /play.</li>
+          <li>Pitch, play button, controls, requirements, known issues, privacy note, repo and feedback links.</li>
+          <li>A thirty-to-sixty second looping capture — mandatory submission format for the second venue, and it should show M6's feel and M7's sprites.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="phase">
+      <div class="pnum"><span class="n">M9</span><span class="tag">Last</span></div>
+      <div class="pbody">
+        <div class="phead"><h3>Hygiene, gates, then post</h3><span class="size">Medium</span><span class="must">Clears 1 kill criterion</span></div>
+        <ul>
+          <li>Bug template asking for version and browser; one honest README sentence that outside code and art aren't being accepted but recommendations are welcome. No CONTRIBUTING, no good-first-issues — those court contributors you don't want.</li>
+          <li>The full nine-sector plus gauntlet playthrough. It has never been completed once.</li>
+          <li>The 1995-screenshot verdict, re-judged after M6 and M7.</li>
+          <li>Cross-browser and cross-device pass.</li>
+          <li>Then the staged post, fixes between venues. Never r/Doom or r/Descent.</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>Session chunking</h2>
+  <p class="lede">Context, not effort, forces a session boundary. These are grouped by the files and
+  mental model they share — M1 with M2 costs almost no extra context because both live in the same
+  settings and overlay code, whereas M4 with M6 would mean holding two unrelated subsystems at once.
+  Clear context between every one.</p>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>Session</th><th>Phases</th><th>Why these chunk</th><th>You supply</th></tr></thead>
+    <tbody>
+      <tr><td class="num">S1</td><td>M1 + M2</td><td>One settings/overlay mental model; seven small edits sharing context</td><td>—</td></tr>
+      <tr><td class="num">S2</td><td>M3</td><td>Blocked on external accounts, so it stands alone</td><td class="warn">Form URL, analytics ID</td></tr>
+      <tr><td class="num">S3</td><td>M4a</td><td>A measurement session, not a building one — ends in a number</td><td class="warn">A mid-range phone</td></tr>
+      <tr><td class="num">S4</td><td>M4b + M4c</td><td>Only if S3 is green; one input mental model</td><td>—</td></tr>
+      <tr><td class="num">S5</td><td>M4d + M5 presets</td><td>Both are data and state plumbing</td><td>—</td></tr>
+      <tr><td class="num">S6</td><td>M5 onboarding</td><td>Design-heavy; worth its own head</td><td>—</td></tr>
+      <tr><td class="num">S7</td><td>M6</td><td>One combat-feel model, one perf gate</td><td class="warn">Playtest after</td></tr>
+      <tr><td class="num">S8</td><td>M7 ship</td><td>Establishes the pipeline once; slowest feedback loop</td><td class="warn">Look-dev judgement</td></tr>
+      <tr><td class="num">S9</td><td>M7 bosses</td><td>Repeats a proven pipeline — cheap once S8 works</td><td class="warn">Look-dev judgement</td></tr>
+      <tr><td class="num">S10</td><td>M8</td><td>Self-contained; needs almost no game-code context</td><td class="warn">Capture review</td></tr>
+      <tr><td class="num">S11</td><td>M9 hygiene + gates</td><td>Verification, not construction</td><td class="bad">The full playthrough</td></tr>
+      <tr><td class="num">S12</td><td>M9 post</td><td>Entirely yours</td><td class="bad">Posting, replying</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="callout">
+    <div class="lbl">Why clearing context is safe here</div>
+    <p>None of these sessions needs the previous session's transcript. Each needs the previous
+    session's <i>committed code</i> plus PLAN.md's ledger — which is exactly what the handoff writes
+    down: commit with the phase in the message, update the Phase M ledger row, append the CLAUDE.md
+    session log with phase, gate result, and what's next, then note anything surprising the next
+    session would otherwise rediscover.</p>
+    <p>Starting fresh: read the last session log and the Phase M row, state your position out loud,
+    verify the previous gate if it was recorded as partial, and begin. Don't re-derive the plan — it's
+    written down.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Kill criteria · do not post while any is true</h2>
+  <div class="killgrid">
+    <div class="kill"><span class="kk">Until M3</span>No feedback path in the build.</div>
+    <div class="kill"><span class="kk">Until M3</span>No analytics — plays and bounces look identical.</div>
+    <div class="kill"><span class="kk">Until M1</span>Mobile gets a broken canvas with no explanation.</div>
+    <div class="kill"><span class="kk">Until M1</span>No photosensitivity warning while the build strobes.</div>
+    <div class="kill"><span class="kk">Until M5</span>The first sixty seconds aren't defensible.</div>
+    <div class="kill"><span class="kk">Until M9</span>The full nine-sector run has never been finished.</div>
+    <div class="kill"><span class="kk">Always</span>Any hard freeze on a mainstream desktop browser.</div>
+  </div>
+</section>
+
+<section>
+  <h2>Parallel track · starts this week, yours alone</h2>
+  <div class="callout">
+    <div class="lbl">Account warm-up</div>
+    <p>Reddit's norm is roughly nine parts genuine participation to one part promotion, with karma and
+    account-age gates on top. A cold account posting a link risks a shadowban — which costs the launch
+    silently, with no error message and no appeal in time to matter.</p>
+    <p>So starting now, independent of every phase: participate in r/godot for real. Procedural
+    generation, web export, and WebGL shader-compile behaviour are all things you can genuinely help
+    people with after this project. Ten minutes a day, weeks of lead time, and no amount of
+    engineering shortens it.</p>
+  </div>
+</section>
+
+<footer>
+  Void Runner · Phase M · written into PLAN.md Part Two 2026-08-19 · baseline 4e7ab4f ·
+  companions: docs/beta/BETA-PRD.md, the Desktop launch review, PLAN.md §M10 session chunking
+</footer>
+
+</div>
