@@ -42,6 +42,8 @@ var _last_style := 0   # V2.2 L2c: sting fires on upward grade changes only
 var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
 var _warmup_rig: Node3D
+var touch_ui: TouchControls   # M4a spike: null unless the build is in touch mode
+var _touch_mode := false
 # V2.1 web loading: on single-threaded WebGL, first-use shader/pipeline compiles
 # block the main thread for seconds. On web we build + warm the level across this
 # many rendered frames under an HTML loading overlay, so the freeze is an honest
@@ -119,6 +121,19 @@ func _ready() -> void:
 	overlays = Overlays.new()
 	overlays.layer = 10
 	add_child(overlays)
+	# M4a: touch mode is opt-in via ?touch=1 while the spike is being measured, so
+	# the default desktop build is byte-identical to before.
+	if OS.has_feature("web"):
+		_touch_mode = str(JavaScriptBridge.eval(
+			"window.vrTouchMode ? '1' : '0'", true)) == "1"
+	if _touch_mode:
+		touch_ui = TouchControls.new()
+		add_child(touch_ui)
+		touch_ui.fire_held.connect(func(down: bool) -> void:
+			if down:
+				Input.action_press("fire")
+			else:
+				Input.action_release("fire"))
 	# wiring
 	shot_mgr.player = player
 	shot_mgr.enemy_mgr = enemy_mgr
@@ -581,6 +596,9 @@ func _launch_level() -> void:
 	if _warming:
 		return   # a Launch click landed mid warm-up (web); ignore until the rig is done
 	Feedback.count_level(Feedback.EV_LEVEL_STARTED, GameState.level_index)   # M3
+	if touch_ui != null:
+		touch_ui.enable(player)   # M4a
+
 	GameState.level_start_score = GameState.score
 	GameState.heat = 0.0
 	GameState.is_overheated = false

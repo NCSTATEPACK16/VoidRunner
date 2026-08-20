@@ -134,6 +134,35 @@ body {
 	text-align: center;
 }
 
+#vr-rotate {
+	position: fixed;
+	inset: 0;
+	z-index: 210;
+	display: none;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 2rem;
+	text-align: center;
+	background-color: #0a0a0c;
+	color: #c8ccd4;
+	font-family: 'Courier New', monospace;
+	letter-spacing: 0.08em;
+}
+
+#vr-rotate p {
+	max-width: 24rem;
+	line-height: 1.6;
+	font-size: 0.9rem;
+}
+
+#vr-rotate .vr-gate-title {
+	font-size: 1.4rem;
+	font-weight: bold;
+	color: #e8ebf0;
+	margin-bottom: 0.8rem;
+}
+
 #vr-gate .vr-gate-title {
 	font-size: 1.5rem;
 	font-weight: bold;
@@ -270,6 +299,11 @@ body {
 			<div id="status-notice"></div>
 		</div>
 
+		<div id="vr-rotate">
+			<div class="vr-gate-title">ROTATE YOUR DEVICE</div>
+			<p>VOID RUNNER needs landscape. Turn the phone sideways to fly.</p>
+		</div>
+
 		<div id="vr-gate">
 			<div class="vr-gate-title">VOID RUNNER</div>
 			<div class="vr-gate-sub">THIS DEVICE CAN&rsquo;T FLY YET</div>
@@ -300,6 +334,28 @@ body {
 		</div>
 
 		<script>
+		// M4a: ?touch=1 opts a device into the touch build being measured. Until the
+		// spike passes, the default phone experience is still the capability card.
+		(function () {
+			window.vrTouchMode = /[?&]touch=1\b/.test(window.location.search);
+			if (!window.vrTouchMode) { return; }
+			// landscape is not optional: portrait renders the cockpit unusably small
+			var rot = document.getElementById('vr-rotate');
+			function sync() {
+				var portrait = window.innerHeight > window.innerWidth;
+				if (rot) { rot.style.display = portrait ? 'flex' : 'none'; }
+			}
+			window.addEventListener('resize', sync);
+			window.addEventListener('orientationchange', sync);
+			sync();
+			// best-effort lock; Safari refuses it outside fullscreen, hence the prompt
+			try {
+				if (screen.orientation && screen.orientation.lock) {
+					screen.orientation.lock('landscape').catch(function () {});
+				}
+			} catch (e) { /* unsupported — the prompt covers it */ }
+		}());
+
 		// M1.1: phone detection. A coarse pointer alone is not enough — iPad Safari
 		// reports coarse+touch and IS supported with a keyboard — so the short screen
 		// edge is what separates a phone from a tablet. Tablets and desktops boot as
@@ -308,6 +364,7 @@ body {
 			var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 			var touch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 			var shortEdge = Math.min(window.screen.width, window.screen.height);
+			if (window.vrTouchMode) { return; }   // M4a: touch build handles this device
 			if (!(touch && coarse && shortEdge < 600)) { return; }
 			var gate = document.getElementById('vr-gate');
 			var load = document.getElementById('vr-loading');
