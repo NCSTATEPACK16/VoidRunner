@@ -358,7 +358,7 @@ body {
 		// The earlier version put the watchdog inside the bootstrap, so the one case
 		// it most needed to catch was the one case it could not.
 		(function () {
-			window.vrBoot = { pct: -1, downloaded: false, booted: false, err: null };
+			window.vrBoot = { pct: -1, downloaded: false, started: false, booted: false, err: null };
 			function report(msg) {
 				window.vrBoot.err = msg;
 				if (window.vrDiag) { window.vrDiag('ERROR\n' + msg, true); }
@@ -431,7 +431,11 @@ body {
 				btn.addEventListener('click', function () {
 					gate.style.display = 'none';
 					window.vrGated = false;
-					if (load && !load.classList.contains('vr-gone')) { load.style.display = 'flex'; }
+					// the card is shown because there are no controls, so anyone who
+					// insists gets the touch build rather than an unplayable one
+					window.vrTouchMode = true;
+					if (load) { load.style.display = 'flex'; }
+					if (window.vrStartEngine) { window.vrStartEngine(); }
 				});
 			}
 		}());
@@ -611,30 +615,39 @@ const engine = new Engine(GODOT_CONFIG);
 			displayFailureNotice(missingMsg + missing.join('\n'));
 		}
 	} else {
-		setStatusMode('progress');
 		let lastPct = -1;
-		engine.startGame({
-			'onProgress': function (current, total) {
-				if (current > 0 && total > 0) {
-					statusProgress.value = current;
-					statusProgress.max = total;
-					const pct = Math.floor((current / total) * 100);
-					if (pct !== lastPct) {
-						lastPct = pct;
-						window.vrBoot.pct = pct;
-						if (window.vrDiag) { window.vrDiag('DOWNLOADING ' + pct + '%'); }
+		window.vrStartEngine = function () {
+			if (window.vrBoot.started) { return; }
+			window.vrBoot.started = true;
+			setStatusMode('progress');
+			engine.startGame({
+				'onProgress': function (current, total) {
+					if (current > 0 && total > 0) {
+						statusProgress.value = current;
+						statusProgress.max = total;
+						const pct = Math.floor((current / total) * 100);
+						if (pct !== lastPct) {
+							lastPct = pct;
+							window.vrBoot.pct = pct;
+							if (window.vrDiag) { window.vrDiag('DOWNLOADING ' + pct + '%'); }
+						}
+						if (current >= total) { window.vrBoot.downloaded = true; }
+					} else {
+						statusProgress.removeAttribute('value');
+						statusProgress.removeAttribute('max');
 					}
-					if (current >= total) { window.vrBoot.downloaded = true; }
-				} else {
-					statusProgress.removeAttribute('value');
-					statusProgress.removeAttribute('max');
-				}
-			},
-		}).then(() => {
-			window.vrBoot.booted = true;
-			setStatusMode('hidden');
-			if (window.vrDiag) { window.vrDiag('STARTING ENGINE'); }
-		}, displayFailureNotice);
+				},
+			}).then(() => {
+				window.vrBoot.booted = true;
+				setStatusMode('hidden');
+				if (window.vrDiag) { window.vrDiag('STARTING ENGINE'); }
+			}, displayFailureNotice);
+		};
+		// A gated device shows the capability card instead. Booting the engine
+		// behind it downloaded 39 MB onto a phone that was just told it cannot
+		// play, and on a device that runs out of memory it also killed the tab —
+		// which is what made the page impossible to attach a debugger to.
+		if (!window.vrGated) { window.vrStartEngine(); }
 
 	}
 }());
