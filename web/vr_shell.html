@@ -366,9 +366,22 @@ body {
 				window.vrBoot.err = msg;
 				if (window.vrDiag) { window.vrDiag('ERROR\n' + msg, true); }
 			}
+			function ours(src) {
+				// same-origin only. Extensions inject content scripts into every page
+				// and their errors were being reported as if the game had thrown them.
+				return !src || src.indexOf(location.origin) === 0;
+			}
 			window.addEventListener('error', function (e) {
-				if (e && e.message) { report(e.message); }
-				else if (e && e.target && e.target.src) { report('failed to load ' + e.target.src); }
+				if (e && e.target && e.target.src) {
+					// a blocked analytics script is not a boot failure; note it quietly
+					if (!ours(e.target.src)) {
+						console.log('[VOIDRUNNER] third-party blocked: ' + e.target.src);
+						return;
+					}
+					report('failed to load ' + e.target.src);
+				} else if (e && e.message && ours(e.filename)) {
+					report(e.message);
+				}
 			}, true);   // capture phase, so subresource load failures are seen too
 			window.addEventListener('unhandledrejection', function (e) {
 				var r = e && e.reason;
