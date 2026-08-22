@@ -406,24 +406,35 @@ body {
 
 		// M4a: ?touch=1 opts a device into the touch build being measured. Until the
 		// spike passes, the default phone experience is still the capability card.
+		//
+		// M4b fix: touch mode can also turn on LATER, when a phone visitor clicks LET ME
+		// TRY ANYWAY on the capability card below. The watcher used to be a plain IIFE
+		// that only wired itself up if vrTouchMode was already true at page load, so that
+		// later path never armed the rotate card. It's now a named, idempotent function
+		// callable from both places.
+		window.vrTouchMode = /[?&]touch=1\b/.test(window.location.search);
 		(function () {
-			window.vrTouchMode = /[?&]touch=1\b/.test(window.location.search);
-			if (!window.vrTouchMode) { return; }
-			// landscape is not optional: portrait renders the cockpit unusably small
-			var rot = document.getElementById('vr-rotate');
-			function sync() {
-				var portrait = window.innerHeight > window.innerWidth;
-				if (rot) { rot.style.display = portrait ? 'flex' : 'none'; }
-			}
-			window.addEventListener('resize', sync);
-			window.addEventListener('orientationchange', sync);
-			sync();
-			// best-effort lock; Safari refuses it outside fullscreen, hence the prompt
-			try {
-				if (screen.orientation && screen.orientation.lock) {
-					screen.orientation.lock('landscape').catch(function () {});
+			var armed = false;
+			window.vrArmPortraitWatch = function () {
+				if (armed) { return; }
+				armed = true;
+				// landscape is not optional: portrait renders the cockpit unusably small
+				var rot = document.getElementById('vr-rotate');
+				function sync() {
+					var portrait = window.innerHeight > window.innerWidth;
+					if (rot) { rot.style.display = portrait ? 'flex' : 'none'; }
 				}
-			} catch (e) { /* unsupported — the prompt covers it */ }
+				window.addEventListener('resize', sync);
+				window.addEventListener('orientationchange', sync);
+				sync();
+				// best-effort lock; Safari refuses it outside fullscreen, hence the prompt
+				try {
+					if (screen.orientation && screen.orientation.lock) {
+						screen.orientation.lock('landscape').catch(function () {});
+					}
+				} catch (e) { /* unsupported — the prompt covers it */ }
+			};
+			if (window.vrTouchMode) { window.vrArmPortraitWatch(); }
 		}());
 
 		// M1.1: phone detection. A coarse pointer alone is not enough — iPad Safari
@@ -450,6 +461,7 @@ body {
 					// the card is shown because there are no controls, so anyone who
 					// insists gets the touch build rather than an unplayable one
 					window.vrTouchMode = true;
+					if (window.vrArmPortraitWatch) { window.vrArmPortraitWatch(); }
 					if (load) { load.style.display = 'flex'; }
 					if (window.vrStartEngine) { window.vrStartEngine(); }
 				});
