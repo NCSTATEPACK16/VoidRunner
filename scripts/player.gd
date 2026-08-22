@@ -128,18 +128,25 @@ func update_flight(delta: float) -> void:
 	# --- keyboard steering (PC or iPad keyboard) ---
 	var ts := KB_YAW_RATE * delta
 	var ps := KB_PITCH_RATE * delta
-	if Input.is_action_pressed("steer_left"):
-		yaw += ts
-		_turn_sm += ts * 0.6
-	if Input.is_action_pressed("steer_right"):
-		yaw -= ts
-		_turn_sm -= ts * 0.6
+	# M4b: strength, not a plain boolean — a held key always reports 1.0 so this is a
+	# no-op for keyboard, but it's what lets a touch joystick report a proportional
+	# turn rate through this exact same path instead of a separate tuning curve.
+	var sl := Input.get_action_strength("steer_left")
+	var sr := Input.get_action_strength("steer_right")
+	if sl > 0.0:
+		yaw += ts * sl
+		_turn_sm += ts * 0.6 * sl
+	if sr > 0.0:
+		yaw -= ts * sr
+		_turn_sm -= ts * 0.6 * sr
 	# M2.2: invert-Y applies to the pitch axis wholesale, keys as well as mouse
 	var kb_inv := -1.0 if GameState.invert_y else 1.0
-	if Input.is_action_pressed("steer_up"):
-		pitch = clampf(pitch + ps * kb_inv, -PITCH_LIMIT, PITCH_LIMIT)
-	if Input.is_action_pressed("steer_down"):
-		pitch = clampf(pitch - ps * kb_inv, -PITCH_LIMIT, PITCH_LIMIT)
+	var su := Input.get_action_strength("steer_up")
+	var sd := Input.get_action_strength("steer_down")
+	if su > 0.0:
+		pitch = clampf(pitch + ps * kb_inv * su, -PITCH_LIMIT, PITCH_LIMIT)
+	if sd > 0.0:
+		pitch = clampf(pitch - ps * kb_inv * sd, -PITCH_LIMIT, PITCH_LIMIT)
 	# --- K6: opt-in gamepad — analog left-stick steer (buttons ride the Input Map;
 	# no pad connected reads 0, so this is inert unless the setting is on) ---
 	if GameState.gamepad_enabled:
