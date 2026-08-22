@@ -352,6 +352,9 @@ body {
 		</div>
 
 		<script>
+		console.log('[VOIDRUNNER] shell loaded — build check: '
+			+ (document.getElementById('vr-diag') ? 'current' : 'STALE, clear cache'));
+
 		// Boot state shared with the engine bootstrap below. Registered FIRST and in
 		// its own block so that a throw anywhere later — including the engine script
 		// failing to load, which leaves `Engine` undefined — still gets reported.
@@ -500,6 +503,13 @@ body {
 			// live in #status — which sits BELOW this overlay. Without mirroring them
 			// up here, a failed boot looks identical to a slow one: a spinner forever.
 			window.vrDiag = function (text, isError) {
+				// Also log, tagged: a page inspected remotely is usually buried in
+				// extension noise, and filtering the console for VOIDRUNNER is the
+				// fastest way to confirm you are even attached to the right tab.
+				try {
+					if (isError) { console.error('[VOIDRUNNER] ' + text); }
+					else { console.log('[VOIDRUNNER] ' + text); }
+				} catch (e) { /* console can be absent in odd embeddings */ }
 				var d = document.getElementById('vr-diag');
 				if (!d) { return; }
 				d.textContent = text || '';
@@ -508,6 +518,27 @@ body {
 					var r = document.querySelector('#vr-loading .vr-ring');
 					if (r) { r.style.display = 'none'; }   // a spinner implies progress
 				}
+			};
+			// window.vrReport() — one paste-able summary for remote debugging
+			window.vrReport = function () {
+				var gl = 'none';
+				try {
+					var c = document.createElement('canvas');
+					if (c.getContext('webgl2')) { gl = 'webgl2'; }
+					else if (c.getContext('webgl')) { gl = 'webgl1 (Godot needs webgl2)'; }
+				} catch (e) { gl = 'blocked'; }
+				var r = {
+					page: location.href,
+					Engine: typeof window.Engine,
+					boot: window.vrBoot,
+					gated: window.vrGated === true,
+					touch: window.vrTouchMode === true,
+					webgl: gl,
+					cores: navigator.hardwareConcurrency,
+					ua: navigator.userAgent
+				};
+				console.log('[VOIDRUNNER] REPORT ' + JSON.stringify(r, null, 2));
+				return r;
 			};
 			window.vrHideLoading = function () {
 				var el = document.getElementById('vr-loading');
