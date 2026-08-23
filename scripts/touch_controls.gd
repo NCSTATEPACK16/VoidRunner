@@ -9,27 +9,26 @@ extends CanvasLayer
 ## the ship mid-corner.
 ##
 ## Lives OUTSIDE the 320x200 SubViewport (like Overlays) so button/stick geometry is
-## sized in real screen pixels — a 44 px touch target inside a 320-wide viewport
-## would be a third of the screen.
+## in 320x200 canvas units (matching hud.gd/overlays.gd), not real screen pixels —
+## the canvas_items viewport scale handles the rendering mapping.
 class_name TouchControls
 
 signal fire_held(down: bool)
 signal weapon_tapped
 signal bomb_tapped
 
-## Apple's and Google's minimum comfortable touch target, in screen pixels.
-const TOUCH_MIN := 64.0
-## D9: the touch steering stick — radius and dead zone, both in screen pixels.
-const STICK_RADIUS := 120.0
-const STICK_DEAD_ZONE := 8.0
+## D9: the touch steering stick — radius and dead zone, in 320x200 canvas units.
+const STICK_RADIUS := 40.0
+const STICK_DEAD_ZONE := 3.0
 ## Fraction of screen width, from the left edge, that can start a steering touch.
 const LEFT_ZONE_FRAC := 0.45
-## D10: double-tap window/radius to toggle boost, in seconds / screen pixels.
+## D10: double-tap window/radius to toggle boost, in seconds / canvas units.
 const BOOST_TAP_WINDOW := 0.3
-const BOOST_TAP_DIST := 40.0
-## Button sizes (diameter, screen px) per the "Thumbs On Glass" spec.
-const FIRE_SIZE := 72.0
-const SIDE_SIZE := 52.0
+const BOOST_TAP_DIST := 15.0
+## Button sizes (diameter, canvas units) per the "Thumbs On Glass" spec, rescaled
+## into the 320x200 canvas_items space.
+const FIRE_SIZE := 32.0
+const SIDE_SIZE := 22.0
 ## Idle fade: how long with no touch before the layer dims, and to what alpha.
 const IDLE_FADE_AFTER := 2.5
 const IDLE_ALPHA := 0.35
@@ -74,11 +73,11 @@ func _ready() -> void:
 
 
 func _build() -> void:
-	_fire_btn = _make_button(FIRE_SIZE, Vector2(90.0, 90.0), "FIRE",
+	_fire_btn = _make_button(FIRE_SIZE, Vector2(40.0, 28.0), "FIRE",
 		Color(1.0, 0.45, 0.2, 0.14), Color(1.0, 0.61, 0.25, 0.7))
-	_bomb_btn = _make_button(SIDE_SIZE, Vector2(160.0, 90.0), "BOMB",
+	_bomb_btn = _make_button(SIDE_SIZE, Vector2(76.0, 28.0), "BOMB",
 		Color(0.55, 0.2, 0.85, 0.14), Color(0.7, 0.4, 1.0, 0.7))
-	_weapon_btn = _make_button(SIDE_SIZE, Vector2(130.0, 160.0), "WPN",
+	_weapon_btn = _make_button(SIDE_SIZE, Vector2(62.0, 60.0), "WPN",
 		Color(0.2, 0.55, 0.85, 0.14), Color(0.4, 0.75, 1.0, 0.7))
 	# floating stick visuals — hidden until a steering touch begins
 	_stick_ring = Panel.new()
