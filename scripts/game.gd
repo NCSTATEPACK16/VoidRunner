@@ -139,6 +139,12 @@ func _ready() -> void:
 				Input.action_press("fire")
 			else:
 				Input.action_release("fire"))
+		# M4b: WEAPON/BOMB are one-shot taps, not holds, so they call the same
+		# handlers _unhandled_input already uses for the keyboard/gamepad bindings
+		# (weapon_cycle / plasma_bomb) rather than simulating an action event.
+		touch_ui.weapon_tapped.connect(func() -> void:
+			_select_weapon((GameState.weapon_index + 1) % weapons.size()))
+		touch_ui.bomb_tapped.connect(_fire_plasma_bomb)
 	# wiring
 	shot_mgr.player = player
 	shot_mgr.enemy_mgr = enemy_mgr
@@ -862,6 +868,12 @@ func _on_new_campaign() -> void:
 
 func _process(delta: float) -> void:
 	world.animate(delta)
+	# M4b: touch_ui's own active/visible state used to be set once by enable() and
+	# never revisited, so it kept drawing (and accepting input) over the pause menu,
+	# game-over screen, and every other non-flight state. This line is the fix — it
+	# has to run before the State.PLAYING early-return below, not after.
+	if touch_ui != null:
+		touch_ui.set_flight_active(state == State.PLAYING)
 	if state == State.BRIEFING:
 		# finish building the whole level behind the briefing overlay, 4 ms/frame —
 		# geometry + buffer uploads land here so flight never builds a chunk
