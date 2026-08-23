@@ -165,14 +165,9 @@ func _release_all() -> void:
 	_weapon_touch = -1
 	_bomb_touch = -1
 	_steer_touch = -1
-	Input.action_release("steer_left")
-	Input.action_release("steer_right")
-	Input.action_release("steer_up")
-	Input.action_release("steer_down")
+	_end_stick()
 	if _boost_active:
 		_set_boost(false)
-	_stick_ring.visible = false
-	_stick_knob.visible = false
 
 
 func _set_boost(on: bool) -> void:
