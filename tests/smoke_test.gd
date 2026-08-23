@@ -782,7 +782,17 @@ func _run() -> void:
 	# release every held action so a pause mid-input can't leave something stuck
 	assert(touch.active)
 	assert(touch.visible)
-	var vp_w: float = get_viewport().get_visible_rect().size.x
+	# Regression guard for the Task 3 canvas-unit/screen-pixel bug: every button
+	# geometry constant in touch_controls.gd assumes get_visible_rect() is exactly
+	# the 320x200 canvas. If project.godot's stretch/aspect ever changes, this
+	# catches the whole layout reverting to the original bug, instead of the
+	# fire-button-rect assertions below simply reading whatever the new numbers are.
+	var vp := get_viewport().get_visible_rect()
+	assert(vp.size == Vector2(320, 200))
+	for btn in [touch._fire_btn, touch._bomb_btn, touch._weapon_btn]:
+		assert(Rect2(Vector2.ZERO, Vector2(320, 200)).encloses(btn.get_global_rect()))
+		assert(btn.get_global_rect().position.x > 320.0 * TouchControls.LEFT_ZONE_FRAC)
+	var vp_w: float = vp.size.x
 	# a touch in the left zone becomes the steer touch and spawns the stick
 	var left_pos := Vector2(vp_w * 0.2, 100.0)
 	var t_down := InputEventScreenTouch.new()
@@ -851,10 +861,50 @@ func _run() -> void:
 	touch._input(tap_b)   # second tap of the pair — toggles boost on
 	assert(touch._boost_active)
 	assert(Input.is_action_pressed("boost"))
+	var energy_before := GameState.energy
 	GameState.energy = 0.0
 	touch._process(0.016)
 	assert(not touch._boost_active)          # depletion auto-cancels it
 	assert(not Input.is_action_pressed("boost"))
+	GameState.energy = energy_before
+	# M4b's other two new signals — weapon_tapped/bomb_tapped — are otherwise only
+	# exercised by careful reading (game.gd's touch_ui only builds under a real web
+	# JavaScriptBridge check, per Task 4's brief), but TouchControls itself needs no
+	# such gate: drive it directly to prove both signals actually fire.
+	# One-element arrays, not plain bools: GDScript lambdas capture outer locals by
+	# value, so a lambda assigning straight to a captured bool never reaches back to
+	# this scope (confirmed empirically here — the signal demonstrably fired,
+	# _weapon_touch got set in the very same branch as the emit(), yet a captured
+	# bool stayed false). An array is captured by reference, so mutating its
+	# contents is visible here.
+	var weapon_fired := [false]
+	var bomb_fired := [false]
+	touch.weapon_tapped.connect(func() -> void: weapon_fired[0] = true)
+	touch.bomb_tapped.connect(func() -> void: bomb_fired[0] = true)
+	var wpn_pos: Vector2 = touch._weapon_btn.get_global_rect().get_center()
+	var wpn_down := InputEventScreenTouch.new()
+	wpn_down.index = 4
+	wpn_down.position = wpn_pos
+	wpn_down.pressed = true
+	touch._input(wpn_down)
+	assert(weapon_fired[0])
+	var wpn_up := InputEventScreenTouch.new()
+	wpn_up.index = 4
+	wpn_up.position = wpn_pos
+	wpn_up.pressed = false
+	touch._input(wpn_up)
+	var bomb_pos: Vector2 = touch._bomb_btn.get_global_rect().get_center()
+	var bomb_down := InputEventScreenTouch.new()
+	bomb_down.index = 5
+	bomb_down.position = bomb_pos
+	bomb_down.pressed = true
+	touch._input(bomb_down)
+	assert(bomb_fired[0])
+	var bomb_up := InputEventScreenTouch.new()
+	bomb_up.index = 5
+	bomb_up.position = bomb_pos
+	bomb_up.pressed = false
+	touch._input(bomb_up)
 	# set_flight_active(false) must leave nothing pressed — the whole point of M4b-1's
 	# "never disabled" fix
 	Input.action_press("steer_left", 1.0)
@@ -867,7 +917,8 @@ func _run() -> void:
 	Input.action_release("steer_right")   # belt-and-suspenders: don't leak into later sections
 	Input.action_release("steer_left")
 	print("M4b ok — zone ownership holds under a second finger, stick strength is proportional, "
-		+ "boost double-tap toggles and self-depletes, deactivation releases everything")
+		+ "boost double-tap toggles and self-depletes, weapon/bomb taps fire their signals, "
+		+ "button geometry stays inside the 320x200 canvas, deactivation releases everything")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

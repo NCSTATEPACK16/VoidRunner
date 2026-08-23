@@ -20,6 +20,10 @@ signal bomb_tapped
 ## D9: the touch steering stick — radius and dead zone, in 320x200 canvas units.
 const STICK_RADIUS := 40.0
 const STICK_DEAD_ZONE := 3.0
+## Knob diameter, in canvas units — kept at the same ~23% ratio to STICK_RADIUS*2
+## that the pre-correction values used (56 / 240), so its size relative to the
+## ring is unchanged from the original design, only the absolute scale.
+const STICK_KNOB_SIZE := 18.0
 ## Fraction of screen width, from the left edge, that can start a steering touch.
 const LEFT_ZONE_FRAC := 0.45
 ## D10: double-tap window/radius to toggle boost, in seconds / canvas units.
@@ -61,7 +65,13 @@ var _stick_knob: Panel
 
 
 func _ready() -> void:
-	layer = 12   # above the HUD, below the overlays (10) is wrong — overlays must win
+	# above the HUD (irrelevant — the HUD never needs input) and, at 12, also above
+	# Overlays' layer 10. That's harmless today: set_flight_active() only shows this
+	# layer during State.PLAYING, when Overlays has nothing on screen that needs to
+	# win — except the automap, which hard-pauses the tree without changing `state`.
+	# Known gap, parked until M4c adds a touch automap trigger to actually reach it
+	# (flagged by the M4b final review, 2026-08-23).
+	layer = 12
 	_root = Control.new()
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -94,21 +104,21 @@ func _build() -> void:
 	_stick_knob = Panel.new()
 	var knob_sb := StyleBoxFlat.new()
 	knob_sb.bg_color = Color(1.0, 0.75, 0.45, 0.55)
-	knob_sb.set_corner_radius_all(28)
+	knob_sb.set_corner_radius_all(int(STICK_KNOB_SIZE * 0.5))
 	_stick_knob.add_theme_stylebox_override("panel", knob_sb)
-	_stick_knob.size = Vector2(56.0, 56.0)
+	_stick_knob.size = Vector2(STICK_KNOB_SIZE, STICK_KNOB_SIZE)
 	_stick_knob.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stick_knob.visible = false
 	_root.add_child(_stick_knob)
 	# framerate readout — the M4a spike's whole purpose, kept for the M4d Android check
 	_fps_label = Label.new()
 	_fps_label.position = Vector2(12, 12)
-	_fps_label.add_theme_font_size_override("font_size", 18)
+	_fps_label.add_theme_font_size_override("font_size", 7)
 	_fps_label.add_theme_color_override("font_color", Color(0.4, 1.0, 0.6))
 	_root.add_child(_fps_label)
 
 
-## One button, bottom-right-anchored, offset (right, up) screen pixels from that
+## One button, bottom-right-anchored, offset (right, up) canvas units from that
 ## corner. Used for FIRE/WEAPON/BOMB so the three share one code path.
 func _make_button(size: float, offset_from_br: Vector2, text: String,
 		fill: Color, border: Color) -> Panel:
@@ -126,10 +136,16 @@ func _make_button(size: float, offset_from_br: Vector2, text: String,
 	_root.add_child(btn)
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 14 if size < FIRE_SIZE else 20)
+	l.add_theme_font_size_override("font_size", 6 if size < FIRE_SIZE else 8)
 	l.add_theme_color_override("font_color", Color(1.0, 0.9, 0.8))
-	l.set_anchors_preset(Control.PRESET_CENTER)
-	l.position = Vector2(-l.text.length() * 4.5, -10)
+	# Full-rect + centered alignment, not a hand-tuned position offset: the old
+	# `-text.length() * 4.5` heuristic was already an approximation and broke
+	# outright at the corrected (smaller) button scale. This is correct for any
+	# text/font/button size without ever needing to be re-tuned again.
+	l.set_anchors_preset(Control.PRESET_FULL_RECT)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(l)
 	return btn
 
@@ -176,6 +192,10 @@ func _set_boost(on: bool) -> void:
 		Input.action_press("boost")
 	else:
 		Input.action_release("boost")
+		# boost ending is the other half of _end_stick's deferred hide: if no finger
+		# is on the stick right now, this is the only place left that will hide it
+		if _steer_touch < 0:
+			_stick_ring.visible = false
 	var ring_sb := _stick_ring.get_theme_stylebox("panel") as StyleBoxFlat
 	ring_sb.border_color = Color(0.4, 1.0, 0.6, 0.8) if on else Color(1.0, 0.61, 0.25, 0.55)
 
@@ -278,8 +298,12 @@ func _end_stick() -> void:
 	Input.action_release("steer_right")
 	Input.action_release("steer_up")
 	Input.action_release("steer_down")
-	_stick_ring.visible = false
 	_stick_knob.visible = false
+	# D10: boost keeps running after the finger lifts, so the ring — the only visual
+	# cue that it's active (see _set_boost's color swap) — stays up until boost
+	# itself ends; only the knob (which implies an active finger) hides here.
+	if not _boost_active:
+		_stick_ring.visible = false
 
 
 func _process(delta: float) -> void:
@@ -293,7 +317,12 @@ func _process(delta: float) -> void:
 	if _boost_active and GameState.energy <= 0.5:
 		_set_boost(false)
 	# idle fade: the layer recedes when nothing has been touched for a couple of
-	# seconds, without ever fully hiding — hiding would mean hunting for it again
+	# seconds, without ever fully hiding — hiding would mean hunting for it again.
+	# A held touch (steering, firing, ...) counts as "being touched" even though no
+	# press/release edge fires while it's held — without this, holding FIRE or a
+	# turn for more than 2.5s (routine in combat) would fade the layer mid-use.
+	if _steer_touch >= 0 or _fire_touch >= 0 or _bomb_touch >= 0 or _weapon_touch >= 0:
+		_idle_t = 0.0
 	_idle_t += delta
 	var target_alpha := IDLE_ALPHA if _idle_t > IDLE_FADE_AFTER else 1.0
 	_root.modulate.a = move_toward(_root.modulate.a, target_alpha, delta * 2.0)
