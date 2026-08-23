@@ -773,6 +773,101 @@ func _run() -> void:
 	game.overlays._build_help()
 	await get_tree().process_frame
 	print("M3 ok — 5 questions, 4 counters inert unconfigured, F bound, buttons gated")
+	# --- M4b: touch layer — zone dispatch, floating stick, boost double-tap ---
+	var touch := TouchControls.new()
+	add_child(touch)
+	touch.enable(game.player)
+	await get_tree().process_frame
+	# activation lifecycle: enable() turns it on; set_flight_active(false) must
+	# release every held action so a pause mid-input can't leave something stuck
+	assert(touch.active)
+	assert(touch.visible)
+	var vp_w: float = get_viewport().get_visible_rect().size.x
+	# a touch in the left zone becomes the steer touch and spawns the stick
+	var left_pos := Vector2(vp_w * 0.2, 100.0)
+	var t_down := InputEventScreenTouch.new()
+	t_down.index = 0
+	t_down.position = left_pos
+	t_down.pressed = true
+	touch._input(t_down)
+	assert(touch._steer_touch == 0)
+	# a second finger landing on FIRE must NOT steal the steering finger's ownership
+	var fire_pos: Vector2 = touch._fire_btn.get_global_rect().get_center()
+	var f_down := InputEventScreenTouch.new()
+	f_down.index = 1
+	f_down.position = fire_pos
+	f_down.pressed = true
+	touch._input(f_down)
+	assert(touch._fire_touch == 1)
+	assert(touch._steer_touch == 0)   # unchanged — zone ownership held
+	# dragging the steering finger right produces a proportional steer_right strength,
+	# and leaves steer_left at zero rather than merely "pressed"
+	var drag := InputEventScreenDrag.new()
+	drag.index = 0
+	drag.position = left_pos + Vector2(TouchControls.STICK_RADIUS, 0.0)   # full deflection
+	touch._input(drag)
+	assert(is_equal_approx(Input.get_action_strength("steer_right"), 1.0))
+	assert(Input.get_action_strength("steer_left") == 0.0)
+	# Task 2 integration: a raw action strength is only half the feature — prove
+	# player.gd actually consumes it and turns. steer_right decreases yaw (see
+	# player.gd's update_flight), so one physics step at full deflection must move
+	# yaw down, not just leave the action flagged.
+	var yaw_before: float = game.player.yaw
+	game.player.update_flight(0.05)
+	assert(game.player.yaw < yaw_before)
+	# lifting the fire finger releases only fire, not steering
+	var f_up := InputEventScreenTouch.new()
+	f_up.index = 1
+	f_up.position = fire_pos
+	f_up.pressed = false
+	touch._input(f_up)
+	assert(touch._fire_touch == -1)
+	assert(touch._steer_touch == 0)
+	# lifting the steering finger releases the steer actions
+	var t_up := InputEventScreenTouch.new()
+	t_up.index = 0
+	t_up.position = left_pos
+	t_up.pressed = false
+	touch._input(t_up)
+	assert(touch._steer_touch == -1)
+	assert(Input.get_action_strength("steer_right") == 0.0)
+	# D10: a double-tap in the left zone toggles boost on, and it runs to depletion
+	# on its own rather than needing the finger held
+	var tap_pos := Vector2(vp_w * 0.15, 120.0)
+	var tap_a := InputEventScreenTouch.new()
+	tap_a.index = 2
+	tap_a.position = tap_pos
+	tap_a.pressed = true
+	touch._input(tap_a)
+	var tap_a_up := InputEventScreenTouch.new()
+	tap_a_up.index = 2
+	tap_a_up.position = tap_pos
+	tap_a_up.pressed = false
+	touch._input(tap_a_up)
+	var tap_b := InputEventScreenTouch.new()
+	tap_b.index = 3
+	tap_b.position = tap_pos + Vector2(5.0, 5.0)   # well inside BOOST_TAP_DIST
+	tap_b.pressed = true
+	touch._input(tap_b)   # second tap of the pair — toggles boost on
+	assert(touch._boost_active)
+	assert(Input.is_action_pressed("boost"))
+	GameState.energy = 0.0
+	touch._process(0.016)
+	assert(not touch._boost_active)          # depletion auto-cancels it
+	assert(not Input.is_action_pressed("boost"))
+	# set_flight_active(false) must leave nothing pressed — the whole point of M4b-1's
+	# "never disabled" fix
+	Input.action_press("steer_left", 1.0)
+	touch._steer_touch = 5
+	touch.set_flight_active(false)
+	assert(not touch.visible)
+	assert(Input.get_action_strength("steer_left") == 0.0)
+	assert(touch._steer_touch == -1)
+	touch.queue_free()
+	Input.action_release("steer_right")   # belt-and-suspenders: don't leak into later sections
+	Input.action_release("steer_left")
+	print("M4b ok — zone ownership holds under a second finger, stick strength is proportional, "
+		+ "boost double-tap toggles and self-depletes, deactivation releases everything")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
