@@ -452,21 +452,21 @@ func _build() -> void:
 	_stick_knob = Panel.new()
 	var knob_sb := StyleBoxFlat.new()
 	knob_sb.bg_color = Color(1.0, 0.75, 0.45, 0.55)
-	knob_sb.set_corner_radius_all(28)
+	knob_sb.set_corner_radius_all(int(STICK_KNOB_SIZE * 0.5))
 	_stick_knob.add_theme_stylebox_override("panel", knob_sb)
-	_stick_knob.size = Vector2(56.0, 56.0)
+	_stick_knob.size = Vector2(STICK_KNOB_SIZE, STICK_KNOB_SIZE)
 	_stick_knob.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stick_knob.visible = false
 	_root.add_child(_stick_knob)
 	# framerate readout — the M4a spike's whole purpose, kept for the M4d Android check
 	_fps_label = Label.new()
 	_fps_label.position = Vector2(12, 12)
-	_fps_label.add_theme_font_size_override("font_size", 18)
+	_fps_label.add_theme_font_size_override("font_size", 7)
 	_fps_label.add_theme_color_override("font_color", Color(0.4, 1.0, 0.6))
 	_root.add_child(_fps_label)
 
 
-## One button, bottom-right-anchored, offset (right, up) screen pixels from that
+## One button, bottom-right-anchored, offset (right, up) canvas units from that
 ## corner. Used for FIRE/WEAPON/BOMB so the three share one code path.
 func _make_button(size: float, offset_from_br: Vector2, text: String,
 		fill: Color, border: Color) -> Panel:
@@ -484,10 +484,16 @@ func _make_button(size: float, offset_from_br: Vector2, text: String,
 	_root.add_child(btn)
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 14 if size < FIRE_SIZE else 20)
+	l.add_theme_font_size_override("font_size", 6 if size < FIRE_SIZE else 8)
 	l.add_theme_color_override("font_color", Color(1.0, 0.9, 0.8))
-	l.set_anchors_preset(Control.PRESET_CENTER)
-	l.position = Vector2(-l.text.length() * 4.5, -10)
+	# Full-rect + centered alignment, not a hand-tuned position offset: the old
+	# `-text.length() * 4.5` heuristic was already an approximation and broke
+	# outright at the corrected (smaller) button scale. This is correct for any
+	# text/font/button size without ever needing to be re-tuned again.
+	l.set_anchors_preset(Control.PRESET_FULL_RECT)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn.add_child(l)
 	return btn
 

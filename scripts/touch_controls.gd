@@ -192,10 +192,6 @@ func _set_boost(on: bool) -> void:
 		Input.action_press("boost")
 	else:
 		Input.action_release("boost")
-		# boost ending is the other half of _end_stick's deferred hide: if no finger
-		# is on the stick right now, this is the only place left that will hide it
-		if _steer_touch < 0:
-			_stick_ring.visible = false
 	var ring_sb := _stick_ring.get_theme_stylebox("panel") as StyleBoxFlat
 	ring_sb.border_color = Color(0.4, 1.0, 0.6, 0.8) if on else Color(1.0, 0.61, 0.25, 0.55)
 
@@ -298,12 +294,9 @@ func _end_stick() -> void:
 	Input.action_release("steer_right")
 	Input.action_release("steer_up")
 	Input.action_release("steer_down")
+	# ring visibility (steering OR boost) is derived once per frame in _process();
+	# only the knob (which implies an active finger) hides unconditionally here.
 	_stick_knob.visible = false
-	# D10: boost keeps running after the finger lifts, so the ring — the only visual
-	# cue that it's active (see _set_boost's color swap) — stays up until boost
-	# itself ends; only the knob (which implies an active finger) hides here.
-	if not _boost_active:
-		_stick_ring.visible = false
 
 
 func _process(delta: float) -> void:
@@ -316,6 +309,10 @@ func _process(delta: float) -> void:
 	# ~0.5 and locking the player out of every energy weapon and the dodge.
 	if _boost_active and GameState.energy <= 0.5:
 		_set_boost(false)
+	# ring shows while a finger is steering OR boost is self-running — derived
+	# fresh every frame instead of set from multiple call sites, so there's only
+	# one place that can get this condition wrong.
+	_stick_ring.visible = _steer_touch >= 0 or _boost_active
 	# idle fade: the layer recedes when nothing has been touched for a couple of
 	# seconds, without ever fully hiding — hiding would mean hunting for it again.
 	# A held touch (steering, firing, ...) counts as "being touched" even though no
