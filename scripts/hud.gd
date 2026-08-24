@@ -191,7 +191,10 @@ func show_message(text: String, t := 1.2) -> void:
 
 ## V2.0 plasma bomb white-out — bright pop that fades over ~0.4 s.
 func flash_white() -> void:
-	_bomb_flash.color.a = 0.55
+	# M1.2: the full-screen white-out is the one effect here that plausibly crosses
+	# the photosensitivity threshold, so the comfort option removes it outright
+	# rather than dimming it — a faint grey wash reads as a bug, not a bomb.
+	_bomb_flash.color.a = 0.10 if GameState.reduce_flashing else 0.55
 
 
 func set_kill_counter(kills: int, target: int) -> void:

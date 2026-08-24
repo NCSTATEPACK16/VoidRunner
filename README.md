@@ -4,7 +4,7 @@ A from-scratch, all-procedural homage to the great 1995 DOS 6DOF tunnel shooters
 flight through winding corridors and combat arenas, energy weapons, a shield/heat/energy economy,
 and a chunky 320×200 look with light that dies into black shadow.
 
-**Play it in your browser:** _(Netlify URL goes here after the first deploy)_
+**Play it in your browser:** <https://beyondthevoidrunner.netlify.app/>
 
 ## Controls
 
@@ -15,7 +15,10 @@ and a chunky 320×200 look with light that dies into black shadow.
 | Weapons | 1–4 (Backspace cycles) |
 | Afterburner | W or hold Right mouse |
 | Brake | S |
-| Pause | P |
+| Pause | Enter or Esc |
+| Automap | Tab |
+| Plasma bomb | P |
+| Dodge roll | A / D |
 
 ## Tech
 
@@ -35,6 +38,22 @@ godot --headless --import
 godot --headless --export-release "Web" dist/index.html
 python3 -m http.server -d dist 8060   # then open http://localhost:8060
 ```
+
+## Beta feedback
+
+This is a public beta. Press **F** at any time in-game to open a short feedback
+form, or open an issue here — bug reports are most useful with the build stamp
+shown on the start screen plus your browser and device.
+
+## Privacy
+
+The build counts four anonymous things: that the game loaded, that a sector was
+started, that a sector was finished, and that the feedback form was opened. That
+is the whole list, and the sector number is the entire payload. No cookies, no
+accounts, no personal data, nothing that could single anyone out. Analytics run
+on [GoatCounter](https://www.goatcounter.com/), which is open source and
+cookieless; the counters live in `scripts/feedback.gd` where you can read exactly
+what fires and when.
 
 ## License
 

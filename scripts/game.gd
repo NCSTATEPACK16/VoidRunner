@@ -42,6 +42,8 @@ var _last_style := 0   # V2.2 L2c: sting fires on upward grade changes only
 var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
 var _warmup_rig: Node3D
+var touch_ui: TouchControls   # M4a spike: null unless the build is in touch mode
+var _touch_mode := false
 # V2.1 web loading: on single-threaded WebGL, first-use shader/pipeline compiles
 # block the main thread for seconds. On web we build + warm the level across this
 # many rendered frames under an HTML loading overlay, so the freeze is an honest
@@ -66,6 +68,11 @@ var _secrets: Array[Dictionary] = []
 
 
 func _ready() -> void:
+	# M4a diagnostics: proves GDScript is actually executing on a device we can't
+	# attach a console to. If the overlay never gets past "STARTING ENGINE", the
+	# engine started but the game did not.
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.vrDiag && window.vrDiag('GAME BOOTING');", true)
 	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
 	GameState.load_records()    # Phase J: high score / best ranks / unlocked sector
 	for w in ["neutron", "scatter", "bolt", "missile"]:
@@ -119,6 +126,25 @@ func _ready() -> void:
 	overlays = Overlays.new()
 	overlays.layer = 10
 	add_child(overlays)
+	# M4a: touch mode is opt-in via ?touch=1 while the spike is being measured, so
+	# the default desktop build is byte-identical to before.
+	if OS.has_feature("web"):
+		_touch_mode = str(JavaScriptBridge.eval(
+			"window.vrTouchMode ? '1' : '0'", true)) == "1"
+	if _touch_mode:
+		touch_ui = TouchControls.new()
+		add_child(touch_ui)
+		touch_ui.fire_held.connect(func(down: bool) -> void:
+			if down:
+				Input.action_press("fire")
+			else:
+				Input.action_release("fire"))
+		# M4b: WEAPON/BOMB are one-shot taps, not holds, so they call the same
+		# handlers _unhandled_input already uses for the keyboard/gamepad bindings
+		# (weapon_cycle / plasma_bomb) rather than simulating an action event.
+		touch_ui.weapon_tapped.connect(func() -> void:
+			_select_weapon((GameState.weapon_index + 1) % weapons.size()))
+		touch_ui.bomb_tapped.connect(_fire_plasma_bomb)
 	# wiring
 	shot_mgr.player = player
 	shot_mgr.enemy_mgr = enemy_mgr
@@ -187,10 +213,13 @@ func _ready() -> void:
 	_load_level_world(0)
 	player.reset_to_start()
 	player.active = false
-	overlays.show_only("start")
+	Feedback.count(Feedback.EV_LOADED)   # M3: one anonymous "someone arrived" tick
+	# M1.2: a first-time player meets the photosensitivity notice before the menu.
+	overlays.show_only("start" if GameState.seen_warning else "warning")
 	# On web the HTML boot overlay is masking the menu backdrop's first-frame shader
 	# compile; drop it once that heavy frame has actually rendered (see web/vr_shell.html).
 	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.vrDiag && window.vrDiag('WARMING SHADERS');", true)
 		for i in WARM_FRAMES:
 			await get_tree().process_frame
 		_web_hide_loading()
@@ -578,6 +607,10 @@ func _apply_gauntlet_tier(tier: int) -> void:
 func _launch_level() -> void:
 	if _warming:
 		return   # a Launch click landed mid warm-up (web); ignore until the rig is done
+	Feedback.count_level(Feedback.EV_LEVEL_STARTED, GameState.level_index)   # M3
+	if touch_ui != null:
+		touch_ui.enable(player)   # M4a
+
 	GameState.level_start_score = GameState.score
 	GameState.heat = 0.0
 	GameState.is_overheated = false
@@ -632,6 +665,7 @@ func _level_complete() -> void:
 	var rank := _compute_rank(acc, player.elapsed, par)
 	GameState.unlocked_level = mini(
 		maxi(GameState.unlocked_level, idx + 1), levels.size() - 1)
+	Feedback.count_level(Feedback.EV_LEVEL_CLEARED, idx)   # M3: pairs with level-started
 	var new_record := GameState.record_progress(rank)
 	GameState.bank_salvage()   # V2.2 L3: this level's salvage haul → persistent bank
 	if idx >= levels.size() - 1:
@@ -834,6 +868,12 @@ func _on_new_campaign() -> void:
 
 func _process(delta: float) -> void:
 	world.animate(delta)
+	# M4b: touch_ui's own active/visible state used to be set once by enable() and
+	# never revisited, so it kept drawing (and accepting input) over the pause menu,
+	# game-over screen, and every other non-flight state. This line is the fix — it
+	# has to run before the State.PLAYING early-return below, not after.
+	if touch_ui != null:
+		touch_ui.set_flight_active(state == State.PLAYING)
 	if state == State.BRIEFING:
 		# finish building the whole level behind the briefing overlay, 4 ms/frame —
 		# geometry + buffer uploads land here so flight never builds a chunk
@@ -1029,6 +1069,11 @@ func _pick_enemy_type(level: LevelDef) -> String:
 # ---------- input ----------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("feedback"):
+		# M3: reachable from every state — the moment someone has an opinion is
+		# usually the moment they died, not the moment they reached a menu
+		Feedback.open_form()
+		return
 	if event.is_action_pressed("pause_game"):
 		_toggle_pause()
 		return

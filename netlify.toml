@@ -8,11 +8,13 @@
   # so the deploy is self-consistent regardless of the local editor version.
   GODOT_VERSION = "4.7"
 
-# COOP/COEP are not required while the Web export preset has thread_support=false
-# (that's what keeps iPad Safari working), but shipping them makes a future
-# threads-enabled build a one-flag change.
+# COOP/COEP are only needed for a threads-enabled build, and the Web preset ships
+# thread_support=false (that's what keeps iPad Safari working). M3 removed COEP:
+# require-corp blocks every cross-origin subresource that doesn't opt in, which
+# included the analytics script — so it was buying nothing and costing something.
+# COOP alone is inert and harmless. If threads are ever turned back on, BOTH
+# headers have to come back together or the build will fail to start.
 [[headers]]
   for = "/*"
   [headers.values]
     Cross-Origin-Opener-Policy = "same-origin"
-    Cross-Origin-Embedder-Policy = "require-corp"

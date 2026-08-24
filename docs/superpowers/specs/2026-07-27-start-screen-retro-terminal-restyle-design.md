@@ -64,11 +64,11 @@ etc.) with one `_box` titled `[ SYSTEM_BACKSTORY.DAT ]` (green border,
 `TITLE_COL`), containing three lines instead of one, so it reads as a
 short DOS-terminal "transmission log" rather than a single dry fact —
 matching the Figma page's `YEAR 1994: THE PROTOCOL WENT ROGUE` device
-(a retro Radix-style boot-screen conceit) without contradicting this
+(a retro '95-DOS-games-style boot-screen conceit) without contradicting this
 game's actual sci-fi story (Rift / Starlight Station / the Hive), which
 stays the real premise:
 - A subheading line, `"TRANSMISSION LOG — SECTOR ALPHA"`, in `KEY_COL`
-  (amber) — the DOS/Radix-homage framing device, standing in for the
+  (amber) — the DOS/'95-DOS-games-homage framing device, standing in for the
   Figma copy's `YEAR 1994` chip.
 - The existing lore line via `Lore.story(0)` (`Lore._STORIES[0]` —
   *"The Rift tore open at 0400. Starlight's outer ring went dark in

@@ -179,6 +179,14 @@ func animate(delta: float) -> void:
 	# K1/V-10: sector light moods — shimmering flicker and hard strobe. Energy-only
 	# animation: no material or shader variant changes, so it's WebGL-safe.
 	_light_t += delta
+	if GameState.reduce_flashing:
+		# M1.2: hold every animated light steady. Strobe runs ~1.1 Hz and flicker is
+		# a smooth modulation, so neither is likely to cross the three-per-second
+		# threshold on its own — but they stack with muzzle and explosion light, and
+		# a player who asked for less flashing meant all of it.
+		for l in _lights:
+			l.light.light_energy = l.energy
+		return
 	for l in _lights:
 		match l.mode:
 			"flicker":

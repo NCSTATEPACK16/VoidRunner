@@ -1,0 +1,299 @@
+<title>Thumbs On Glass</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&display=swap">
+<style>
+:root{
+  --ground:#0A0C14; --panel:#141A28; --panel2:#0F1420; --rule:#243048;
+  --text:#B7C0D4; --bright:#E4E9F2; --dim:#6E7791;
+  --amber:#E9A63C; --amber-dim:#8A6524; --red:#B4423A; --green:#5F9E77;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --cond:"IBM Plex Sans Condensed","Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--mono);
+  font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:940px;margin:0 auto;padding:56px 24px 96px}
+h1,h2,h3{font-family:var(--cond);text-wrap:balance;margin:0}
+code{font-family:var(--mono);font-size:.92em;color:var(--amber);background:var(--panel2);padding:1px 5px;border:1px solid var(--rule)}
+a{color:var(--amber);text-decoration:none;border-bottom:1px solid var(--amber-dim)}
+a:hover{color:var(--bright)}
+a:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+
+.mast{border:1px solid var(--rule);background:var(--panel2);padding:28px;margin-bottom:14px}
+.eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);margin:0 0 14px}
+h1{font-size:clamp(30px,5.2vw,46px);font-weight:700;letter-spacing:.02em;line-height:1.05;
+  color:var(--bright);text-transform:uppercase}
+.tagline{margin:12px 0 0;max-width:64ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:22px;padding-top:18px;border-top:1px solid var(--rule);
+  font-size:12px;letter-spacing:.06em;color:var(--dim);font-variant-numeric:tabular-nums}
+.meta b{color:var(--text);font-weight:500}
+
+section{margin-top:46px}
+h2{font-size:13px;letter-spacing:.24em;text-transform:uppercase;color:var(--amber);
+  padding-bottom:10px;border-bottom:1px solid var(--rule);margin-bottom:22px}
+.lede{max-width:68ch;margin:0 0 26px}
+p{max-width:68ch}
+
+/* locked decision ledger */
+.ledger{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:2px}
+.lk{border:1px solid var(--rule);border-left:3px solid var(--green);background:var(--panel);padding:12px 14px}
+.lk .id{font-family:var(--cond);font-weight:700;font-size:11px;letter-spacing:.16em;color:var(--green)}
+.lk .val{font-family:var(--cond);font-weight:600;font-size:15px;letter-spacing:.04em;color:var(--bright);margin:3px 0 4px}
+.lk .sub{font-size:12px;color:var(--dim);line-height:1.45}
+
+/* open question */
+.oq{border:1px solid var(--red);background:var(--panel);padding:18px 22px;margin-bottom:2px}
+.oq .qid{font-family:var(--cond);font-weight:700;font-size:11px;letter-spacing:.16em;color:var(--red)}
+.oq h3{font-size:16.5px;margin:4px 0 8px}
+.oq p{margin:0 0 10px;font-size:14px}
+.oq p:last-child{margin:0}
+.ask{margin-top:12px;padding-top:11px;border-top:1px dashed var(--rule);font-size:13.5px}
+.ask b{color:var(--amber);font-weight:500;letter-spacing:.08em;text-transform:uppercase;font-size:11px}
+
+/* phases */
+.phases{display:flex;flex-direction:column;gap:2px}
+.phase{display:grid;grid-template-columns:76px 1fr;border:1px solid var(--rule);background:var(--panel)}
+.phase.cut{opacity:.62;border-style:dashed}
+.pnum{display:flex;flex-direction:column;align-items:center;padding:18px 4px;
+  background:var(--panel2);border-right:1px solid var(--rule)}
+.pnum .n{font-family:var(--cond);font-weight:700;font-size:26px;color:var(--amber);line-height:1;
+  font-variant-numeric:tabular-nums}
+.phase.cut .pnum .n{color:var(--dim)}
+.pnum .tag{font-size:9px;letter-spacing:.12em;color:var(--dim);margin-top:8px;text-transform:uppercase;text-align:center}
+.pbody{padding:18px 22px 20px;min-width:0}
+.phead{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px;margin-bottom:8px}
+h3{font-size:17px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--bright)}
+.size,.gate,.must{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;padding:2px 7px}
+.size{color:var(--dim);border:1px solid var(--rule)}
+.gate{color:var(--amber);border:1px solid var(--amber-dim)}
+.must{color:var(--green);border:1px solid var(--green)}
+.pbody p{margin:0 0 12px}
+ul{margin:0;padding-left:18px}
+li{margin:5px 0;max-width:66ch}
+li::marker{color:var(--amber-dim)}
+.blocked{margin-top:12px;padding-top:11px;border-top:1px dashed var(--rule);font-size:13px;color:var(--dim)}
+.blocked b{color:var(--red);font-weight:500}
+
+.killgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:2px}
+.kill{background:var(--panel2);border:1px solid var(--rule);padding:12px 14px;font-size:13px}
+.kill .kk{display:block;color:var(--red);font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;margin-bottom:4px}
+
+.tblwrap{overflow-x:auto;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;min-width:580px;font-size:13.5px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-family:var(--cond);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--dim);background:var(--panel2);font-weight:600}
+tr:last-child td{border-bottom:none}
+td.ok{color:var(--green)}td.warn{color:var(--amber)}td.bad{color:var(--red)}
+.num{font-variant-numeric:tabular-nums}
+
+.callout{border:1px solid var(--amber-dim);background:var(--panel);padding:18px 22px;margin-top:22px}
+.callout .lbl{font-family:var(--cond);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--amber);margin-bottom:8px}
+.callout p{margin:0 0 10px}
+.callout p:last-child{margin:0}
+
+.steps{counter-reset:s;list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2px}
+.steps li{counter-increment:s;display:grid;grid-template-columns:auto 1fr;gap:14px;
+  background:var(--panel2);border:1px solid var(--rule);padding:12px 16px;margin:0;max-width:none}
+.steps li::before{content:counter(s);font-family:var(--cond);font-weight:700;color:var(--amber);
+  font-variant-numeric:tabular-nums;min-width:1.2em}
+.steps b{color:var(--bright);font-weight:500}
+
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--rule);font-size:12px;
+  color:var(--dim);letter-spacing:.04em;max-width:none}
+@media (max-width:560px){
+  .wrap{padding:32px 16px 64px}
+  .phase{grid-template-columns:56px 1fr}
+  .pbody{padding:16px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.verdict{border:1px solid var(--rule);background:var(--panel);padding:22px 24px}
+.verdict.pass{border-color:var(--green)}
+.verdict .vh{font-family:var(--cond);font-weight:700;font-size:20px;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--green);margin-bottom:10px}
+.zones{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:2px}
+.zone{border:1px solid var(--rule);background:var(--panel);padding:18px 22px}
+.zone .zh{font-family:var(--cond);font-weight:700;font-size:13px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--amber);margin-bottom:12px;padding-bottom:8px;
+  border-bottom:1px solid var(--rule)}
+ul.plain{padding-left:18px}
+ul.plain li{margin:10px 0}
+.qs{display:flex;flex-direction:column;gap:2px}
+.q{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start;
+  border:1px solid var(--rule);border-left:3px solid var(--amber-dim);
+  background:var(--panel);padding:16px 20px}
+.q .qn{font-family:var(--cond);font-weight:700;font-size:22px;color:var(--amber);line-height:1.1}
+.q b{color:var(--bright);font-weight:600}
+.note{color:var(--dim);font-size:13.5px;margin-top:16px}
+</style>
+
+<div class="wrap">
+
+<div class="mast">
+  <p class="eyebrow">Void Runner · M4 · Mobile</p>
+  <h1>Thumbs On Glass</h1>
+  <p class="tagline">The spike ran at 60 FPS on an iPhone, which answers the only question it was
+  built to answer. Everything that went wrong afterwards is control design and screen real estate —
+  fixable, and specced here.</p>
+  <div class="meta">
+    <span>Device <b>iPhone 15 Pro Max</b></span>
+    <span>Measured <b class="num">60 FPS · worst 17 ms</b></span>
+    <span>Verdict <b>Proceed</b></span>
+    <span>Dated <b>2026-08-22</b></span>
+  </div>
+</div>
+
+<section>
+  <h2>M4a verdict</h2>
+  <div class="verdict pass">
+    <div class="vh">Performance passes</div>
+    <p>Sixty frames a second with a single 17 ms worst frame — one dropped frame across the run.
+    The renderer, the streaming, the sprites and the audio all hold up on a phone with no changes.
+    That was the kill criterion, and it did not trigger.</p>
+    <p>What it does <b>not</b> prove: a 15 Pro Max is the top of the market. It establishes that
+    nothing in the engine or the level pipeline is structurally too heavy, which is the thing that
+    would have ended mobile outright. A mid-range Android still needs checking before launch, but
+    it is no longer a question of whether the game can run — only how far down the range it goes.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What actually broke</h2>
+  <p class="lede">Four defects, each confirmed against the code rather than inferred from the
+  screenshots.</p>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>Symptom</th><th>Cause in the code</th><th>Severity</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Can't steer and fire at once; ends in a wall</td>
+        <td>Steering is a <i>relative drag</i> — it moves the ship only while the finger is moving. Holding a turn is impossible, so a thumb that pauses to fire stops steering mid-corner.</td>
+        <td class="bad">Fundamental</td>
+      </tr>
+      <tr>
+        <td>FIRE pad huge and always on screen</td>
+        <td><code>touch_ui</code> is enabled at level launch and never disabled, so it paints over the game-over screen and menus too. The pad is also 128 px across, sized for a viewport rather than a thumb.</td>
+        <td class="bad">Serious</td>
+      </tr>
+      <tr>
+        <td>Portrait renders the game tiny instead of asking for landscape</td>
+        <td>The rotate watcher returns early unless <code>vrTouchMode</code> is already true at page load — but the LET ME TRY ANYWAY button sets that flag <i>later</i>. The watcher never arms.</td>
+        <td class="warn">Bug</td>
+      </tr>
+      <tr>
+        <td>Play area is a small box in a sea of black</td>
+        <td>Mostly Safari's own chrome, not the game: the URL bar and bookmarks bar take roughly 40% of the height in landscape. Compounded by no <code>stretch/aspect</code> setting, so Godot's default letterboxes on every side.</td>
+        <td class="warn">Layout</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="callout">
+    <div class="lbl">On the console error you saw</div>
+    <p><code>undefined is not an object (evaluating 'message.response')</code> is a Safari extension's
+    content script, not the game — the same one that produced the 401s earlier. It appears on every
+    site you visit. The same-origin filter added this session keeps it out of our diagnostics.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The control scheme</h2>
+  <p class="lede">Your instinct is right, and the reason is more specific than it looks. Relative
+  drag is <b>position</b> control — the ship turns only while the thumb travels, so a turn ends the
+  moment the thumb stops or lifts. A stick is <b>rate</b> control: hold it over and the ship keeps
+  turning while the other hand does something else. That single change is what makes firing while
+  cornering possible at all.</p>
+
+  <div class="zones">
+    <div class="zone">
+      <div class="zh">Left thumb · steer</div>
+      <ul>
+        <li><b>Floating stick.</b> Touch anywhere in the left 45% and the stick's centre is born under your thumb — no hunting for a fixed pad you cannot see while flying.</li>
+        <li>Radius 120 pt, dead zone 8 pt, full deflection = full turn rate. Output feeds the same pitch/yaw path the arrow keys use, so tuning stays shared.</li>
+        <li><b>D-pad alternative</b> for players who want discrete control, selectable in settings — fixed four-way pad, same corner. Your call which is the default; I'd ship the stick.</li>
+        <li>Lifting recentres instantly. The ship holds heading rather than snapping.</li>
+      </ul>
+    </div>
+    <div class="zone">
+      <div class="zh">Right thumb · shoot</div>
+      <ul>
+        <li><b>FIRE</b> — 72 pt circle, centred about 90 pt in from the bottom-right corner, inside the natural thumb arc. Down to a third of today's size.</li>
+        <li><b>WEAPON</b> — 52 pt, above and slightly inboard. Tap cycles; the current weapon's name sits under it.</li>
+        <li><b>BOMB</b> — 52 pt, inboard of FIRE, with the remaining-charges pips on it. Deliberately the most awkward reach of the three, because it is the rarest and most costly input.</li>
+        <li><b>Boost</b> is not a button. Held fire already occupies the thumb; boost becomes automatic on a straight run, or a left-zone double-tap. Needs your call.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="lbl">Why both thumbs can work at once</div>
+    <p>Every touch carries an index. A touch that begins in the left zone owns steering until it
+    lifts; touches beginning in the right zone are dispatched to whichever button they land on. No
+    input can steal another's finger, which is the actual mechanism behind "fire while turning".
+    The current code half-does this — it tracks indices but allows only one steering finger and
+    treats the whole screen outside the fire pad as steerable.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Gyro, as an option</h2>
+  <p class="lede">Worth having, worth defaulting off.</p>
+  <ul class="plain">
+    <li><b>What it's good for:</b> fine aim on top of the stick, not replacing it. Tilt maps to a small pitch/yaw <i>offset</i> — roughly ±12° of ship angle at full tilt — so the stick still does the flying and the gyro shaves the last few degrees onto a target. Gyro as primary steering is nauseating on a screen you are also holding.</li>
+    <li><b>iOS demands a gesture:</b> <code>DeviceOrientationEvent.requestPermission()</code> must be called from a real tap, and it can be refused. The settings toggle is that tap; a refusal turns the option back off with an honest message rather than silently doing nothing.</li>
+    <li><b>Calibration:</b> zero is wherever the device is when a level starts, because nobody holds a phone level. A two-finger tap in the left zone re-centres mid-flight.</li>
+    <li><b>Freed-up thumb:</b> with gyro doing fine aim, the right hand can hold fire continuously — which is the actual argument for the feature.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Screen real estate</h2>
+  <p class="lede">The play area is small mostly because Safari is eating the screen, not because the
+  game is scaled wrong. Fix that first and re-judge.</p>
+  <ol class="steps">
+    <li><b>Add to Home Screen.</b> The only reliable full-screen path on iPhone — Safari does not grant the Fullscreen API to arbitrary elements there. With <code>apple-mobile-web-app-capable</code> set, launching from the home screen drops the URL and bookmarks bars entirely and roughly doubles usable height. This is the single biggest win available and costs three meta tags.</li>
+    <li><b>Prompt for it.</b> A one-time card on touch devices explaining the Add-to-Home-Screen step, dismissible, shown before the capability card's replacement.</li>
+    <li><b>Set <code>stretch/aspect</code> explicitly.</b> Unset today, so Godot letterboxes on all four sides. <code>keep</code> preserves the 1995 framing exactly; <code>expand</code> would fill a 19.5:9 screen but shows more world than desktop players see and would strand the hand-placed cockpit HUD, which is drawn at fixed 320×200 coordinates. Recommend <code>keep</code>, and reclaim the space from Safari instead.</li>
+    <li><b>Respect the safe area.</b> <code>viewport-fit=cover</code> plus insets, so nothing lands under the Dynamic Island or the home indicator — which is exactly where a bottom-right fire button wants to sit.</li>
+    <li><b>Fix the portrait watcher</b> so the rotate card actually arms, and re-check it whenever touch mode turns on rather than only at load.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>Build order</h2>
+  <div class="tblwrap">
+  <table>
+    <thead><tr><th>Step</th><th>Work</th><th>Size</th></tr></thead>
+    <tbody>
+      <tr><td class="num">M4b-1</td><td>Hide the touch layer outside of flight; shrink and reposition FIRE; fix the portrait watcher. The three cheap defects.</td><td class="ok">Small</td></tr>
+      <tr><td class="num">M4b-2</td><td>Zone dispatch: per-index touch ownership, left steers, right dispatches to buttons.</td><td class="warn">Medium</td></tr>
+      <tr><td class="num">M4b-3</td><td>Floating stick with rate control, replacing relative drag. The fix that matters.</td><td class="warn">Medium</td></tr>
+      <tr><td class="num">M4b-4</td><td>Weapon and bomb buttons, idle fade, press states.</td><td class="ok">Small</td></tr>
+      <tr><td class="num">M4c-1</td><td>Home-screen meta tags, safe-area insets, the install prompt card.</td><td class="ok">Small</td></tr>
+      <tr><td class="num">M4c-2</td><td>D-pad alternative and the settings toggle.</td><td class="ok">Small</td></tr>
+      <tr><td class="num">M4c-3</td><td>Gyro fine aim, permission flow, calibration, recentre.</td><td class="warn">Medium</td></tr>
+      <tr><td class="num">M4d</td><td>Routing: touch build for phones, capability card only for devices it cannot serve. Mid-range Android check.</td><td class="ok">Small</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Two sessions for M4b, one for M4c, and M4d folds into the existing S5. Roughly on
+  the original estimate, now that the spike proved the expensive risk was not real.</p>
+</section>
+
+<section>
+  <h2>Three calls for you</h2>
+  <div class="qs">
+    <div class="q"><span class="qn">1</span><div><b>Stick or D-pad as the default?</b> A stick gives proportional turn rate and suits flight; a D-pad is more precise for players who dislike floating controls. I would ship the stick and offer the pad. Both get built either way — this is only about which one a first-time player meets.</div></div>
+    <div class="q"><span class="qn">2</span><div><b>What happens to boost?</b> A fourth button crowds a thumb that is already holding fire. Options: automatic on straight runs, a left-zone double-tap, or dropped on touch entirely. Dropping it changes the game's feel more than it sounds — boost is a big part of what made those '95 DOS games fun.</div></div>
+    <div class="q"><span class="qn">3</span><div><b>Do we ask people to install it?</b> Add to Home Screen roughly doubles the play area, but it is a step between a Reddit link and playing, and some will not take it. Alternative is to accept a smaller viewport in the browser and offer the install as a hint rather than a gate.</div></div>
+  </div>
+</section>
+
+<footer>
+  Void Runner · M4 mobile control spec · written from a measured device session, 2026-08-22 ·
+  companions: PLAN.md Part Two §M4, docs/beta/beta-sequence.html
+</footer>
+
+</div>

@@ -63,6 +63,16 @@ func _run() -> void:
 	GameState.score = 0
 	game.overlays.show_only("start")
 	await _capture_root("shot_start.png", dir)
+	# M1/M2: the two panels this session changed most — the settings grid now packs
+	# ten controls into 320x200, and the photosensitivity notice is brand new.
+	game.overlays.show_only("warning")
+	await _capture_root("shot_warning.png", dir)
+	game.overlays.show_only("settings")
+	await _capture_root("shot_settings.png", dir)
+	game.overlays.show_only("help")
+	await _capture_root("shot_help.png", dir)   # M3 privacy + feedback lines
+	game.overlays.show_only("start")
+	await get_tree().process_frame
 	game._show_briefing()
 	for i in 30:
 		await get_tree().process_frame   # warm-up rig compiles behind the briefing

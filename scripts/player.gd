@@ -64,7 +64,7 @@ var muzzle_light: OmniLight3D
 
 func _ready() -> void:
 	camera = Camera3D.new()
-	camera.fov = 78.0
+	camera.fov = GameState.view_fov   # M2.2, refreshed each frame in update_flight
 	camera.near = 0.1
 	camera.far = 400.0
 	add_child(camera)
@@ -114,7 +114,8 @@ func apply_mouse_look(relative: Vector2) -> void:
 		return
 	var sens := MOUSE_SENS * GameState.mouse_sens_mult   # Phase H settings
 	yaw -= relative.x * sens
-	pitch = clampf(pitch - relative.y * sens, -PITCH_LIMIT, PITCH_LIMIT)
+	var inv := -1.0 if GameState.invert_y else 1.0   # M2.2
+	pitch = clampf(pitch - relative.y * sens * inv, -PITCH_LIMIT, PITCH_LIMIT)
 	_turn_sm += -relative.x * sens
 
 
@@ -127,16 +128,25 @@ func update_flight(delta: float) -> void:
 	# --- keyboard steering (PC or iPad keyboard) ---
 	var ts := KB_YAW_RATE * delta
 	var ps := KB_PITCH_RATE * delta
-	if Input.is_action_pressed("steer_left"):
-		yaw += ts
-		_turn_sm += ts * 0.6
-	if Input.is_action_pressed("steer_right"):
-		yaw -= ts
-		_turn_sm -= ts * 0.6
-	if Input.is_action_pressed("steer_up"):
-		pitch = minf(PITCH_LIMIT, pitch + ps)
-	if Input.is_action_pressed("steer_down"):
-		pitch = maxf(-PITCH_LIMIT, pitch - ps)
+	# M4b: strength, not a plain boolean — a held key always reports 1.0 so this is a
+	# no-op for keyboard, but it's what lets a touch joystick report a proportional
+	# turn rate through this exact same path instead of a separate tuning curve.
+	var sl := Input.get_action_strength("steer_left")
+	var sr := Input.get_action_strength("steer_right")
+	if sl > 0.0:
+		yaw += ts * sl
+		_turn_sm += ts * 0.6 * sl
+	if sr > 0.0:
+		yaw -= ts * sr
+		_turn_sm -= ts * 0.6 * sr
+	# M2.2: invert-Y applies to the pitch axis wholesale, keys as well as mouse
+	var kb_inv := -1.0 if GameState.invert_y else 1.0
+	var su := Input.get_action_strength("steer_up")
+	var sd := Input.get_action_strength("steer_down")
+	if su > 0.0:
+		pitch = clampf(pitch + ps * kb_inv * su, -PITCH_LIMIT, PITCH_LIMIT)
+	if sd > 0.0:
+		pitch = clampf(pitch - ps * kb_inv * sd, -PITCH_LIMIT, PITCH_LIMIT)
 	# --- K6: opt-in gamepad — analog left-stick steer (buttons ride the Input Map;
 	# no pad connected reads 0, so this is inert unless the setting is on) ---
 	if GameState.gamepad_enabled:
@@ -191,8 +201,12 @@ func update_flight(delta: float) -> void:
 	_wall_collide()
 	_door_collide()
 	# --- camera framing ---
+	camera.fov = GameState.view_fov   # M2.2: live FOV slider
 	_turn_sm *= pow(0.0001, delta)
-	roll += (clampf(_turn_sm * 7.0, -0.28, 0.28) - roll) * minf(1.0, delta * 6.0)
+	# M2.1: comfort option damps the camera lean rather than removing it — a dead
+	# horizon reads as broken, a quarter-strength one just reads as a steadier ship
+	var roll_mul := 0.25 if GameState.reduce_roll else 1.0
+	roll += (clampf(_turn_sm * 7.0, -0.28, 0.28) * roll_mul - roll) * minf(1.0, delta * 6.0)
 	rotation = Vector3(pitch, yaw, roll)
 	shake = maxf(0.0, shake - delta * 1.4)
 	if shake > 0.0 and GameState.screen_shake:
@@ -219,7 +233,8 @@ func _try_dodge(dir_sign: float) -> void:
 	_dodge_t = DODGE_TIME
 	iframes_t = DODGE_IFRAMES
 	_dodge_dir = forward().cross(Vector3.UP).normalized() * dir_sign
-	_turn_sm -= dir_sign * 0.22   # lean the camera into the roll
+	# M2.1: the dodge lean is damped by the same comfort option as the turn lean
+	_turn_sm -= dir_sign * (0.06 if GameState.reduce_roll else 0.22)
 	dodged.emit(_dodge_dir)
 
 

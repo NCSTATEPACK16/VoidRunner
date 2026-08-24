@@ -11,6 +11,7 @@ signal gauntlet_requested     # K5: endless mode from the start screen
 signal next_level_requested
 signal retry_requested
 signal new_campaign_requested
+signal warning_acknowledged   # M1.2: photosensitivity notice dismissed
 
 const BG := Color(0.008, 0.012, 0.03, 0.975)   # near-opaque so the HUD (score, canopy) doesn't bleed through result screens
 const TITLE_COL := Color("62ffd0")
@@ -54,7 +55,8 @@ func _ready() -> void:
 	_build_victory()
 	_build_settings()
 	_build_bay()
-	show_only("start")
+	_build_warning()
+	show_only("warning" if not GameState.seen_warning else "start")
 
 
 func show_only(panel_name: String) -> void:
@@ -207,9 +209,12 @@ func _build_start() -> void:
 		"Fly the tunnels, or the dark wins.",
 		7, TEXT_COL, 24, 272)
 	_line(p, 119, "TERMINAL STATUS: CRITICAL", 7, KEY_COL)
-	_button(p, Vector2(84, 133), "<", func() -> void: _adjust_sector(-1))
+	# M1.5: the label is centred across the full 320 px and reads "SECTOR: <NAME>";
+	# at font 8 the longest sector name runs to roughly x=218, which is exactly
+	# where the old right arrow sat. Both arrows now live outside that span.
+	_button(p, Vector2(26, 133), "<", func() -> void: _adjust_sector(-1))
 	_sector_label = _line(p, 139, "", 8, KEY_COL)
-	_button(p, Vector2(216, 133), ">", func() -> void: _adjust_sector(1))
+	_button(p, Vector2(286, 133), ">", func() -> void: _adjust_sector(1))
 	_box(p, Rect2(30, 155, 260, 18), TITLE_COL, "TERMINAL_PROMPT.EXE")
 	_button(p, Vector2(38, 157), "C:VOID_RUNNER> RUN.EXE", func() -> void:
 		AudioSys.unlock()
@@ -223,6 +228,8 @@ func _build_start() -> void:
 	_button(p, Vector2(224, 176), "% GAUNTLET", func() -> void:
 		AudioSys.unlock()
 		gauntlet_requested.emit())
+	# M1.4: build stamp, so a bug report can name the build it came from
+	_at(p, Vector2(4, 190), BuildInfo.label(), 7, Color("3d4a63"))
 
 
 func _build_help() -> void:
@@ -232,6 +239,11 @@ func _build_help() -> void:
 		"FLIGHT", "MOUSE / ARROWS  steer", "W or RMB  afterburner", "S  retro brake",
 		"A / D  evade roll", "", "SYSTEM", "ENTER or ESC  pause",
 	]
+	# M3: the beta ask belongs with the other key bindings, and appending it here
+	# (rather than placing it absolutely) keeps _help_pad and everything below it
+	# flowing — an absolute line landed exactly on the gamepad row.
+	if Feedback.is_configured():
+		left.append("F  send beta feedback")
 	var right := [
 		"WEAPONS", "LMB / SPACE / X  fire", "1 NEUTRON  2 SCATTER", "3 BOLT  4 MISSILE",
 		"BACKSPACE  cycle", "P  plasma bomb", "", "Locked bulkheads open when",
@@ -244,10 +256,13 @@ func _build_help() -> void:
 	for i in right.size():
 		_at(p, Vector2(172, 52 + i * 11), right[i], 8,
 			TITLE_COL if right[i] == "WEAPONS" else TEXT_COL)
-	_button(p, Vector2(88, 160), "> START", func() -> void:
+	# M3: the short version. The full privacy note lives in the README and on the
+	# form itself — anything longer than one line here and nobody reads any of it.
+	_line(p, 162, "No cookies, no accounts, no personal data.", 7, Color("55647d"))
+	_button(p, Vector2(88, 172), "> START", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
-	_button(p, Vector2(168, 160), "< BACK", func() -> void: show_only("start"))
+	_button(p, Vector2(168, 172), "< BACK", func() -> void: show_only("start"))
 
 
 func _build_briefing() -> void:
@@ -284,6 +299,7 @@ func _build_pause() -> void:
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_title(p, "PAUSED", 16, TITLE_COL)
 	_line(p, 100, "Click or press ENTER to re-engage", 8, TEXT_COL)
+	_at(p, Vector2(4, 190), BuildInfo.label(), 7, Color("3d4a63"))   # M1.4
 
 
 func _build_game_over() -> void:
@@ -294,6 +310,7 @@ func _build_game_over() -> void:
 	var rec := _line(p, 104, "", 8, Color("5fb6d8"))
 	rec.name = "Record"
 	_button(p, Vector2(120, 132), "@ RETRY LEVEL", func() -> void: retry_requested.emit())
+	_feedback_button(p, Vector2(104, 158))   # M3
 
 
 func _build_level_clear() -> void:
@@ -321,52 +338,59 @@ func _build_victory() -> void:
 	var rec := _line(p, 108, "", 8, Color("5fb6d8"))
 	rec.name = "Record"
 	_button(p, Vector2(112, 136), "@ NEW CAMPAIGN", func() -> void: new_campaign_requested.emit())
+	_feedback_button(p, Vector2(104, 160))   # M3
 
 
 ## H: volume + mouse sensitivity (stepper rows) and a dither on/off toggle. All
 ## values live on GameState, which applies + persists them; rows just adjust + refresh.
+## Phase H settings, rebuilt at M2 for ten controls: three adjustable rows across
+## the top, then a two-column toggle grid. 320x200 has no room for ten stacked
+## rows, and a scrolling settings panel in a DOS cockpit would look wrong.
 func _build_settings() -> void:
 	var p := _panel("settings")
-	_title(p, "SETTINGS", 16, TITLE_COL)
-	_setting_row(p, 66, "VOLUME", "volume")
-	_setting_row(p, 86, "MOUSE SENS", "sens")
-	_at(p, Vector2(60, 108), "DITHER (DOS LOOK)", 8, TEXT_COL)
-	var dbtn := _button(p, Vector2(214, 106), "ON", func() -> void:
-		GameState.dither_enabled = not GameState.dither_enabled
-		GameState.apply_settings()
-		_refresh_settings())
-	_settings_labels["dither"] = dbtn
-	# K6: gamepad stays opt-in — flying with a pad is a choice, never a surprise
-	_at(p, Vector2(60, 124), "GAMEPAD", 8, TEXT_COL)
-	var gbtn := _button(p, Vector2(214, 122), "OFF", func() -> void:
-		GameState.gamepad_enabled = not GameState.gamepad_enabled
-		GameState.apply_settings()
-		_refresh_settings())
-	_settings_labels["gamepad"] = gbtn
-	# V2.0: amber "terminal" look — a black-and-amber monochrome view mode
-	_at(p, Vector2(60, 140), "AMBER TERMINAL", 8, TEXT_COL)
-	var abtn := _button(p, Vector2(214, 138), "OFF", func() -> void:
-		GameState.amber_mode = not GameState.amber_mode
-		GameState.apply_settings()
-		_refresh_settings())
-	_settings_labels["amber"] = abtn
-	# V2.2 L1: camera kick/shake master switch (accessibility)
-	_at(p, Vector2(60, 156), "SCREEN SHAKE", 8, TEXT_COL)
-	var sbtn := _button(p, Vector2(214, 154), "ON", func() -> void:
-		GameState.screen_shake = not GameState.screen_shake
-		GameState.apply_settings()
-		_refresh_settings())
-	_settings_labels["shake"] = sbtn
-	_button(p, Vector2(130, 178), "< BACK", func() -> void: show_only(_settings_return))
+	_title(p, "SETTINGS", 14, TITLE_COL, 4)
+	_setting_row(p, 28, "VOLUME", "volume")
+	_setting_row(p, 46, "MOUSE SENS", "sens")
+	_setting_row(p, 64, "FIELD OF VIEW", "fov")
+	_box(p, Rect2(8, 88, 304, 78), TITLE_COL, "COMFORT & DISPLAY")
+	# left column
+	_toggle_row(p, Vector2(14, 92), "DITHER", "dither", func() -> void:
+		GameState.dither_enabled = not GameState.dither_enabled)
+	_toggle_row(p, Vector2(14, 110), "AMBER TERM", "amber", func() -> void:
+		GameState.amber_mode = not GameState.amber_mode)
+	_toggle_row(p, Vector2(14, 128), "GAMEPAD", "gamepad", func() -> void:
+		GameState.gamepad_enabled = not GameState.gamepad_enabled)
+	_toggle_row(p, Vector2(14, 146), "INVERT Y", "invert_y", func() -> void:
+		GameState.invert_y = not GameState.invert_y)
+	# right column
+	_toggle_row(p, Vector2(166, 92), "SCREEN SHAKE", "shake", func() -> void:
+		GameState.screen_shake = not GameState.screen_shake)
+	_toggle_row(p, Vector2(166, 110), "REDUCE FLASH", "reduce_flash", func() -> void:
+		GameState.reduce_flashing = not GameState.reduce_flashing)
+	_toggle_row(p, Vector2(166, 128), "REDUCE ROLL", "reduce_roll", func() -> void:
+		GameState.reduce_roll = not GameState.reduce_roll)
+	_button(p, Vector2(134, 174), "< BACK", func() -> void: show_only(_settings_return))
 	_refresh_settings()
 
 
 func _setting_row(p: Control, y: float, label: String, key: String) -> void:
-	_at(p, Vector2(60, y + 2), label, 8, TEXT_COL)
-	_button(p, Vector2(184, y), "-", func() -> void: _adjust_setting(key, -1))
-	var val := _at(p, Vector2(216, y + 2), "", 8, KEY_COL)
+	_at(p, Vector2(14, y + 1), label, 8, TEXT_COL)
+	_compact(_button(p, Vector2(214, y), "-", func() -> void: _adjust_setting(key, -1)))
+	var val := _at(p, Vector2(240, y + 1), "", 8, KEY_COL)
 	_settings_labels[key] = val
-	_button(p, Vector2(246, y), "+", func() -> void: _adjust_setting(key, 1))
+	_compact(_button(p, Vector2(276, y), "+", func() -> void: _adjust_setting(key, 1)))
+
+
+## One label + ON/OFF button pair. The callable flips the GameState field; saving
+## and refreshing are handled here so no caller can forget either.
+func _toggle_row(p: Control, pos: Vector2, label: String, key: String,
+		flip: Callable) -> void:
+	_at(p, pos + Vector2(0, 2), label, 8, TEXT_COL)
+	var b := _compact(_button(p, pos + Vector2(104, 0), "", func() -> void:
+		flip.call()
+		GameState.apply_settings()
+		_refresh_settings()))
+	_settings_labels[key] = b
 
 
 func _adjust_setting(key: String, dir: int) -> void:
@@ -374,23 +398,64 @@ func _adjust_setting(key: String, dir: int) -> void:
 		GameState.master_volume = clampf(GameState.master_volume + dir * 0.1, 0.0, 1.0)
 	elif key == "sens":
 		GameState.mouse_sens_mult = clampf(GameState.mouse_sens_mult + dir * 0.1, 0.3, 2.5)
+	elif key == "fov":
+		# M2.2: 60 is tight-but-period-correct, 100 is the modern comfort end
+		GameState.view_fov = clampf(GameState.view_fov + dir * 4.0, 60.0, 100.0)
 	GameState.apply_settings()
 	_refresh_settings()
 
 
 func _refresh_settings() -> void:
-	if _settings_labels.has("volume"):
-		(_settings_labels["volume"] as Label).text = "%d%%" % roundi(GameState.master_volume * 100.0)
-	if _settings_labels.has("sens"):
-		(_settings_labels["sens"] as Label).text = "%d%%" % roundi(GameState.mouse_sens_mult * 100.0)
-	if _settings_labels.has("dither"):
-		(_settings_labels["dither"] as Button).text = "ON" if GameState.dither_enabled else "OFF"
-	if _settings_labels.has("gamepad"):
-		(_settings_labels["gamepad"] as Button).text = "ON" if GameState.gamepad_enabled else "OFF"
-	if _settings_labels.has("amber"):
-		(_settings_labels["amber"] as Button).text = "ON" if GameState.amber_mode else "OFF"
-	if _settings_labels.has("shake"):
-		(_settings_labels["shake"] as Button).text = "ON" if GameState.screen_shake else "OFF"
+	_set_label("volume", "%d%%" % roundi(GameState.master_volume * 100.0))
+	_set_label("sens", "%d%%" % roundi(GameState.mouse_sens_mult * 100.0))
+	_set_label("fov", "%d" % roundi(GameState.view_fov))
+	_set_toggle("dither", GameState.dither_enabled)
+	_set_toggle("gamepad", GameState.gamepad_enabled)
+	_set_toggle("amber", GameState.amber_mode)
+	_set_toggle("shake", GameState.screen_shake)
+	_set_toggle("reduce_flash", GameState.reduce_flashing)
+	_set_toggle("reduce_roll", GameState.reduce_roll)
+	_set_toggle("invert_y", GameState.invert_y)
+
+
+func _set_label(key: String, text: String) -> void:
+	if _settings_labels.has(key):
+		(_settings_labels[key] as Label).text = text
+
+
+func _set_toggle(key: String, on: bool) -> void:
+	if _settings_labels.has(key):
+		var b := _settings_labels[key] as Button
+		b.text = "ON" if on else "OFF"
+		b.add_theme_color_override("font_color", KEY_COL if on else Color("55647d"))
+
+
+## M1.2: shown once, before anything else, on a build that strobes and white-outs.
+## Acknowledgement persists in settings.cfg so it never nags a returning player.
+func _build_warning() -> void:
+	var p := _panel("warning")
+	_title(p, "! PHOTOSENSITIVITY NOTICE", 12, Color("ff9c40"), 26)
+	_wrap_line(p, 56,
+		"VOID RUNNER contains flashing light, strobing effects and a bright "
+		+ "full-screen flash when a plasma bomb detonates.",
+		8, TEXT_COL, 30, 260)
+	_wrap_line(p, 96,
+		"If you are sensitive to flashing images, turn on REDUCE FLASH in "
+		+ "SETTINGS before you fly. It stays on for good.",
+		8, TEXT_COL, 30, 260)
+	_button(p, Vector2(40, 150), "* OPEN SETTINGS", func() -> void:
+		_ack_warning()
+		_settings_return = "start"
+		show_only("settings"), ORANGE_COL)
+	_button(p, Vector2(186, 150), "> UNDERSTOOD", func() -> void:
+		_ack_warning()
+		show_only("start"))
+
+
+func _ack_warning() -> void:
+	GameState.seen_warning = true
+	GameState.apply_settings()
+	warning_acknowledged.emit()
 
 
 ## V2.2 L3d: Upgrade Bay — reached from the briefing (a button swaps to this panel).
@@ -555,6 +620,34 @@ func _button(p: Control, pos: Vector2, text: String, on_press: Callable, color: 
 	b.add_theme_color_override("font_color", color)
 	b.pressed.connect(on_press)
 	p.add_child(b)
+	return b
+
+
+## M3: one feedback button, built the same way everywhere it appears. Absent
+## rather than dead when no form is configured — a button that does nothing is
+## worse than no button.
+func _feedback_button(p: Control, pos: Vector2) -> void:
+	if not Feedback.is_configured():
+		return
+	_button(p, pos, "F  SEND FEEDBACK", func() -> void: Feedback.open_form(), ORANGE_COL)
+
+
+## M2: Godot's default Button stylebox carries enough content margin that at font
+## size 8 a button is ~20 design px tall — taller than a settings row's pitch, so
+## stacked rows overlap. These flat, near-zero-margin boxes make a toggle button
+## about as tall as its text, which is what the 320x200 grid was drawn for.
+func _compact(b: Button) -> Button:
+	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0, 0, 0, 0)
+		sb.content_margin_left = 2.0
+		sb.content_margin_right = 2.0
+		sb.content_margin_top = 0.0
+		sb.content_margin_bottom = 0.0
+		if state == "hover" or state == "focus":
+			sb.border_color = TITLE_COL
+			sb.set_border_width_all(1)
+		b.add_theme_stylebox_override(state, sb)
 	return b
 
 

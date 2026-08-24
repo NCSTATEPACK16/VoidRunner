@@ -28,6 +28,9 @@ if [ ! -f "${TEMPLATE_DIR}/web_nothreads_release.zip" ]; then
   mv bin/tpl/templates/* "${TEMPLATE_DIR}/"
 fi
 
+# Stamp build id + feedback/analytics codes (shared with local exports).
+./stamp_build.sh
+
 echo "--- Importing project ---"
 "${GODOT}" --headless --import
 

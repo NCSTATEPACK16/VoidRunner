@@ -620,6 +620,305 @@ func _run() -> void:
 	assert(lore_o.position.y + 3 * 11.0 <= lore_b.position.y)
 	assert(lore_b.position.y + lore_b.size.y * lore_b.scale.y <= 164.0)   # above buttons
 	print("lore ok — 9+gauntlet stories + load lines; briefing bands don't overlap")
+	# --- M1/M2 beta readiness: safety notice, comfort settings, build stamp ---
+	# every new setting round-trips through settings.cfg
+	GameState.reduce_flashing = true
+	GameState.reduce_roll = true
+	GameState.invert_y = true
+	GameState.view_fov = 92.0
+	GameState.seen_warning = true
+	GameState.apply_settings()
+	GameState.reduce_flashing = false
+	GameState.reduce_roll = false
+	GameState.invert_y = false
+	GameState.view_fov = 78.0
+	GameState.seen_warning = false
+	GameState.load_settings()
+	assert(GameState.reduce_flashing and GameState.reduce_roll and GameState.invert_y)
+	assert(is_equal_approx(GameState.view_fov, 92.0))
+	assert(GameState.seen_warning)
+	# the settings panel exposes a control for every one of them
+	var set_p: Control = game.overlays._panels.settings
+	for k in ["volume", "sens", "fov", "dither", "amber", "gamepad", "shake",
+			"reduce_flash", "reduce_roll", "invert_y"]:
+		assert(game.overlays._settings_labels.has(k))
+	# and none of its controls escapes the 320x200 design box
+	for child in set_p.get_children():
+		if child is Button or child is Label:
+			var c := child as Control
+			assert(c.position.x >= 0.0 and c.position.y >= 0.0)
+			assert(c.position.y <= 190.0)
+	# FOV clamps at both ends rather than running away
+	for _i in 20:
+		game.overlays._adjust_setting("fov", 1)
+	assert(GameState.view_fov <= 100.0)
+	for _i in 30:
+		game.overlays._adjust_setting("fov", -1)
+	assert(GameState.view_fov >= 60.0)
+	# M1.2: reduce-flash suppresses the plasma white-out
+	GameState.reduce_flashing = false
+	game.hud.flash_white()
+	var bright: float = game.hud._bomb_flash.color.a
+	GameState.reduce_flashing = true
+	game.hud.flash_white()
+	assert(game.hud._bomb_flash.color.a < bright * 0.5)
+	# ...and holds animated arena lights steady instead of strobing them
+	game.world.animate(0.25)
+	game.world.animate(0.25)
+	for l in game.world._lights:
+		assert(is_equal_approx(l.light.light_energy, l.energy))
+	GameState.reduce_flashing = false
+	# M2.2: invert-Y actually flips the pitch response
+	game.player.pitch = 0.0
+	GameState.invert_y = false
+	game.player.apply_mouse_look(Vector2(0.0, 10.0))
+	var normal_pitch: float = game.player.pitch
+	game.player.pitch = 0.0
+	GameState.invert_y = true
+	game.player.apply_mouse_look(Vector2(0.0, 10.0))
+	assert(signf(game.player.pitch) == -signf(normal_pitch))
+	GameState.invert_y = false
+	game.player.pitch = 0.0
+	# M1.2: the warning panel exists and gates the start screen on a fresh profile
+	assert(game.overlays._panels.has("warning"))
+	GameState.seen_warning = false
+	game.overlays.show_only("warning" if not GameState.seen_warning else "start")
+	assert(game.overlays._panels.warning.visible)
+	assert(not game.overlays._panels.start.visible)
+	game.overlays._ack_warning()
+	game.overlays.show_only("start")
+	assert(GameState.seen_warning and game.overlays._panels.start.visible)
+	# M1.4: a build stamp is present and non-placeholder-empty
+	assert(BuildInfo.label().length() > 5)
+	# M1.5: the sector arrows sit clear of the longest sector label. The label is a
+	# 640-wide centred _line scaled 0.5, so its painted span is measured from the
+	# text width, not the node's box.
+	var arrows: Array[Button] = []
+	for child in game.overlays._panels.start.get_children():
+		if child is Button and (child as Button).text in ["<", ">"]:
+			arrows.append(child as Button)
+	assert(arrows.size() == 2)
+	var longest := 0.0
+	for lname in game.levels:
+		var f: Font = game.overlays._sector_label.get_theme_default_font()
+		var fs: int = game.overlays._sector_label.get_theme_font_size("font_size")
+		var w: float = f.get_string_size("SECTOR: %s" % (lname as LevelDef).display_name,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x * 0.5
+		longest = maxf(longest, w)
+	var label_left := 160.0 - longest * 0.5
+	var label_right := 160.0 + longest * 0.5
+	for a in arrows:
+		var a_l: float = a.position.x
+		var a_r: float = a.position.x + maxf(a.size.x, 8.0)
+		assert(a_r <= label_left or a_l >= label_right)
+	print("M1/M2 ok — settings round-trip, flash + roll + invert, stamp, arrows clear")
+	# --- M3: feedback path + anonymous counters ---
+	# the five questions are the single source shared by the form, the post and the
+	# in-game prompt; drift between them makes answers incomparable
+	assert(Feedback.QUESTIONS.size() == 5)
+	for q in Feedback.QUESTIONS:
+		assert((q as String).length() > 15)
+	# counters never carry anything but an event name and a sector number
+	assert(Feedback.EV_LOADED != "" and Feedback.EV_LEVEL_STARTED != "")
+	assert(Feedback.EV_LEVEL_CLEARED != "" and Feedback.EV_FEEDBACK != "")
+	# every call is inert off the web and inert unconfigured — no crash, no error
+	Feedback.count(Feedback.EV_LOADED)
+	Feedback.count_level(Feedback.EV_LEVEL_STARTED, 0)
+	Feedback.open_form()
+	# the F key exists and is bound
+	assert(InputMap.has_action("feedback"))
+	var f_bound := false
+	for ev in InputMap.action_get_events("feedback"):
+		if ev is InputEventKey and (ev as InputEventKey).physical_keycode == KEY_F:
+			f_bound = true
+	assert(f_bound)
+	# a button that does nothing is worse than no button: with no form configured
+	# the feedback buttons must be absent from game-over and victory alike
+	for panel_name in ["game_over", "victory"]:
+		var fb := 0
+		for child in (game.overlays._panels[panel_name] as Control).get_children():
+			if child is Button and "FEEDBACK" in (child as Button).text:
+				fb += 1
+		assert(fb == (1 if Feedback.is_configured() else 0))
+	# the configured layout is the one that ships, so assert it rather than the
+	# empty one: with a form set, the help screen gains an F row and NOTHING may
+	# land on the gamepad row or run off the 200 px panel
+	var shipped_form: String = Feedback.FORM_URL   # restore the real value after
+	Feedback.FORM_URL = "https://tally.so/r/SMOKE1"
+	(game.overlays._panels.help as Control).queue_free()
+	game.overlays._build_help()
+	await get_tree().process_frame
+	var help_p: Control = game.overlays._panels.help
+	var pad_y: float = game.overlays._help_pad.position.y
+	var rows: Array[float] = []
+	for child in help_p.get_children():
+		if child is Label or child is Button:
+			var c := child as Control
+			assert(c.position.y + 20.0 <= 200.0)          # nothing runs off the panel
+			if child is Label and (child as Label).text.begins_with("F  send"):
+				rows.append(c.position.y)
+	assert(rows.size() == 1)                              # the F row exists exactly once
+	assert(not is_equal_approx(rows[0], pad_y))           # and never sits on the gamepad row
+	var fb_seen := 0
+	Feedback.FORM_URL = ""
+	help_p.queue_free()               # _build_help() makes a fresh panel each call
+	game.overlays._build_help()
+	await get_tree().process_frame
+	for child in (game.overlays._panels.help as Control).get_children():
+		if child is Label and (child as Label).text.begins_with("F  send"):
+			fb_seen += 1
+	assert(fb_seen == 0)                                  # and vanishes again when unset
+	Feedback.FORM_URL = shipped_form
+	(game.overlays._panels.help as Control).queue_free()
+	game.overlays._build_help()
+	await get_tree().process_frame
+	print("M3 ok — 5 questions, 4 counters inert unconfigured, F bound, buttons gated")
+	# --- M4b: touch layer — zone dispatch, floating stick, boost double-tap ---
+	var touch := TouchControls.new()
+	add_child(touch)
+	touch.enable(game.player)
+	await get_tree().process_frame
+	# activation lifecycle: enable() turns it on; set_flight_active(false) must
+	# release every held action so a pause mid-input can't leave something stuck
+	assert(touch.active)
+	assert(touch.visible)
+	# Regression guard for the Task 3 canvas-unit/screen-pixel bug: every button
+	# geometry constant in touch_controls.gd assumes get_visible_rect() is exactly
+	# the 320x200 canvas. If project.godot's stretch/aspect ever changes, this
+	# catches the whole layout reverting to the original bug, instead of the
+	# fire-button-rect assertions below simply reading whatever the new numbers are.
+	var vp := get_viewport().get_visible_rect()
+	assert(vp.size == Vector2(320, 200))
+	for btn in [touch._fire_btn, touch._bomb_btn, touch._weapon_btn]:
+		assert(Rect2(Vector2.ZERO, Vector2(320, 200)).encloses(btn.get_global_rect()))
+		assert(btn.get_global_rect().position.x > 320.0 * TouchControls.LEFT_ZONE_FRAC)
+	var vp_w: float = vp.size.x
+	# a touch in the left zone becomes the steer touch and spawns the stick
+	var left_pos := Vector2(vp_w * 0.2, 100.0)
+	var t_down := InputEventScreenTouch.new()
+	t_down.index = 0
+	t_down.position = left_pos
+	t_down.pressed = true
+	touch._input(t_down)
+	assert(touch._steer_touch == 0)
+	# a second finger landing on FIRE must NOT steal the steering finger's ownership
+	var fire_pos: Vector2 = touch._fire_btn.get_global_rect().get_center()
+	var f_down := InputEventScreenTouch.new()
+	f_down.index = 1
+	f_down.position = fire_pos
+	f_down.pressed = true
+	touch._input(f_down)
+	assert(touch._fire_touch == 1)
+	assert(touch._steer_touch == 0)   # unchanged — zone ownership held
+	# dragging the steering finger right produces a proportional steer_right strength,
+	# and leaves steer_left at zero rather than merely "pressed"
+	var drag := InputEventScreenDrag.new()
+	drag.index = 0
+	drag.position = left_pos + Vector2(TouchControls.STICK_RADIUS, 0.0)   # full deflection
+	touch._input(drag)
+	assert(is_equal_approx(Input.get_action_strength("steer_right"), 1.0))
+	assert(Input.get_action_strength("steer_left") == 0.0)
+	# Task 2 integration: a raw action strength is only half the feature — prove
+	# player.gd actually consumes it and turns. steer_right decreases yaw (see
+	# player.gd's update_flight), so one physics step at full deflection must move
+	# yaw down, not just leave the action flagged.
+	var yaw_before: float = game.player.yaw
+	game.player.update_flight(0.05)
+	assert(game.player.yaw < yaw_before)
+	# lifting the fire finger releases only fire, not steering
+	var f_up := InputEventScreenTouch.new()
+	f_up.index = 1
+	f_up.position = fire_pos
+	f_up.pressed = false
+	touch._input(f_up)
+	assert(touch._fire_touch == -1)
+	assert(touch._steer_touch == 0)
+	# lifting the steering finger releases the steer actions
+	var t_up := InputEventScreenTouch.new()
+	t_up.index = 0
+	t_up.position = left_pos
+	t_up.pressed = false
+	touch._input(t_up)
+	assert(touch._steer_touch == -1)
+	assert(Input.get_action_strength("steer_right") == 0.0)
+	# D10: a double-tap in the left zone toggles boost on, and it runs to depletion
+	# on its own rather than needing the finger held
+	var tap_pos := Vector2(vp_w * 0.15, 120.0)
+	var tap_a := InputEventScreenTouch.new()
+	tap_a.index = 2
+	tap_a.position = tap_pos
+	tap_a.pressed = true
+	touch._input(tap_a)
+	var tap_a_up := InputEventScreenTouch.new()
+	tap_a_up.index = 2
+	tap_a_up.position = tap_pos
+	tap_a_up.pressed = false
+	touch._input(tap_a_up)
+	var tap_b := InputEventScreenTouch.new()
+	tap_b.index = 3
+	tap_b.position = tap_pos + Vector2(5.0, 5.0)   # well inside BOOST_TAP_DIST
+	tap_b.pressed = true
+	touch._input(tap_b)   # second tap of the pair — toggles boost on
+	assert(touch._boost_active)
+	assert(Input.is_action_pressed("boost"))
+	var energy_before := GameState.energy
+	GameState.energy = 0.0
+	touch._process(0.016)
+	assert(not touch._boost_active)          # depletion auto-cancels it
+	assert(not Input.is_action_pressed("boost"))
+	GameState.energy = energy_before
+	# M4b's other two new signals — weapon_tapped/bomb_tapped — are otherwise only
+	# exercised by careful reading (game.gd's touch_ui only builds under a real web
+	# JavaScriptBridge check, per Task 4's brief), but TouchControls itself needs no
+	# such gate: drive it directly to prove both signals actually fire.
+	# One-element arrays, not plain bools: GDScript lambdas capture outer locals by
+	# value, so a lambda assigning straight to a captured bool never reaches back to
+	# this scope (confirmed empirically here — the signal demonstrably fired,
+	# _weapon_touch got set in the very same branch as the emit(), yet a captured
+	# bool stayed false). An array is captured by reference, so mutating its
+	# contents is visible here.
+	var weapon_fired := [false]
+	var bomb_fired := [false]
+	touch.weapon_tapped.connect(func() -> void: weapon_fired[0] = true)
+	touch.bomb_tapped.connect(func() -> void: bomb_fired[0] = true)
+	var wpn_pos: Vector2 = touch._weapon_btn.get_global_rect().get_center()
+	var wpn_down := InputEventScreenTouch.new()
+	wpn_down.index = 4
+	wpn_down.position = wpn_pos
+	wpn_down.pressed = true
+	touch._input(wpn_down)
+	assert(weapon_fired[0])
+	var wpn_up := InputEventScreenTouch.new()
+	wpn_up.index = 4
+	wpn_up.position = wpn_pos
+	wpn_up.pressed = false
+	touch._input(wpn_up)
+	var bomb_pos: Vector2 = touch._bomb_btn.get_global_rect().get_center()
+	var bomb_down := InputEventScreenTouch.new()
+	bomb_down.index = 5
+	bomb_down.position = bomb_pos
+	bomb_down.pressed = true
+	touch._input(bomb_down)
+	assert(bomb_fired[0])
+	var bomb_up := InputEventScreenTouch.new()
+	bomb_up.index = 5
+	bomb_up.position = bomb_pos
+	bomb_up.pressed = false
+	touch._input(bomb_up)
+	# set_flight_active(false) must leave nothing pressed — the whole point of M4b-1's
+	# "never disabled" fix
+	Input.action_press("steer_left", 1.0)
+	touch._steer_touch = 5
+	touch.set_flight_active(false)
+	assert(not touch.visible)
+	assert(Input.get_action_strength("steer_left") == 0.0)
+	assert(touch._steer_touch == -1)
+	touch.queue_free()
+	Input.action_release("steer_right")   # belt-and-suspenders: don't leak into later sections
+	Input.action_release("steer_left")
+	print("M4b ok — zone ownership holds under a second finger, stick strength is proportional, "
+		+ "boost double-tap toggles and self-depletes, weapon/bomb taps fire their signals, "
+		+ "button geometry stays inside the 320x200 canvas, deactivation releases everything")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
