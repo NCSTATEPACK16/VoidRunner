@@ -38,7 +38,7 @@
 7. **r/itchio** — Low-signal self-promo dumping ground; only useful if you also put the game on itch.
 
 **Flag — avoid at launch (ban/downvote/off-brand risk):**
-- **r/Doom, r/Descent** — These are fan communities for specific franchises. Posting an original homage reads as self-promo hijacking a fandom; high downvote risk, and — critically — the project constraints forbid invoking "Radix"/"Descent" branding in a way implying affiliation. A "spiritual successor to Descent" post in r/Descent invites both a rules removal and a trademark-tone problem. Engage there only as a participant, much later, if organic interest appears.
+- **r/Doom, r/Descent** — These are fan communities for specific franchises. Posting an original homage reads as self-promo hijacking a fandom; high downvote risk, and — critically — the project constraints forbid invoking any specific '95-DOS-games/"Descent" branding in a way implying affiliation. A "spiritual successor to Descent" post in r/Descent invites both a rules removal and a trademark-tone problem. Engage there only as a participant, much later, if organic interest appears.
 - **r/DOS_Gaming** — Emulation/preservation focus; a modern Godot game is off-topic.
 - **r/indiegames, r/IndieDev** — Allowed but noisy; feedback is shallow. Use as later cross-posts, not primary.
 
@@ -53,9 +53,9 @@
 
 ### 2. The post itself
 
-**Cross-cutting rules — what NOT to say:** No marketing voice ("revolutionary," "game-changing," "the best"). Don't call it finished. Don't imply any affiliation with Radix/Descent/Epic — say "inspired by the 1995 DOS tunnel-shooters" and name the *genre*, not the trademark, in the game and repo. Don't ask for upvotes. Don't bury the play link. Don't over-apologize. Disclose it's your project up front.
+**Cross-cutting rules — what NOT to say:** No marketing voice ("revolutionary," "game-changing," "the best"). Don't call it finished. Don't imply any affiliation with those '95 DOS games, Descent, or Epic — say "inspired by the 1995 DOS tunnel-shooters" and name the *genre*, not the trademark, in the game and repo. Don't ask for upvotes. Don't bury the play link. Don't over-apologize. Disclose it's your project up front.
 
-**How to reference the inspiration safely:** "An original, open-source homage to the mid-90s DOS tunnel-shooter genre (think *Descent*-style 6DOF flight and a *Doom*-era look)" is honest and legal — it references genre and uses the famous titles descriptively/nominatively without claiming endorsement. Do not use "Radix," "Neural Storm," or "Epic MegaGames" anywhere in the post, title, repo, or build, per project constraints.
+**How to reference the inspiration safely:** "An original, open-source homage to the mid-90s DOS tunnel-shooter genre (think *Descent*-style 6DOF flight and a *Doom*-era look)" is honest and legal — it references genre and uses the famous titles descriptively/nominatively without claiming endorsement. Do not use the specific '95 DOS games' name, "Neural Storm," or "Epic MegaGames" anywhere in the post, title, repo, or build, per project constraints.
 
 ---
 
@@ -112,7 +112,7 @@ Would love to know from people who were there: does it hit the 1995 note, or doe
 
 (Mods — happy to remove if this isn't the right kind of post; checked the rules but tell me if I misread.)
 
-**Do this:** Use Draft A first. Keep all three link sets identical in *destination* but non-identical in *body text*. Never paste "Radix" anywhere.
+**Do this:** Use Draft A first. Keep all three link sets identical in *destination* but non-identical in *body text*. Never paste the specific '95 DOS games' name anywhere.
 
 ### 3. Feedback instrumentation
 
@@ -169,7 +169,7 @@ I fetched the live build's shell and the PRD; **I could not perform a full visua
 
 **Do this:** Ship 3 presets defaulting to middle, changeable from pause; make each change fire rate + projectile speed + shields + checkpoint density (not just HP); keep score/ranks on all tiers.
 
-### 6. Feel: Doom + Radix, modernized
+### 6. Feel: Doom + '95 DOS games, modernized
 
 **Mechanical sources of the Doom feel** (from design analyses and the Doom source/wikis):
 - **Weapon kick / punch:** muzzle flash, view-kick, and a brief recoil sell impact; guns that feel weak kill everything downstream (PCGamesN's Doom Eternal analysis: bullet-sponge enemies that "no-sell" damage destroy the power fantasy).
@@ -179,7 +179,7 @@ I fetched the live build's shell and the PRD; **I could not perform a full visua
 - **Sound layering:** distinct fire/impact/death layers; the PRD's 3 phase-aligned music mixes with intensity crossfade is already the modern move.
 - **Movement speed vs geometry:** Doom feels fast because the player outpaces the geometry; corridors too tight for your speed feel bad.
 
-**Radix/Descent tunnel-flight feel:**
+**'95-DOS-games/Descent tunnel-flight feel:**
 - **Constant forward motion** with afterburner/brake (you have this) — the joy is threading geometry at speed.
 - **Wall-bounce forgiveness:** Descent-likes forgive glancing wall contact; harsh bounce damage punishes exactly the exploratory flying that makes 6DOF fun (you have forgiving wall-bounce — keep it).
 - **Spatial disorientation is the genre's central risk.** Overload reviews repeatedly flag that 6DOF is "disorienting and even nauseating (especially at first)." Good games mitigate with: a clear cockpit frame (you have one), an automap/radar (you have both), stable horizon/roll cues, and — critically — a **reduce-screen-roll / comfort option** (Turbo Overkill added exactly this). Motion sickness is a bounce driver for a cold audience.
@@ -194,7 +194,7 @@ I fetched the live build's shell and the PRD; **I could not perform a full visua
 6. **Sprite readability pass at distance** (M; low–med risk — must preserve chunk). Ensure enemy silhouettes/telegraphs read; risk is over-cleaning the 1995 look.
 7. **Enemy infighting (projectiles damage other enemies)** (M; low risk; arguably *increases* authenticity). Emergent spectacle + breathers.
 8. **Impact/decal + small screenshake on kills, tied to the shake toggle** (S; low risk). Keep it optional to avoid nausea.
-9. **Afterburner/boost feedback (FOV kick + audio swell)** (S; low risk). Makes speed *feel* like speed — core Radix joy.
+9. **Afterburner/boost feedback (FOV kick + audio swell)** (S; low risk). Makes speed *feel* like speed — core to what made those '95 DOS games joyful.
 10. **First-90-seconds teach of fire/boost/dodge via in-world prompts** (M; low risk to authenticity if diegetic; this is PRD S7). Feel is worthless if players never discover the dodge roll.
 
 Note the tension: items 6 and 8 must be *toggleable* because the same juice (flash, shake, roll) that reads as "great feel" to one player reads as "nausea/seizure risk" to another. Default them ON but expose the toggles.

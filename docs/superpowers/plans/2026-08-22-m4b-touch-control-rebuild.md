@@ -63,7 +63,7 @@ D9's opt-in, gyro fine-aim) is explicitly **out of scope** — a later plan.
   the desktop RMB hold. It is not a held button, and it does not auto-engage on straight runs.
 - Web export must stay thread-free (`thread_support=false`) — no threading APIs anywhere in this
   change.
-- No original Radix assets or naming; this work doesn't touch assets, but any UI text added must
+- No original '95-DOS-games assets or naming; this work doesn't touch assets, but any UI text added must
   stay in the existing terse all-caps HUD idiom (`FIRE`, `WEAPON`, `BOMB`), not full sentences.
 
 ---

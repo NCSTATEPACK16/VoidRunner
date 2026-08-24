@@ -32,7 +32,7 @@ Do **not** attach `reference/originals/` — the 1995 shareware files stay local
 > expectations, not recalled generalities. Cite sources inline.
 >
 > **The game:** VOID RUNNER — an original, MIT-licensed, fully open-source homage to 1995 DOS
-> tunnel shooters (the *Radix: Beyond the Void* / *Descent* lineage) with a Doom-era look. Built in
+> tunnel shooters ('95 DOS games / the *Descent* lineage) with a Doom-era look. Built in
 > Godot 4.7, exported to HTML5, deployed on Netlify, playable instantly in a browser with no
 > download. All art, audio, and levels are generated procedurally by code at runtime — the repo
 > contains zero imported art assets. Nine campaign sectors with bosses at 3/6/9, an endless "Void
@@ -41,7 +41,7 @@ Do **not** attach `reference/originals/` — the 1995 shareware files stay local
 > Attached: a PRD with the full feature inventory and known gaps, plus screenshots.
 >
 > **My goal:** post it to Reddit for beta feedback, get *useful* feedback rather than silence or a
-> pile-on, and give players the feeling of Doom and Radix in a genuinely modern, exciting, and
+> pile-on, and give players the feeling of Doom and '95 DOS games in a genuinely modern, exciting, and
 > challenging package.
 >
 > Work through these seven questions in order. Think hard before each. Where you are uncertain,
@@ -73,7 +73,7 @@ Do **not** attach `reference/originals/` — the 1995 shareware files stay local
 > EU-reachable page.
 >
 > **4. First-ten-minutes audit.** Using only the attached screenshots and PRD, predict where a
-> cold Reddit player who has never heard of Radix will bounce. Be specific about the first 60
+> cold Reddit player who has never heard of '95 DOS games will bounce. Be specific about the first 60
 > seconds: the loading overlay, the start screen, the briefing wall of text, control discovery,
 > and the first enemy encounter. Research current expectations for browser games — acceptable
 > time-to-first-input, whether mouse-lock prompts cause abandonment, mobile/tablet traffic share
@@ -90,10 +90,10 @@ Do **not** attach `reference/originals/` — the 1995 shareware files stay local
 > actually change (enemy HP? fire rate? player shields? checkpoint density?), and how to avoid
 > the classic failure of the "easy" mode feeling insulting.
 >
-> **6. Feel: Doom + Radix, modernized.** Research and synthesize the specific, *mechanical*
+> **6. Feel: Doom + '95 DOS games, modernized.** Research and synthesize the specific, *mechanical*
 > sources of the Doom feel — weapon kick, hit-stop, enemy pain states and infighting, sprite
 > billboarding readability at distance, sound-design layering, movement speed relative to level
-> geometry — and separately the Radix/Descent-lineage feel of tunnel flight (constant forward
+> geometry — and separately the '95-DOS-games/Descent-lineage feel of tunnel flight (constant forward
 > motion, wall-bounce forgiveness, spatial disorientation and how the good games mitigate it).
 > Produce a prioritized list of the ten changes most likely to raise "this feels great" scores in
 > beta feedback, each with an estimated implementation size (S/M/L) and the risk it damages the

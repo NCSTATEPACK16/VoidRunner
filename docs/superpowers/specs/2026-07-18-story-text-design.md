@@ -17,7 +17,8 @@ playtests everything together) · **Approved by:** John (chat, 2026-07-18)
 - Story lives in **both** places: rotating short "transmission" lines on the web loading overlay,
   and a story paragraph per level on the briefing screen.
 - Tone: **pulpy 90s action** — terse mission-log style, matching the DOS aesthetic.
-  Child-friendly, fully original (constraint §4: never "Radix", no original assets/text).
+  Child-friendly, fully original (constraint §4: never name the '95 DOS games this draws
+  inspiration from, no original assets/text).
 - Content architecture: **Approach 1 — a dedicated lore module** (`scripts/lore.gd`), not
   LevelDef .tres fields (avoids multiline prose in 9 .tres files) and not shell-hardcoded JS
   (level-agnostic, desktop gets nothing).

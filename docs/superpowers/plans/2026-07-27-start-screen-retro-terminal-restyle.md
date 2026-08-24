@@ -23,8 +23,8 @@ the working directory is `void-runner-godot/` (where `project.godot` lives).
 
 - Design/render resolution for all overlays is fixed at **320×200**, single
   screen, no scrolling (`overlays.gd:3` comment; confirmed via Phase I4).
-- No original Radix assets, names, or copy — "VOID RUNNER" only, never
-  "Radix," in any in-game text (project non-negotiable #3).
+- No original '95-DOS-games assets, names, or copy — "VOID RUNNER" only, never
+  the specific inspiration game's name, in any in-game text (project non-negotiable #3).
 - The launch mechanic is not new logic: reuse the existing
   `AudioSys.unlock()` + `launch_requested.emit()` pair exactly as
   `_build_start`'s current `> START` button already calls them

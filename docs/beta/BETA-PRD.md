@@ -14,7 +14,7 @@
 ## 1. Product summary
 
 VOID RUNNER is a browser-playable, MIT-licensed, fully open-source first-person tunnel shooter: an
-original homage to the 1995 DOS 6DOF lineage (*Radix: Beyond the Void*, *Descent*) rendered with a
+original homage to the 1995 DOS 6DOF lineage ('95 DOS games, *Descent*) rendered with a
 Doom-era 320×200 aesthetic. Constant-forward flight through procedurally generated winding
 corridors that open into combat arenas, four energy weapons plus a plasma bomb, a shield/energy/heat
 economy, and light that dies into black shadow.
@@ -79,7 +79,7 @@ or device a Reddit link will realistically deliver.
 **Bar B — Feedback can actually reach me.** There is an obvious, low-friction path from "I have an
 opinion" to "the dev has my opinion," and I can tell how many people played versus bounced.
 
-**Bar C — The first ten minutes are defensible.** A player who has never heard of Radix understands
+**Bar C — The first ten minutes are defensible.** A player who has never heard of '95 DOS games understands
 the controls, survives sector 1, and hits at least one moment they'd describe to a friend.
 
 Everything in §9 is scored against these three bars.
@@ -179,7 +179,7 @@ perfectly onto this project:
   Nothing ships but code. Slower, keeps the story clean.
 - **Option B (pragmatic):** ship the baked sheets as generated assets, with the Blender script
   committed alongside so they are reproducible from source. This is still fully open source and
-  still nothing-from-Radix, but it changes the README's claim from *"no assets"* to *"all assets
+  still nothing from any '95 DOS games, but it changes the README's claim from *"no assets"* to *"all assets
   are generated from committed scripts."* That is a defensible and honestly more impressive claim
   — but it is a **product decision you should make explicitly**, not one to drift into.
 
@@ -221,7 +221,7 @@ charm is that it looks like a DOS program. Figma's job stops at the browser page
 
 ---
 
-## 8. Design direction: "Doom and Radix, modern"
+## 8. Design direction: "Doom and '95 DOS games, modern"
 
 Framing for the work in §9 and for the Desktop research brief's question 6.
 
