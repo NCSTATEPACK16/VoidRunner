@@ -458,35 +458,25 @@ body {
 			window.vrInstallEvent = null;   // a captured prompt can only be shown once
 		};
 
-		// M1.1: phone detection. A coarse pointer alone is not enough — iPad Safari
-		// reports coarse+touch and IS supported with a keyboard — so the short screen
-		// edge is what separates a phone from a tablet. Tablets and desktops boot as
-		// before; anyone the heuristic gets wrong can override it.
+		// M1.1/M4d: phone detection. A coarse pointer alone is not enough — iPad
+		// Safari reports coarse+touch and IS supported with a keyboard — so the
+		// short screen edge is what separates a phone from a tablet. Tablets and
+		// desktops boot as before. M4d: M4b shipped a real, playable touch build,
+		// so a matched device now boots straight into touch play instead of
+		// stopping at the capability card below (#vr-gate) — that card, its
+		// #vr-gate-anyway button, and window.vrGated are left wired but dormant: a
+		// fast-revert fallback for a device this heuristic still gets wrong the
+		// other way (e.g. no WebGL2, already separately caught by the STALLED
+		// AFTER 20s diagnostic above), not the default phone experience anymore.
 		(function () {
 			var coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
 			var touch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 			var shortEdge = Math.min(window.screen.width, window.screen.height);
-			if (window.vrTouchMode) { return; }   // M4a: touch build handles this device
+			if (window.vrTouchMode) { return; }   // already armed via ?touch=1 or an earlier call
 			if (!(touch && coarse && shortEdge < 600)) { return; }
-			var gate = document.getElementById('vr-gate');
-			var load = document.getElementById('vr-loading');
-			if (!gate) { return; }
-			gate.style.display = 'flex';
-			if (load) { load.style.display = 'none'; }
-			window.vrGated = true;
-			var btn = document.getElementById('vr-gate-anyway');
-			if (btn) {
-				btn.addEventListener('click', function () {
-					gate.style.display = 'none';
-					window.vrGated = false;
-					// the card is shown because there are no controls, so anyone who
-					// insists gets the touch build rather than an unplayable one
-					window.vrTouchMode = true;
-					if (window.vrArmPortraitWatch) { window.vrArmPortraitWatch(); }
-					if (load) { load.style.display = 'flex'; }
-					if (window.vrStartEngine) { window.vrStartEngine(); }
-				});
-			}
+			// M4d: the touch build is proven (M4b) — phones boot straight in, no click gate.
+			window.vrTouchMode = true;
+			window.vrArmPortraitWatch();
 		}());
 
 		// M3: anonymous counters + the feedback form, both driven from GDScript.
