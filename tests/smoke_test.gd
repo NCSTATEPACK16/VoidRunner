@@ -640,7 +640,7 @@ func _run() -> void:
 	# the settings panel exposes a control for every one of them
 	var set_p: Control = game.overlays._panels.settings
 	for k in ["volume", "sens", "fov", "dither", "amber", "gamepad", "shake",
-			"reduce_flash", "reduce_roll", "invert_y"]:
+			"reduce_flash", "reduce_roll", "invert_y", "dpad"]:
 		assert(game.overlays._settings_labels.has(k))
 	# and none of its controls escapes the 320x200 design box
 	for child in set_p.get_children():
@@ -679,6 +679,13 @@ func _run() -> void:
 	assert(signf(game.player.pitch) == -signf(normal_pitch))
 	GameState.invert_y = false
 	game.player.pitch = 0.0
+	# M4c: touch d-pad toggle defaults off and can be flipped via the button
+	assert(GameState.touch_dpad_enabled == false)   # default off, per D9
+	var dpad_btn := game.overlays._settings_labels["dpad"] as Button
+	dpad_btn.pressed.emit()
+	assert(GameState.touch_dpad_enabled == true)
+	dpad_btn.pressed.emit()
+	assert(GameState.touch_dpad_enabled == false)
 	# M1.2: the warning panel exists and gates the start screen on a fresh profile
 	assert(game.overlays._panels.has("warning"))
 	GameState.seen_warning = false

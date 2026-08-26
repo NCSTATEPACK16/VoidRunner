@@ -369,6 +369,8 @@ func _build_settings() -> void:
 		GameState.reduce_flashing = not GameState.reduce_flashing)
 	_toggle_row(p, Vector2(166, 128), "REDUCE ROLL", "reduce_roll", func() -> void:
 		GameState.reduce_roll = not GameState.reduce_roll)
+	_toggle_row(p, Vector2(166, 146), "TOUCH D-PAD", "dpad", func() -> void:
+		GameState.touch_dpad_enabled = not GameState.touch_dpad_enabled)
 	_button(p, Vector2(134, 174), "< BACK", func() -> void: show_only(_settings_return))
 	_refresh_settings()
 
@@ -416,6 +418,7 @@ func _refresh_settings() -> void:
 	_set_toggle("reduce_flash", GameState.reduce_flashing)
 	_set_toggle("reduce_roll", GameState.reduce_roll)
 	_set_toggle("invert_y", GameState.invert_y)
+	_set_toggle("dpad", GameState.touch_dpad_enabled)
 
 
 func _set_label(key: String, text: String) -> void:
