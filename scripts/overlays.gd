@@ -44,6 +44,10 @@ var _sector_label: Label
 var _high_label: Label
 var _help_pad: Label   # K6: gamepad line on the controls screen, shown only when enabled
 
+# D11: install-nudge buttons (start/game_over/victory), built once at boot but
+# hidden/shown live — see _refresh_install_buttons().
+var _install_buttons: Array[Button] = []
+
 
 func _ready() -> void:
 	_build_start()
@@ -64,6 +68,12 @@ func show_only(panel_name: String) -> void:
 		_panels[key].visible = key == panel_name
 	if panel_name == "start":
 		_refresh_start()
+	# D11: beforeinstallprompt fires asynchronously and may not have arrived yet when
+	# these panels were first built at boot (Overlays._ready() runs as early as
+	# anything in the pipeline) — re-check live every time a panel that can show the
+	# button becomes visible, instead of baking a one-time answer into construction.
+	if panel_name in ["start", "game_over", "victory"]:
+		_refresh_install_buttons()
 	if panel_name == "help" and _help_pad:
 		_help_pad.text = "PAD  stick · A/RT fire · X/B roll" \
 			if GameState.gamepad_enabled else ""
@@ -659,17 +669,35 @@ func _feedback_button(p: Control, pos: Vector2) -> void:
 ## D11: one install-nudge button, built the same way everywhere it appears.
 ## Compact-styled (see _compact) and TEXT_COL rather than a CTA color, because
 ## this is a passive, always-skippable nudge, never a gate — "ask only at the
-## end," per D11. Only renders where the browser actually offered an install
-## prompt (see web/vr_shell.html's vrCanInstall) — never shown on desktop, in
-## headless tests, or on iOS Safari (which never fires beforeinstallprompt).
+## end," per D11. Never built at all off the web (desktop/headless — JavaScriptBridge
+## doesn't exist there and never will). On the web it IS always constructed, but
+## starts hidden: beforeinstallprompt (which vrCanInstall() depends on) fires
+## asynchronously and may not have arrived yet by the time this panel is first
+## built at boot (Overlays._ready() runs as early as anything in the pipeline), so
+## the yes/no answer can't be decided once here. _refresh_install_buttons() below
+## re-checks live and shows/hides it whenever a panel that can display it is shown.
 func _install_button(p: Control, pos: Vector2) -> void:
 	if not OS.has_feature("web"):
-		return
-	if not JavaScriptBridge.eval("window.vrCanInstall ? window.vrCanInstall() : false"):
 		return
 	var b := _compact(_button(p, pos, "INSTALL APP", func() -> void:
 		JavaScriptBridge.eval("if (window.vrPromptInstall) window.vrPromptInstall();"), TEXT_COL))
 	b.add_theme_font_size_override("font_size", 6)   # quieter still — narrow enough to sit in a row gap
+	b.visible = false
+	_install_buttons.append(b)
+
+
+## D11: re-evaluates window.vrCanInstall() and shows/hides every tracked install
+## button to match. Called from show_only() whenever a panel that can display one
+## becomes visible — cheap (a single JS bridge call), and correctly picks up a
+## beforeinstallprompt that arrived after boot. A shown-but-hidden button on a
+## panel that isn't the visible one costs nothing: Control visibility is AND'd
+## with every ancestor's, so it stays invisible regardless of its own flag.
+func _refresh_install_buttons() -> void:
+	if _install_buttons.is_empty():
+		return
+	var can: bool = JavaScriptBridge.eval("window.vrCanInstall ? window.vrCanInstall() : false")
+	for b in _install_buttons:
+		b.visible = can
 
 
 ## M2: Godot's default Button stylebox carries enough content margin that at font

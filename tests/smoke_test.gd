@@ -1057,20 +1057,33 @@ func _run() -> void:
 		+ "button geometry stays inside the 320x200 canvas, deactivation releases everything")
 	# --- Task 4 (M4c/M4d plan): end-of-session install nudge (D11) ---
 	# _install_button() guards on OS.has_feature("web"), which is always false here
-	# (headless and every desktop editor run), so JavaScriptBridge — which doesn't
-	# exist off the web export — is never touched. The three panels that call it
-	# (_build_start/_build_game_over/_build_victory) already built successfully as
-	# part of booting `game` above; a headless run reaching this line with no
-	# SCRIPT ERROR *is* the test for that guard. There's nothing to assert against
-	# a feature that is correctly, unconditionally absent here — so instead assert
-	# the button genuinely rendered nowhere, since a stray one slipping past the
-	# guard would be an actual bug.
+	# (headless and every desktop editor run), so the button node is never even
+	# constructed and JavaScriptBridge — which doesn't exist off the web export — is
+	# never touched. The three panels that call it (_build_start/_build_game_over/
+	# _build_victory) already built successfully as part of booting `game` above; a
+	# headless run reaching this line with no SCRIPT ERROR *is* the test for that
+	# guard. There's nothing to assert against a feature that is correctly,
+	# unconditionally absent here — so instead assert the button genuinely rendered
+	# nowhere, since a stray one slipping past the guard would be an actual bug.
+	# review fix: availability used to be decided once at panel-construction time,
+	# which could permanently miss a beforeinstallprompt that fires after Overlays
+	# boots. show_only() now re-checks live via _refresh_install_buttons() every time
+	# the start/game_over/victory panel is shown — but that path is *also* gated on
+	# OS.has_feature("web") (_install_buttons stays empty off the web, so the
+	# refresh early-returns without ever calling JavaScriptBridge), so it remains
+	# exactly as untestable headless as the original check was, for the same reason.
+	assert(game.overlays._install_buttons.is_empty())   # never constructed off the web
+	game.overlays._refresh_install_buttons()   # must be a safe no-op (early-returns on the empty array, before touching JavaScriptBridge)
 	for panel_name in ["start", "game_over", "victory"]:
 		var install_seen := 0
 		for child in (game.overlays._panels[panel_name] as Control).get_children():
 			if child is Button and (child as Button).text == "INSTALL APP":
 				install_seen += 1
 		assert(install_seen == 0)
+	# show_only() now calls _refresh_install_buttons() too (review fix) — exercise that
+	# real call path, not just the standalone function, and confirm it's still a no-op
+	game.overlays.show_only("start")
+	assert(game.overlays._install_buttons.is_empty())
 	print("D11 ok — install nudge is a no-op off the web build (OS.has_feature(\"web\") == false)")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
