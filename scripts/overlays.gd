@@ -352,26 +352,40 @@ func _build_settings() -> void:
 	_setting_row(p, 28, "VOLUME", "volume")
 	_setting_row(p, 46, "MOUSE SENS", "sens")
 	_setting_row(p, 64, "FIELD OF VIEW", "fov")
-	_box(p, Rect2(8, 88, 304, 78), TITLE_COL, "COMFORT & DISPLAY")
+	# M4c: gyro fine-aim is boolean like the toggle grid below, not numeric like
+	# the stepper rows above it — but the grid is already a full 2x4 (Task 1's
+	# D-PAD took the last slot), so this gets its own row rather than distorting
+	# the grid's column symmetry. Everything from the box down shifts by +18 to
+	# make room (not a flat +12 — the extra 6 keeps the box's "[ COMFORT &
+	# DISPLAY ]" title label, drawn 9u above its rect, clear of this row).
+	_toggle_row(p, Vector2(14, 82), "GYRO AIM", "gyro", func() -> void:
+		# iOS Safari only grants DeviceOrientationEvent permission from inside a
+		# user-gesture handler, and this tap IS that gesture — fire it before the
+		# flip (pre-flip = "turning on") so it runs exactly once, on the actual
+		# gesture that enables the feature, never on load or repeatedly.
+		if not GameState.gyro_aim_enabled and OS.has_feature("web"):
+			JavaScriptBridge.eval("if (window.vrRequestGyro) window.vrRequestGyro();")
+		GameState.gyro_aim_enabled = not GameState.gyro_aim_enabled)
+	_box(p, Rect2(8, 100, 304, 78), TITLE_COL, "COMFORT & DISPLAY")
 	# left column
-	_toggle_row(p, Vector2(14, 92), "DITHER", "dither", func() -> void:
+	_toggle_row(p, Vector2(14, 104), "DITHER", "dither", func() -> void:
 		GameState.dither_enabled = not GameState.dither_enabled)
-	_toggle_row(p, Vector2(14, 110), "AMBER TERM", "amber", func() -> void:
+	_toggle_row(p, Vector2(14, 122), "AMBER TERM", "amber", func() -> void:
 		GameState.amber_mode = not GameState.amber_mode)
-	_toggle_row(p, Vector2(14, 128), "GAMEPAD", "gamepad", func() -> void:
+	_toggle_row(p, Vector2(14, 140), "GAMEPAD", "gamepad", func() -> void:
 		GameState.gamepad_enabled = not GameState.gamepad_enabled)
-	_toggle_row(p, Vector2(14, 146), "INVERT Y", "invert_y", func() -> void:
+	_toggle_row(p, Vector2(14, 158), "INVERT Y", "invert_y", func() -> void:
 		GameState.invert_y = not GameState.invert_y)
 	# right column
-	_toggle_row(p, Vector2(166, 92), "SCREEN SHAKE", "shake", func() -> void:
+	_toggle_row(p, Vector2(166, 104), "SCREEN SHAKE", "shake", func() -> void:
 		GameState.screen_shake = not GameState.screen_shake)
-	_toggle_row(p, Vector2(166, 110), "REDUCE FLASH", "reduce_flash", func() -> void:
+	_toggle_row(p, Vector2(166, 122), "REDUCE FLASH", "reduce_flash", func() -> void:
 		GameState.reduce_flashing = not GameState.reduce_flashing)
-	_toggle_row(p, Vector2(166, 128), "REDUCE ROLL", "reduce_roll", func() -> void:
+	_toggle_row(p, Vector2(166, 140), "REDUCE ROLL", "reduce_roll", func() -> void:
 		GameState.reduce_roll = not GameState.reduce_roll)
-	_toggle_row(p, Vector2(166, 146), "TOUCH D-PAD", "dpad", func() -> void:
+	_toggle_row(p, Vector2(166, 158), "TOUCH D-PAD", "dpad", func() -> void:
 		GameState.touch_dpad_enabled = not GameState.touch_dpad_enabled)
-	_button(p, Vector2(134, 174), "< BACK", func() -> void: show_only(_settings_return))
+	_button(p, Vector2(134, 186), "< BACK", func() -> void: show_only(_settings_return))
 	_refresh_settings()
 
 
@@ -419,6 +433,7 @@ func _refresh_settings() -> void:
 	_set_toggle("reduce_roll", GameState.reduce_roll)
 	_set_toggle("invert_y", GameState.invert_y)
 	_set_toggle("dpad", GameState.touch_dpad_enabled)
+	_set_toggle("gyro", GameState.gyro_aim_enabled)
 
 
 func _set_label(key: String, text: String) -> void:

@@ -640,7 +640,7 @@ func _run() -> void:
 	# the settings panel exposes a control for every one of them
 	var set_p: Control = game.overlays._panels.settings
 	for k in ["volume", "sens", "fov", "dither", "amber", "gamepad", "shake",
-			"reduce_flash", "reduce_roll", "invert_y", "dpad"]:
+			"reduce_flash", "reduce_roll", "invert_y", "dpad", "gyro"]:
 		assert(game.overlays._settings_labels.has(k))
 	# and none of its controls escapes the 320x200 design box
 	for child in set_p.get_children():
@@ -686,6 +686,34 @@ func _run() -> void:
 	assert(GameState.touch_dpad_enabled == true)
 	dpad_btn.pressed.emit()
 	assert(GameState.touch_dpad_enabled == false)
+	# M4c: gyro fine-aim toggle defaults off and flips via the button, same
+	# pattern as the D-pad toggle above.
+	assert(GameState.gyro_aim_enabled == false)   # default off
+	var gyro_btn := game.overlays._settings_labels["gyro"] as Button
+	gyro_btn.pressed.emit()
+	assert(GameState.gyro_aim_enabled == true)
+	gyro_btn.pressed.emit()
+	assert(GameState.gyro_aim_enabled == false)
+	# Headless has no real gyroscope (Input.get_gyroscope() is always ZERO here),
+	# so actual tilt response needs a real iOS/Android device (parked, like
+	# M4a's Android check and M4b's touch feel). What IS verifiable here: the
+	# real update_flight() code path runs without error both off and on, and is
+	# a harmless no-op given a zero sensor reading. delta=0.0 isolates the gyro
+	# term from every other per-frame effect (movement, energy, collision), so
+	# yaw/pitch must come back exactly as they went in either way.
+	assert(Input.get_gyroscope() == Vector3.ZERO)
+	var gyro_yaw0: float = game.player.yaw
+	var gyro_pitch0: float = game.player.pitch
+	GameState.gyro_aim_enabled = false
+	game.player.update_flight(0.0)
+	assert(is_equal_approx(game.player.yaw, gyro_yaw0))
+	assert(is_equal_approx(game.player.pitch, gyro_pitch0))
+	GameState.gyro_aim_enabled = true
+	game.player.update_flight(0.0)
+	assert(is_equal_approx(game.player.yaw, gyro_yaw0))
+	assert(is_equal_approx(game.player.pitch, gyro_pitch0))
+	GameState.gyro_aim_enabled = false
+	print("gyro ok — toggle round-trips; update_flight() path is inert with no real sensor")
 	# M1.2: the warning panel exists and gates the start screen on a fresh profile
 	assert(game.overlays._panels.has("warning"))
 	GameState.seen_warning = false

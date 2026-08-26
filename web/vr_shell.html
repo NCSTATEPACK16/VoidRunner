@@ -498,6 +498,22 @@ body {
 			document.head.appendChild(sc);
 		}());
 
+		// M4c: iOS Safari only grants DeviceOrientationEvent permission when
+		// requestPermission() is called from inside a user-gesture handler — a
+		// plain page-load listener is silently ignored. overlays.gd calls this
+		// once, synchronously, from the GYRO AIM toggle's own press handler (the
+		// actual required gesture), gated to firing only when turning it on.
+		window.vrRequestGyro = function () {
+			if (typeof DeviceOrientationEvent !== 'undefined'
+					&& typeof DeviceOrientationEvent.requestPermission === 'function') {
+				DeviceOrientationEvent.requestPermission().catch(function () {});
+			}
+			// Android and desktop browsers need no permission call — Godot's own
+			// DeviceOrientationEvent listener (registered internally by the engine
+			// on web export) picks up events once any listener has been attached,
+			// which the iOS branch above satisfies as a side effect of the request.
+		};
+
 		// GDScript drives these via JavaScriptBridge.eval (see game.gd).
 		(function () {
 			window.vrShowLoading = function (msg, lines) {
