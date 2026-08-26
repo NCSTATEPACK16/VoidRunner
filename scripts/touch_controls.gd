@@ -282,7 +282,11 @@ func _on_touch(t: InputEventScreenTouch) -> void:
 				_update_dpad(t.position)
 			else:
 				_start_stick(t.position)
-				_check_boost_tap(t.position)
+			# D10: boost-tap detection is position-based (BOOST_TAP_DIST from the
+			# touch's *start* position), independent of which steering UI owns the
+			# zone — so it must run regardless of stick vs. D-pad mode, not just
+			# in the stick branch.
+			_check_boost_tap(t.position)
 	else:
 		if t.index == _fire_touch:
 			_fire_touch = -1
@@ -352,8 +356,16 @@ func _end_stick() -> void:
 	Input.action_release("steer_right")
 	Input.action_release("steer_up")
 	Input.action_release("steer_down")
-	# ring visibility (steering OR boost) is derived once per frame in _process();
-	# only the knob (which implies an active finger) hides unconditionally here.
+	# Explicit, not left to _process()'s per-frame derivation alone: _process() only
+	# runs while this layer is active, and a pause (which always routes through here
+	# via _release_all(), while the D-pad setting is still whatever it was before the
+	# pause) turns _process() off in the very same call that reaches this function.
+	# If the setting then flips to D-pad while paused, _process()'s derivation for
+	# stick-ring visibility is permanently skipped once D-pad mode is active, so
+	# nothing would ever un-stick a ring left visible from before the pause. Clear
+	# both panels' visuals here so there's no window where a mode change can leave
+	# this stale.
+	_stick_ring.visible = false
 	_stick_knob.visible = false
 
 
@@ -400,12 +412,14 @@ func _process(delta: float) -> void:
 		_set_boost(false)
 	# ring shows while a finger is steering OR boost is self-running — derived
 	# fresh every frame instead of set from multiple call sites, so there's only
-	# one place that can get this condition wrong. Gated to stick mode only: the
-	# D-pad's own visibility is handled directly by _update_dpad()/_end_dpad(), and
-	# both panels exist simultaneously in the tree, so this line must not fight it
-	# when D-pad mode is active.
-	if not GameState.touch_dpad_enabled:
-		_stick_ring.visible = _steer_touch >= 0 or _boost_active
+	# one place that can get this condition wrong. The D-pad-disabled check is
+	# folded into the same expression (not a separate "skip when D-pad is on"
+	# guard) so this line always runs and always forces the ring hidden in D-pad
+	# mode, rather than merely declining to touch a value that might be stale from
+	# before a mode switch — belt-and-suspenders alongside _end_stick() explicitly
+	# clearing it on release. The D-pad's own visibility is handled directly by
+	# _update_dpad()/_end_dpad(); both panels exist simultaneously in the tree.
+	_stick_ring.visible = not GameState.touch_dpad_enabled and (_steer_touch >= 0 or _boost_active)
 	# idle fade: the layer recedes when nothing has been touched for a couple of
 	# seconds, without ever fully hiding — hiding would mean hunting for it again.
 	# A held touch (steering, firing, ...) counts as "being touched" even though no

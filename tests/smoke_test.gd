@@ -920,26 +920,99 @@ func _run() -> void:
 	# touch can claim the left zone.
 	touch._steer_touch = -1
 	GameState.touch_dpad_enabled = true
-	var dpad_pos: Vector2 = touch._dpad_up.get_global_rect().get_center()
+	var dpad_up_pos: Vector2 = touch._dpad_up.get_global_rect().get_center()
+	var dpad_right_pos: Vector2 = touch._dpad_right.get_global_rect().get_center()
 	var dp_down := InputEventScreenTouch.new()
 	dp_down.index = 6
-	dp_down.position = dpad_pos
+	dp_down.position = dpad_up_pos
 	dp_down.pressed = true
 	touch._input(dp_down)
 	assert(touch._steer_touch == 6)
 	assert(touch._dpad_root.visible)
 	assert(is_equal_approx(Input.get_action_strength("steer_up"), 1.0))
+	# a drag from the "up" cell into the (non-overlapping) "right" cell must release
+	# steer_up and press steer_right within the same _update_dpad() call — this is
+	# the edge-triggered diff loop actually changing which direction is active,
+	# not just a single static press+release on one cell.
+	var dp_drag := InputEventScreenDrag.new()
+	dp_drag.index = 6
+	dp_drag.position = dpad_right_pos
+	touch._input(dp_drag)
+	assert(is_equal_approx(Input.get_action_strength("steer_up"), 0.0))
+	assert(is_equal_approx(Input.get_action_strength("steer_right"), 1.0))
 	var dp_up := InputEventScreenTouch.new()
 	dp_up.index = 6
-	dp_up.position = dpad_pos
+	dp_up.position = dpad_right_pos
 	dp_up.pressed = false
 	touch._input(dp_up)
-	assert(is_equal_approx(Input.get_action_strength("steer_up"), 0.0))
+	assert(is_equal_approx(Input.get_action_strength("steer_right"), 0.0))
+	assert(touch._steer_touch == -1)
+	assert(not touch._dpad_root.visible)
+	print("M4c ok — D-pad drag from \"up\" into \"right\" swaps steer_up/steer_right in one call, "
+		+ "releases cleanly, default (stick) path above is unchanged")
+	# Important #2 fix: D10's double-tap boost must still work in D-pad mode — boost-tap
+	# detection is position-based (BOOST_TAP_DIST from the touch's *start* position),
+	# independent of which steering UI owns the zone. Position chosen clear of the
+	# D-pad's own bottom-left box so this tap can't also land inside a D-pad cell.
+	var dtap_pos := Vector2(vp_w * 0.15, 20.0)
+	var dtap_a := InputEventScreenTouch.new()
+	dtap_a.index = 8
+	dtap_a.position = dtap_pos
+	dtap_a.pressed = true
+	touch._input(dtap_a)
+	var dtap_a_up := InputEventScreenTouch.new()
+	dtap_a_up.index = 8
+	dtap_a_up.position = dtap_pos
+	dtap_a_up.pressed = false
+	touch._input(dtap_a_up)
+	var dtap_b := InputEventScreenTouch.new()
+	dtap_b.index = 9
+	dtap_b.position = dtap_pos + Vector2(5.0, 5.0)   # well inside BOOST_TAP_DIST
+	dtap_b.pressed = true
+	touch._input(dtap_b)   # second tap of the pair — toggles boost on, same as stick mode
+	assert(touch._boost_active)
+	assert(Input.is_action_pressed("boost"))
+	var dtap_energy_before := GameState.energy
+	GameState.energy = 0.0
+	touch._process(0.016)
+	assert(not touch._boost_active)          # depletion auto-cancels it, same as stick mode
+	assert(not Input.is_action_pressed("boost"))
+	GameState.energy = dtap_energy_before
+	var dtap_b_up := InputEventScreenTouch.new()
+	dtap_b_up.index = 9
+	dtap_b_up.position = dtap_b.position
+	dtap_b_up.pressed = false
+	touch._input(dtap_b_up)
 	assert(touch._steer_touch == -1)
 	assert(not touch._dpad_root.visible)
 	GameState.touch_dpad_enabled = false
-	print("M4c ok — D-pad mode dispatches steer_up at full strength via the same left zone "
-		+ "and releases cleanly, default (stick) path is unchanged")
+	print("M4c ok — D10 boost double-tap toggles and self-depletes identically in D-pad mode")
+	# Important #1 regression: a floating stick ring left visible from before a pause
+	# must not survive a stick -> D-pad mode switch made while paused (the setting can
+	# only change while touch_ui is inactive, so this reproduces the real
+	# steer -> pause -> open settings -> enable D-pad -> resume sequence exactly).
+	var ring_pos := Vector2(vp_w * 0.2, 90.0)
+	var ring_down := InputEventScreenTouch.new()
+	ring_down.index = 10
+	ring_down.position = ring_pos
+	ring_down.pressed = true
+	touch._input(ring_down)
+	assert(touch._stick_ring.visible)          # _start_stick() shows it
+	# "pause": set_flight_active(false) always runs _release_all() first, while the
+	# setting is still false here — this is the call that must clear the ring.
+	touch.set_flight_active(false)
+	assert(not touch._stick_ring.visible)
+	# "open settings, flip the toggle" — only reachable while touch_ui is inactive
+	GameState.touch_dpad_enabled = true
+	# "resume" — set_flight_active(true) touches no stick/D-pad state itself, so the
+	# ring must already have been clear before this, not merely about to become so
+	assert(not touch._stick_ring.visible)
+	touch.set_flight_active(true)
+	assert(not touch._stick_ring.visible)
+	touch._process(0.016)                      # a real frame after resuming, D-pad mode active
+	assert(not touch._stick_ring.visible)
+	GameState.touch_dpad_enabled = false
+	print("M4c ok — floating stick ring can't survive a stick->D-pad mode switch made mid-pause")
 	# set_flight_active(false) must leave nothing pressed — the whole point of M4b-1's
 	# "never disabled" fix
 	Input.action_press("steer_left", 1.0)
