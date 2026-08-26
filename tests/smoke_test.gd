@@ -912,6 +912,34 @@ func _run() -> void:
 	bomb_up.position = bomb_pos
 	bomb_up.pressed = false
 	touch._input(bomb_up)
+	# M4c: D-pad mode drives the same steer_* actions at full strength, and the
+	# stick path above (run entirely with the default touch_dpad_enabled == false)
+	# proves the D-pad addition left that default path untouched. tap_b earlier
+	# (index 3) claimed _steer_touch and was never released — reset it here the
+	# same way the block below resets it for its own purposes, so a fresh D-pad
+	# touch can claim the left zone.
+	touch._steer_touch = -1
+	GameState.touch_dpad_enabled = true
+	var dpad_pos: Vector2 = touch._dpad_up.get_global_rect().get_center()
+	var dp_down := InputEventScreenTouch.new()
+	dp_down.index = 6
+	dp_down.position = dpad_pos
+	dp_down.pressed = true
+	touch._input(dp_down)
+	assert(touch._steer_touch == 6)
+	assert(touch._dpad_root.visible)
+	assert(is_equal_approx(Input.get_action_strength("steer_up"), 1.0))
+	var dp_up := InputEventScreenTouch.new()
+	dp_up.index = 6
+	dp_up.position = dpad_pos
+	dp_up.pressed = false
+	touch._input(dp_up)
+	assert(is_equal_approx(Input.get_action_strength("steer_up"), 0.0))
+	assert(touch._steer_touch == -1)
+	assert(not touch._dpad_root.visible)
+	GameState.touch_dpad_enabled = false
+	print("M4c ok — D-pad mode dispatches steer_up at full strength via the same left zone "
+		+ "and releases cleanly, default (stick) path is unchanged")
 	# set_flight_active(false) must leave nothing pressed — the whole point of M4b-1's
 	# "never disabled" fix
 	Input.action_press("steer_left", 1.0)
