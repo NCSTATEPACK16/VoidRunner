@@ -6,6 +6,7 @@ extends Node
 ##   1b. Tab automap over explored L1  -> shot_automap.png
 ##   2. L1 first arena, guards live   -> shot_arena.png
 ##   3. L3 boss room, boss in view    -> shot_boss.png
+##   4. game-over / victory panels    -> shot_game_over.png / shot_victory.png
 ## Output dir: VR_SHOT_DIR env var, else user://shots. Restores records/settings.
 
 
@@ -112,6 +113,14 @@ func _run() -> void:
 	game.player.pitch = 0.0
 	await _fly(game, 45)
 	await _capture(game, "shot_boss.png", dir)
+	# 4) game-over and victory — Task 4's install-nudge button lands on both; these
+	# overlays render outside the 320x200 SubViewport, hence _capture_root.
+	game.overlays.set_final_score("game_over", 4200, false)
+	game.overlays.show_only("game_over")
+	await _capture_root("shot_game_over.png", dir)
+	game.overlays.set_final_score("victory", 15800, true)
+	game.overlays.show_only("victory")
+	await _capture_root("shot_victory.png", dir)
 	print("SCREENSHOT PROBE COMPLETE")
 	for f in saved:
 		if saved[f] == null:

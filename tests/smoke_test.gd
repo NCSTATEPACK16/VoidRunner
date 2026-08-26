@@ -1055,6 +1055,23 @@ func _run() -> void:
 	print("M4b ok — zone ownership holds under a second finger, stick strength is proportional, "
 		+ "boost double-tap toggles and self-depletes, weapon/bomb taps fire their signals, "
 		+ "button geometry stays inside the 320x200 canvas, deactivation releases everything")
+	# --- Task 4 (M4c/M4d plan): end-of-session install nudge (D11) ---
+	# _install_button() guards on OS.has_feature("web"), which is always false here
+	# (headless and every desktop editor run), so JavaScriptBridge — which doesn't
+	# exist off the web export — is never touched. The three panels that call it
+	# (_build_start/_build_game_over/_build_victory) already built successfully as
+	# part of booting `game` above; a headless run reaching this line with no
+	# SCRIPT ERROR *is* the test for that guard. There's nothing to assert against
+	# a feature that is correctly, unconditionally absent here — so instead assert
+	# the button genuinely rendered nowhere, since a stray one slipping past the
+	# guard would be an actual bug.
+	for panel_name in ["start", "game_over", "victory"]:
+		var install_seen := 0
+		for child in (game.overlays._panels[panel_name] as Control).get_children():
+			if child is Button and (child as Button).text == "INSTALL APP":
+				install_seen += 1
+		assert(install_seen == 0)
+	print("D11 ok — install nudge is a no-op off the web build (OS.has_feature(\"web\") == false)")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

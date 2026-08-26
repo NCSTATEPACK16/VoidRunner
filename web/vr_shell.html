@@ -437,6 +437,27 @@ body {
 			if (window.vrTouchMode) { window.vrArmPortraitWatch(); }
 		}());
 
+		// D11: capture the browser's install prompt. beforeinstallprompt fires once,
+		// early, and only if the browser considers the page installable (HTTPS, a
+		// valid manifest, etc.) — it must be stashed immediately at script load, not
+		// requested on demand, or it's gone by the time a player reaches game-over.
+		// iOS Safari never fires this event at all (Apple has no equivalent API), so
+		// vrCanInstall() correctly returns false there and the in-game button simply
+		// doesn't render — the right behavior, not a bug to route around.
+		window.vrInstallEvent = null;
+		window.addEventListener('beforeinstallprompt', function (e) {
+			e.preventDefault();
+			window.vrInstallEvent = e;
+		});
+		window.vrCanInstall = function () {
+			return window.vrInstallEvent !== null;
+		};
+		window.vrPromptInstall = function () {
+			if (!window.vrInstallEvent) { return; }
+			window.vrInstallEvent.prompt();
+			window.vrInstallEvent = null;   // a captured prompt can only be shown once
+		};
+
 		// M1.1: phone detection. A coarse pointer alone is not enough — iPad Safari
 		// reports coarse+touch and IS supported with a keyboard — so the short screen
 		// edge is what separates a phone from a tablet. Tablets and desktops boot as

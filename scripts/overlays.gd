@@ -230,6 +230,7 @@ func _build_start() -> void:
 		gauntlet_requested.emit())
 	# M1.4: build stamp, so a bug report can name the build it came from
 	_at(p, Vector2(4, 190), BuildInfo.label(), 7, Color("3d4a63"))
+	_install_button(p, Vector2(176, 176))   # D11: quiet, next to the build stamp
 
 
 func _build_help() -> void:
@@ -311,6 +312,7 @@ func _build_game_over() -> void:
 	rec.name = "Record"
 	_button(p, Vector2(120, 132), "@ RETRY LEVEL", func() -> void: retry_requested.emit())
 	_feedback_button(p, Vector2(104, 158))   # M3
+	_install_button(p, Vector2(104, 182))   # D11
 
 
 func _build_level_clear() -> void:
@@ -339,6 +341,7 @@ func _build_victory() -> void:
 	rec.name = "Record"
 	_button(p, Vector2(112, 136), "@ NEW CAMPAIGN", func() -> void: new_campaign_requested.emit())
 	_feedback_button(p, Vector2(104, 160))   # M3
+	_install_button(p, Vector2(104, 184))   # D11
 
 
 ## H: volume + mouse sensitivity (stepper rows) and a dither on/off toggle. All
@@ -651,6 +654,22 @@ func _feedback_button(p: Control, pos: Vector2) -> void:
 	if not Feedback.is_configured():
 		return
 	_button(p, pos, "F  SEND FEEDBACK", func() -> void: Feedback.open_form(), ORANGE_COL)
+
+
+## D11: one install-nudge button, built the same way everywhere it appears.
+## Compact-styled (see _compact) and TEXT_COL rather than a CTA color, because
+## this is a passive, always-skippable nudge, never a gate — "ask only at the
+## end," per D11. Only renders where the browser actually offered an install
+## prompt (see web/vr_shell.html's vrCanInstall) — never shown on desktop, in
+## headless tests, or on iOS Safari (which never fires beforeinstallprompt).
+func _install_button(p: Control, pos: Vector2) -> void:
+	if not OS.has_feature("web"):
+		return
+	if not JavaScriptBridge.eval("window.vrCanInstall ? window.vrCanInstall() : false"):
+		return
+	var b := _compact(_button(p, pos, "INSTALL APP", func() -> void:
+		JavaScriptBridge.eval("if (window.vrPromptInstall) window.vrPromptInstall();"), TEXT_COL))
+	b.add_theme_font_size_override("font_size", 6)   # quieter still — narrow enough to sit in a row gap
 
 
 ## M2: Godot's default Button stylebox carries enough content margin that at font
