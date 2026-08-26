@@ -640,14 +640,22 @@ func _run() -> void:
 	# the settings panel exposes a control for every one of them
 	var set_p: Control = game.overlays._panels.settings
 	for k in ["volume", "sens", "fov", "dither", "amber", "gamepad", "shake",
-			"reduce_flash", "reduce_roll", "invert_y", "dpad", "gyro"]:
+			"reduce_flash", "reduce_roll", "invert_y", "dpad"]:
 		assert(game.overlays._settings_labels.has(k))
-	# and none of its controls escapes the 320x200 design box
+	# and none of its controls escapes the 320x200 design box.
+	# M4c final review: this used to be a top-left-only `position.y <= 190` check,
+	# which is what let the BACK button ship visibly clipped — a plain (non-_compact)
+	# Button is ~20 units tall, so a y of 188 passed the old assert while painting
+	# 8 units past the canvas floor. Check the FULL rect against the FULL canvas,
+	# the same way the touch-controls geometry guard further down already does.
+	# get_rect() ignores Control.scale, and overlays.gd's _line() helper paints at
+	# 2x size scaled 0.5 — no such label is on this panel today, but measuring the
+	# painted rect (size * scale) keeps this honest if one is ever added.
+	var design_box := Rect2(Vector2.ZERO, Vector2(320, 200))
 	for child in set_p.get_children():
 		if child is Button or child is Label:
 			var c := child as Control
-			assert(c.position.x >= 0.0 and c.position.y >= 0.0)
-			assert(c.position.y <= 190.0)
+			assert(design_box.encloses(Rect2(c.position, c.size * c.scale)))
 	# FOV clamps at both ends rather than running away
 	for _i in 20:
 		game.overlays._adjust_setting("fov", 1)
@@ -686,21 +694,33 @@ func _run() -> void:
 	assert(GameState.touch_dpad_enabled == true)
 	dpad_btn.pressed.emit()
 	assert(GameState.touch_dpad_enabled == false)
-	# M4c: gyro fine-aim toggle defaults off and flips via the button, same
-	# pattern as the D-pad toggle above.
+	# M4c final review: the GYRO AIM settings row was REMOVED. Godot 4.7's web
+	# export ships no device-orientation/-motion listener, so Input.get_gyroscope()
+	# is permanently ZERO in a browser and web is this game's only mobile delivery —
+	# the control persisted a setting, fired an iOS permission prompt, and then did
+	# nothing. Assert it stays gone rather than leaving a hole where it was.
+	assert(not game.overlays._settings_labels.has("gyro"))
+	for child in set_p.get_children():
+		if child is Label:
+			assert((child as Label).text != "GYRO AIM")
+	# The FIELD and its persistence stay as dormant scaffolding for a future session
+	# that writes a real JS orientation bridge, so keep covering them: it defaults
+	# off, round-trips through settings.cfg, and — critically — nothing in the
+	# shipped UI can ever set it true now.
 	assert(GameState.gyro_aim_enabled == false)   # default off
-	var gyro_btn := game.overlays._settings_labels["gyro"] as Button
-	gyro_btn.pressed.emit()
-	assert(GameState.gyro_aim_enabled == true)
-	gyro_btn.pressed.emit()
-	assert(GameState.gyro_aim_enabled == false)
-	# Headless has no real gyroscope (Input.get_gyroscope() is always ZERO here),
-	# so actual tilt response needs a real iOS/Android device (parked, like
-	# M4a's Android check and M4b's touch feel). What IS verifiable here: the
-	# real update_flight() code path runs without error both off and on, and is
-	# a harmless no-op given a zero sensor reading. delta=0.0 isolates the gyro
-	# term from every other per-frame effect (movement, energy, collision), so
-	# yaw/pitch must come back exactly as they went in either way.
+	GameState.gyro_aim_enabled = true
+	GameState.apply_settings()
+	GameState.gyro_aim_enabled = false
+	GameState.load_settings()
+	assert(GameState.gyro_aim_enabled == true)    # persisted round-trip
+	GameState.gyro_aim_enabled = false
+	GameState.apply_settings()                    # restore the shipped default
+	# Headless has no real gyroscope (Input.get_gyroscope() is always ZERO here) —
+	# and neither does the web build, which is the whole reason the UI is gone. What
+	# IS verifiable here: player.gd's dormant gyro block runs without error both off
+	# and on, and is a harmless no-op given a zero sensor reading. delta=0.0 isolates
+	# the gyro term from every other per-frame effect (movement, energy, collision),
+	# so yaw/pitch must come back exactly as they went in either way.
 	assert(Input.get_gyroscope() == Vector3.ZERO)
 	var gyro_yaw0: float = game.player.yaw
 	var gyro_pitch0: float = game.player.pitch
@@ -713,7 +733,8 @@ func _run() -> void:
 	assert(is_equal_approx(game.player.yaw, gyro_yaw0))
 	assert(is_equal_approx(game.player.pitch, gyro_pitch0))
 	GameState.gyro_aim_enabled = false
-	print("gyro ok — toggle round-trips; update_flight() path is inert with no real sensor")
+	print("gyro ok — settings row removed (inert on web); field still round-trips and "
+		+ "update_flight()'s dormant path is a no-op with no real sensor")
 	# M1.2: the warning panel exists and gates the start screen on a fresh profile
 	assert(game.overlays._panels.has("warning"))
 	GameState.seen_warning = false
@@ -824,9 +845,16 @@ func _run() -> void:
 	# fire-button-rect assertions below simply reading whatever the new numbers are.
 	var vp := get_viewport().get_visible_rect()
 	assert(vp.size == Vector2(320, 200))
+	# M4c final review: _dpad_root joins this check — it is this branch's new
+	# geometry and was never covered by it.
+	for c in [touch._fire_btn, touch._bomb_btn, touch._weapon_btn, touch._dpad_root]:
+		assert(Rect2(Vector2.ZERO, Vector2(320, 200)).encloses(c.get_global_rect()))
 	for btn in [touch._fire_btn, touch._bomb_btn, touch._weapon_btn]:
-		assert(Rect2(Vector2.ZERO, Vector2(320, 200)).encloses(btn.get_global_rect()))
 		assert(btn.get_global_rect().position.x > 320.0 * TouchControls.LEFT_ZONE_FRAC)
+	# ...and the D-pad's rect must sit wholly INSIDE the left steering zone, since
+	# _on_touch() now narrows D-pad steering ownership from the zone to this rect:
+	# a pad overlapping the button side would make that narrowing unsound.
+	assert(touch._dpad_root.get_global_rect().end.x <= 320.0 * TouchControls.LEFT_ZONE_FRAC)
 	var vp_w: float = vp.size.x
 	# a touch in the left zone becomes the steer touch and spawns the stick
 	var left_pos := Vector2(vp_w * 0.2, 100.0)
@@ -948,8 +976,33 @@ func _run() -> void:
 	# touch can claim the left zone.
 	touch._steer_touch = -1
 	GameState.touch_dpad_enabled = true
+	# M4c final review #1: a FIXED pad has to be visible before anyone touches it.
+	# It used to be shown from the press handler, so it was invisible until the
+	# player had already guessed where it was. Visibility is now derived in
+	# _process() from the setting alone — prove it with no touch at all, and prove
+	# the two steering UIs stay mutually exclusive.
+	assert(not touch._dpad_root.visible)   # setting was off until the line above
+	touch._process(0.016)
+	assert(touch._dpad_root.visible)
+	assert(not touch._stick_ring.visible)
 	var dpad_up_pos: Vector2 = touch._dpad_up.get_global_rect().get_center()
 	var dpad_right_pos: Vector2 = touch._dpad_right.get_global_rect().get_center()
+	# M4c final review #2: a left-zone touch OUTSIDE the pad's own rect must not
+	# claim steering. It used to, and then blocked every real D-pad press until
+	# that finger lifted. Uses a y well above the bottom-left pad box.
+	var off_pad := Vector2(vp_w * 0.35, 30.0)
+	assert(not touch._dpad_root.get_global_rect().has_point(off_pad))
+	var off_down := InputEventScreenTouch.new()
+	off_down.index = 11
+	off_down.position = off_pad
+	off_down.pressed = true
+	touch._input(off_down)
+	assert(touch._steer_touch == -1)       # not claimed — the pad is still free
+	var off_up := InputEventScreenTouch.new()
+	off_up.index = 11
+	off_up.position = off_pad
+	off_up.pressed = false
+	touch._input(off_up)
 	var dp_down := InputEventScreenTouch.new()
 	dp_down.index = 6
 	dp_down.position = dpad_up_pos
@@ -968,16 +1021,47 @@ func _run() -> void:
 	touch._input(dp_drag)
 	assert(is_equal_approx(Input.get_action_strength("steer_up"), 0.0))
 	assert(is_equal_approx(Input.get_action_strength("steer_right"), 1.0))
+	# M4c final review #3: the D-pad must be able to produce a TRUE DIAGONAL. It
+	# could not — the four cells were hit-tested as rects laid out in a strict cross
+	# that share only corner points, so the directions were geometrically mutually
+	# exclusive and yaw+pitch together was unreachable. Every other steering input in
+	# this game (keyboard, stick, gamepad) combines both axes, and this is a winding-
+	# corridor flight game. Hit-testing is now axis thresholds from the pad's centre.
+	# Drag into the up-left quadrant of the pad's rect and demand BOTH actions.
+	var dpad_rect := touch._dpad_root.get_global_rect()
+	var diag_pos := dpad_rect.position + dpad_rect.size * 0.25   # up-left quadrant
+	var dp_diag := InputEventScreenDrag.new()
+	dp_diag.index = 6
+	dp_diag.position = diag_pos
+	touch._input(dp_diag)
+	assert(is_equal_approx(Input.get_action_strength("steer_up"), 1.0))
+	assert(is_equal_approx(Input.get_action_strength("steer_left"), 1.0))
+	assert(Input.get_action_strength("steer_down") == 0.0)
+	assert(Input.get_action_strength("steer_right") == 0.0)
+	# ...and the pad's centre is still a neutral dead zone, so a diagonal is a
+	# deliberate reach rather than the whole pad reading as "some direction".
+	var dp_centre := InputEventScreenDrag.new()
+	dp_centre.index = 6
+	dp_centre.position = dpad_rect.get_center()
+	touch._input(dp_centre)
+	for act in ["steer_up", "steer_down", "steer_left", "steer_right"]:
+		assert(Input.get_action_strength(act) == 0.0)
+	# back onto a diagonal so the release below has something to clear
+	touch._input(dp_diag)
 	var dp_up := InputEventScreenTouch.new()
 	dp_up.index = 6
-	dp_up.position = dpad_right_pos
+	dp_up.position = diag_pos
 	dp_up.pressed = false
 	touch._input(dp_up)
-	assert(is_equal_approx(Input.get_action_strength("steer_right"), 0.0))
+	for act in ["steer_up", "steer_down", "steer_left", "steer_right"]:
+		assert(Input.get_action_strength(act) == 0.0)
 	assert(touch._steer_touch == -1)
-	assert(not touch._dpad_root.visible)
+	# the fixed pad stays on screen after the finger lifts — hiding it here used to
+	# blink it out for a frame on every release
+	assert(touch._dpad_root.visible)
 	print("M4c ok — D-pad drag from \"up\" into \"right\" swaps steer_up/steer_right in one call, "
-		+ "releases cleanly, default (stick) path above is unchanged")
+		+ "up-left quadrant holds steer_up AND steer_left together, centre is a dead zone, "
+		+ "releases cleanly, pad stays visible, default (stick) path above is unchanged")
 	# Important #2 fix: D10's double-tap boost must still work in D-pad mode — boost-tap
 	# detection is position-based (BOOST_TAP_DIST from the touch's *start* position),
 	# independent of which steering UI owns the zone. Position chosen clear of the
@@ -1011,9 +1095,12 @@ func _run() -> void:
 	dtap_b_up.position = dtap_b.position
 	dtap_b_up.pressed = false
 	touch._input(dtap_b_up)
-	assert(touch._steer_touch == -1)
-	assert(not touch._dpad_root.visible)
+	assert(touch._steer_touch == -1)   # a boost tap outside the pad never owns steering
+	assert(touch._dpad_root.visible)   # ...and never hides the fixed pad either
+	# turning the setting off is the ONE thing that takes the pad off screen
 	GameState.touch_dpad_enabled = false
+	touch._process(0.016)
+	assert(not touch._dpad_root.visible)
 	print("M4c ok — D10 boost double-tap toggles and self-depletes identically in D-pad mode")
 	# Important #1 regression: a floating stick ring left visible from before a pause
 	# must not survive a stick -> D-pad mode switch made while paused (the setting can

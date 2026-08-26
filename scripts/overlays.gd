@@ -356,52 +356,48 @@ func _build_victory() -> void:
 
 ## H: volume + mouse sensitivity (stepper rows) and a dither on/off toggle. All
 ## values live on GameState, which applies + persists them; rows just adjust + refresh.
-## Phase H settings, rebuilt at M2 for ten controls: three adjustable rows across
-## the top, then a two-column toggle grid. 320x200 has no room for ten stacked
-## rows, and a scrolling settings panel in a DOS cockpit would look wrong.
+## Phase H settings, rebuilt at M2 and extended at M4c: eleven controls — three
+## adjustable stepper rows across the top, then a 2x4 toggle grid. 320x200 has no
+## room for eleven stacked rows, and a scrolling settings panel in a DOS cockpit
+## would look wrong.
+##
+## M4c final review: a twelfth control (GYRO AIM) briefly lived above the box and
+## pushed everything below it down by 18, which clipped the BACK button against the
+## canvas bottom. It was removed — Godot 4.7's web export has no device-orientation
+## source feeding Input.get_gyroscope() (grep the exported index.js: zero
+## deviceorientation/devicemotion handlers), and web is this game's only mobile
+## delivery, so the toggle was inert. GameState.gyro_aim_enabled and player.gd's
+## additive nudge stay as dormant scaffolding for a future real JS bridge; with no
+## UI to set the flag, nothing can turn them on. The layout below is back to its
+## pre-gyro geometry.
 func _build_settings() -> void:
 	var p := _panel("settings")
 	_title(p, "SETTINGS", 14, TITLE_COL, 4)
 	_setting_row(p, 28, "VOLUME", "volume")
 	_setting_row(p, 46, "MOUSE SENS", "sens")
 	_setting_row(p, 64, "FIELD OF VIEW", "fov")
-	# M4c: gyro fine-aim is boolean like the toggle grid below, not numeric like
-	# the stepper rows above it — but the grid is already a full 2x4 (Task 1's
-	# D-PAD took the last slot), so this gets its own row rather than distorting
-	# the grid's column symmetry. A rendered screenshot (not just arithmetic)
-	# showed a flat +12 reflow leaves this row's text jammed against the box's
-	# "[ COMFORT & DISPLAY ]" title label (drawn 9u above its rect) — a +18 box
-	# shift restores the same ~15u breathing room every other row-to-row gap on
-	# this screen has, at the cost of a tighter (but still clear, and rendered
-	# on-screen with no clipping) gap below the box before the BACK button.
-	_toggle_row(p, Vector2(14, 82), "GYRO AIM", "gyro", func() -> void:
-		# iOS Safari only grants DeviceOrientationEvent permission from inside a
-		# user-gesture handler, and this tap IS that gesture — fire it before the
-		# flip (pre-flip = "turning on") so it runs exactly once, on the actual
-		# gesture that enables the feature, never on load or repeatedly.
-		if not GameState.gyro_aim_enabled and OS.has_feature("web"):
-			JavaScriptBridge.eval("if (window.vrRequestGyro) window.vrRequestGyro();")
-		GameState.gyro_aim_enabled = not GameState.gyro_aim_enabled)
-	_box(p, Rect2(8, 106, 304, 78), TITLE_COL, "COMFORT & DISPLAY")
+	_box(p, Rect2(8, 88, 304, 78), TITLE_COL, "COMFORT & DISPLAY")
 	# left column
-	_toggle_row(p, Vector2(14, 110), "DITHER", "dither", func() -> void:
+	_toggle_row(p, Vector2(14, 92), "DITHER", "dither", func() -> void:
 		GameState.dither_enabled = not GameState.dither_enabled)
-	_toggle_row(p, Vector2(14, 128), "AMBER TERM", "amber", func() -> void:
+	_toggle_row(p, Vector2(14, 110), "AMBER TERM", "amber", func() -> void:
 		GameState.amber_mode = not GameState.amber_mode)
-	_toggle_row(p, Vector2(14, 146), "GAMEPAD", "gamepad", func() -> void:
+	_toggle_row(p, Vector2(14, 128), "GAMEPAD", "gamepad", func() -> void:
 		GameState.gamepad_enabled = not GameState.gamepad_enabled)
-	_toggle_row(p, Vector2(14, 164), "INVERT Y", "invert_y", func() -> void:
+	_toggle_row(p, Vector2(14, 146), "INVERT Y", "invert_y", func() -> void:
 		GameState.invert_y = not GameState.invert_y)
 	# right column
-	_toggle_row(p, Vector2(166, 110), "SCREEN SHAKE", "shake", func() -> void:
+	_toggle_row(p, Vector2(166, 92), "SCREEN SHAKE", "shake", func() -> void:
 		GameState.screen_shake = not GameState.screen_shake)
-	_toggle_row(p, Vector2(166, 128), "REDUCE FLASH", "reduce_flash", func() -> void:
+	_toggle_row(p, Vector2(166, 110), "REDUCE FLASH", "reduce_flash", func() -> void:
 		GameState.reduce_flashing = not GameState.reduce_flashing)
-	_toggle_row(p, Vector2(166, 146), "REDUCE ROLL", "reduce_roll", func() -> void:
+	_toggle_row(p, Vector2(166, 128), "REDUCE ROLL", "reduce_roll", func() -> void:
 		GameState.reduce_roll = not GameState.reduce_roll)
-	_toggle_row(p, Vector2(166, 164), "TOUCH D-PAD", "dpad", func() -> void:
+	_toggle_row(p, Vector2(166, 146), "TOUCH D-PAD", "dpad", func() -> void:
 		GameState.touch_dpad_enabled = not GameState.touch_dpad_enabled)
-	_button(p, Vector2(134, 188), "< BACK", func() -> void: show_only(_settings_return))
+	# BACK is a plain (non-_compact) Button, so its stylebox makes it ~20 units tall:
+	# y=174 puts its bottom edge at ~194, clear of the 200-unit canvas floor.
+	_button(p, Vector2(134, 174), "< BACK", func() -> void: show_only(_settings_return))
 	_refresh_settings()
 
 
@@ -449,7 +445,6 @@ func _refresh_settings() -> void:
 	_set_toggle("reduce_roll", GameState.reduce_roll)
 	_set_toggle("invert_y", GameState.invert_y)
 	_set_toggle("dpad", GameState.touch_dpad_enabled)
-	_set_toggle("gyro", GameState.gyro_aim_enabled)
 
 
 func _set_label(key: String, text: String) -> void:
