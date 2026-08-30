@@ -3,10 +3,14 @@ extends CanvasLayer
 ## ownership and a floating rate-control joystick.
 ##
 ## Every touch is owned by exactly one of: a button (FIRE/WEAPON/BOMB, right side)
-## or the steering stick (anywhere in the left 45%). No touch can affect both, which
-## is what makes "steer while firing" actually work on two thumbs — the M4a spike
-## let the whole non-button screen steer, so a thumb reaching for FIRE could yank
-## the ship mid-corner.
+## or steering. No touch can affect both, which is what makes "steer while firing"
+## actually work on two thumbs — the M4a spike let the whole non-button screen steer,
+## so a thumb reaching for FIRE could yank the ship mid-corner.
+##
+## What counts as a steering touch depends on the mode (D9): the floating stick takes
+## anywhere in the left 45%, since the touch itself defines where the stick appears;
+## the fixed D-pad takes only its own rect, since it is already somewhere specific and
+## a thumb resting elsewhere on the left shouldn't lock it out.
 ##
 ## Lives OUTSIDE the 320x200 SubViewport (like Overlays) so button/stick geometry is
 ## in 320x200 canvas units (matching hud.gd/overlays.gd), not real screen pixels —
@@ -29,6 +33,17 @@ const LEFT_ZONE_FRAC := 0.45
 ## D10: double-tap window/radius to toggle boost, in seconds / canvas units.
 const BOOST_TAP_WINDOW := 0.3
 const BOOST_TAP_DIST := 15.0
+## M4c: fixed D-pad alternative to the floating stick (opt-in, D9). A 4-arrow cross
+## anchored bottom-left, wholly inside the left steering zone but claiming only its
+## own 3x3 rect — not the zone (see _on_touch). It can't collide with the boost
+## double-tap either, since that uses BOOST_TAP_DIST from the touch's *start*
+## position rather than a fixed zone, so any D-pad placement is safe.
+const DPAD_BTN_SIZE := 22.0
+const DPAD_ANCHOR := Vector2(58.0, 50.0)   # (right, up) offset from bottom-left corner
+## Dead-zone radius, in canvas units, measured from the pad's centre before a
+## direction registers. Small relative to the pad's 66-unit footprint, so the
+## neutral spot is only the middle of the hub, not a third of the control.
+const DPAD_DEAD := 6.0
 ## Button sizes (diameter, canvas units) per the "Thumbs On Glass" spec, rescaled
 ## into the 320x200 canvas_items space.
 const FIRE_SIZE := 32.0
@@ -62,6 +77,12 @@ var _weapon_btn: Panel
 var _bomb_btn: Panel
 var _stick_ring: Panel
 var _stick_knob: Panel
+var _dpad_root: Control
+var _dpad_up: Panel
+var _dpad_down: Panel
+var _dpad_left: Panel
+var _dpad_right: Panel
+var _dpad_pressed := {"up": false, "down": false, "left": false, "right": false}
 
 
 func _ready() -> void:
@@ -116,6 +137,37 @@ func _build() -> void:
 	_fps_label.add_theme_font_size_override("font_size", 7)
 	_fps_label.add_theme_color_override("font_color", Color(0.4, 1.0, 0.6))
 	_root.add_child(_fps_label)
+	_build_dpad()
+
+
+func _build_dpad() -> void:
+	_dpad_root = Control.new()
+	_dpad_root.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_dpad_root.position = Vector2(DPAD_ANCHOR.x - DPAD_BTN_SIZE * 1.5, -DPAD_ANCHOR.y - DPAD_BTN_SIZE * 1.5)
+	_dpad_root.size = Vector2(DPAD_BTN_SIZE * 3.0, DPAD_BTN_SIZE * 3.0)
+	_dpad_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dpad_root.visible = false
+	_root.add_child(_dpad_root)
+	var mid := DPAD_BTN_SIZE
+	_dpad_up = _dpad_cell(Vector2(mid, 0.0))
+	_dpad_down = _dpad_cell(Vector2(mid, mid * 2.0))
+	_dpad_left = _dpad_cell(Vector2(0.0, mid))
+	_dpad_right = _dpad_cell(Vector2(mid * 2.0, mid))
+
+
+func _dpad_cell(pos: Vector2) -> Panel:
+	var btn := Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(1.0, 0.61, 0.25, 0.16)
+	sb.border_color = Color(1.0, 0.61, 0.25, 0.55)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(4)
+	btn.add_theme_stylebox_override("panel", sb)
+	btn.position = pos
+	btn.size = Vector2(DPAD_BTN_SIZE, DPAD_BTN_SIZE)
+	btn.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dpad_root.add_child(btn)
+	return btn
 
 
 ## One button, bottom-right-anchored, offset (right, up) canvas units from that
@@ -180,8 +232,12 @@ func _release_all() -> void:
 		fire_held.emit(false)
 	_weapon_touch = -1
 	_bomb_touch = -1
-	_steer_touch = -1
-	_end_stick()
+	if _steer_touch >= 0:
+		_steer_touch = -1
+	if GameState.touch_dpad_enabled:
+		_end_dpad()
+	else:
+		_end_stick()
 	if _boost_active:
 		_set_boost(false)
 
@@ -208,7 +264,10 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag:
 		var d := event as InputEventScreenDrag
 		if d.index == _steer_touch:
-			_update_stick(d.position)
+			if GameState.touch_dpad_enabled:
+				_update_dpad(d.position)
+			else:
+				_update_stick(d.position)
 
 
 func _on_touch(t: InputEventScreenTouch) -> void:
@@ -223,11 +282,30 @@ func _on_touch(t: InputEventScreenTouch) -> void:
 		elif _in_rect(_weapon_btn, t.position) and _weapon_touch < 0:
 			_weapon_touch = t.index
 			weapon_tapped.emit()
-		elif t.position.x < get_viewport().get_visible_rect().size.x * LEFT_ZONE_FRAC \
-				and _steer_touch < 0:
-			_steer_touch = t.index
-			_start_stick(t.position)
-			_check_boost_tap(t.position)
+		elif t.position.x < get_viewport().get_visible_rect().size.x * LEFT_ZONE_FRAC:
+			# D10: boost-tap detection is position-based (BOOST_TAP_DIST from the
+			# touch's *start* position), independent of which steering UI owns the
+			# zone — so it must run regardless of stick vs. D-pad mode, not just
+			# in the stick branch.
+			if GameState.touch_dpad_enabled:
+				# The D-pad is a FIXED control: only its own rect owns steering, not
+				# the whole left zone. Gating on the zone (as this used to) meant a
+				# thumb resting anywhere on the left — off the visible cross — claimed
+				# _steer_touch and then silently blocked every D-pad press until that
+				# finger lifted, with nothing on screen explaining why. A touch outside
+				# the pad now falls through and steers nothing, but is still eligible
+				# for the boost double-tap below, which has never been about zone
+				# ownership. (The pad's rect sits entirely inside the left zone, so
+				# this is a strict narrowing — it can never claim a button touch.)
+				if _steer_touch < 0 and _dpad_root.get_global_rect().has_point(t.position):
+					_steer_touch = t.index
+					_update_dpad(t.position)
+				_check_boost_tap(t.position)
+			elif _steer_touch < 0:
+				# floating stick: unchanged — the touch itself defines where the stick is
+				_steer_touch = t.index
+				_start_stick(t.position)
+				_check_boost_tap(t.position)
 	else:
 		if t.index == _fire_touch:
 			_fire_touch = -1
@@ -238,7 +316,10 @@ func _on_touch(t: InputEventScreenTouch) -> void:
 			_bomb_touch = -1
 		if t.index == _steer_touch:
 			_steer_touch = -1
-			_end_stick()
+			if GameState.touch_dpad_enabled:
+				_end_dpad()
+			else:
+				_end_stick()
 
 
 func _check_boost_tap(pos: Vector2) -> void:
@@ -294,9 +375,71 @@ func _end_stick() -> void:
 	Input.action_release("steer_right")
 	Input.action_release("steer_up")
 	Input.action_release("steer_down")
-	# ring visibility (steering OR boost) is derived once per frame in _process();
-	# only the knob (which implies an active finger) hides unconditionally here.
+	# Explicit, not left to _process()'s per-frame derivation alone: _process() only
+	# runs while this layer is active, and a pause (which always routes through here
+	# via _release_all(), while the D-pad setting is still whatever it was before the
+	# pause) turns _process() off in the very same call that reaches this function.
+	# If the setting then flips to D-pad while paused, _process()'s derivation for
+	# stick-ring visibility is permanently skipped once D-pad mode is active, so
+	# nothing would ever un-stick a ring left visible from before the pause. Clear
+	# both panels' visuals here so there's no window where a mode change can leave
+	# this stale.
+	_stick_ring.visible = false
 	_stick_knob.visible = false
+
+
+## D-pad is discrete (on/off per direction), not proportional like the stick: at most
+## one horizontal + one vertical direction active at once, so a diagonal hold reads as
+## e.g. up+left together, matching how a real D-pad works.
+##
+## Hit-testing is by axis offset from the pad's centre, NOT by the four visible cell
+## rects. Those rects are laid out as a strict cross and share only single corner
+## POINTS, never overlapping area — and Rect2.has_point() gives a shared corner to
+## neither cell — so testing them made the four directions geometrically mutually
+## exclusive and a true diagonal unreachable. Keyboard, stick and gamepad can all
+## combine yaw and pitch; in a winding-corridor flight game the D-pad has to as well.
+## The visible cross is unchanged; only the measurement is.
+##
+## A finger that slides past the pad's edge keeps steering in that direction rather
+## than snapping to neutral — thresholds are unbounded on purpose, the same
+## forgiveness the floating stick gets from limit_length().
+func _update_dpad(pos: Vector2) -> void:
+	var d := (pos - _dpad_root.global_position) - _dpad_root.size * 0.5
+	var want := {"up": false, "down": false, "left": false, "right": false}
+	if d.x < -DPAD_DEAD:
+		want.left = true
+	elif d.x > DPAD_DEAD:
+		want.right = true
+	if d.y < -DPAD_DEAD:
+		want.up = true
+	elif d.y > DPAD_DEAD:
+		want.down = true
+	for dir in want:
+		if want[dir] and not _dpad_pressed[dir]:
+			Input.action_press("steer_%s" % dir, 1.0)
+		elif not want[dir] and _dpad_pressed[dir]:
+			Input.action_release("steer_%s" % dir)
+	_dpad_pressed = want
+	_dpad_up.modulate = Color(1.4, 1.4, 1.4) if want.up else Color.WHITE
+	_dpad_down.modulate = Color(1.4, 1.4, 1.4) if want.down else Color.WHITE
+	_dpad_left.modulate = Color(1.4, 1.4, 1.4) if want.left else Color.WHITE
+	_dpad_right.modulate = Color(1.4, 1.4, 1.4) if want.right else Color.WHITE
+
+
+## Clears the pressed directions only. The pad itself deliberately stays on screen:
+## it is a FIXED control, and _process() drives its visibility straight from the
+## setting. Hiding it here (as this used to) blinked it out of existence for a frame
+## on every finger lift, and — worse, before that — meant it was never visible at all
+## until the player had already guessed where it was and touched it.
+func _end_dpad() -> void:
+	for dir in _dpad_pressed:
+		if _dpad_pressed[dir]:
+			Input.action_release("steer_%s" % dir)
+	_dpad_pressed = {"up": false, "down": false, "left": false, "right": false}
+	_dpad_up.modulate = Color.WHITE
+	_dpad_down.modulate = Color.WHITE
+	_dpad_left.modulate = Color.WHITE
+	_dpad_right.modulate = Color.WHITE
 
 
 func _process(delta: float) -> void:
@@ -311,8 +454,22 @@ func _process(delta: float) -> void:
 		_set_boost(false)
 	# ring shows while a finger is steering OR boost is self-running — derived
 	# fresh every frame instead of set from multiple call sites, so there's only
-	# one place that can get this condition wrong.
-	_stick_ring.visible = _steer_touch >= 0 or _boost_active
+	# one place that can get this condition wrong. The D-pad-disabled check is
+	# folded into the same expression (not a separate "skip when D-pad is on"
+	# guard) so this line always runs and always forces the ring hidden in D-pad
+	# mode, rather than merely declining to touch a value that might be stale from
+	# before a mode switch — belt-and-suspenders alongside _end_stick() explicitly
+	# clearing it on release. Both panels exist simultaneously in the tree, and the
+	# two lines below are each other's complement, so exactly one steering UI is on
+	# screen at a time.
+	_stick_ring.visible = not GameState.touch_dpad_enabled and (_steer_touch >= 0 or _boost_active)
+	# The D-pad is FIXED, not floating: it must be on screen BEFORE it is touched, or
+	# the player can't see where to put their thumb — which was the whole point of
+	# offering it. So it is driven by the setting alone, unconditionally every frame,
+	# never by touch state (that's what the cells' modulate is for) and never from a
+	# press handler. Dimming is handled by _root.modulate below, shared with the rest
+	# of the layer, so the pad participates in the same idle fade as the buttons.
+	_dpad_root.visible = GameState.touch_dpad_enabled
 	# idle fade: the layer recedes when nothing has been touched for a couple of
 	# seconds, without ever fully hiding — hiding would mean hunting for it again.
 	# A held touch (steering, firing, ...) counts as "being touched" even though no

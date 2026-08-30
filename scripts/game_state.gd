@@ -334,6 +334,14 @@ var reduce_roll := false
 var invert_y := false
 ## M2.2: vertical FOV in degrees; player.gd reads this every frame.
 var view_fov := 78.0
+## M4c: swaps the floating steering stick for a fixed D-pad. Off by default —
+## the stick is what a first-time touch player meets (D9); this is the opt-in alt.
+var touch_dpad_enabled := false
+## M4c: small additive fine-aim nudge from device tilt, on top of stick/D-pad
+## steering. Opt-in — iOS requires an explicit permission gesture (the settings
+## toggle fires it) and a constant background nudge is disorienting for anyone
+## who doesn't want it.
+var gyro_aim_enabled := false
 ## M1.2: set once the photosensitivity warning has been acknowledged.
 var seen_warning := false
 # V2.2 L2b: combat-state flags game.gd maintains for the music intensity engine
@@ -364,6 +372,8 @@ func load_settings() -> void:
 		reduce_roll = cfg.get_value("settings", "reduce_roll", reduce_roll)
 		invert_y = cfg.get_value("settings", "invert_y", invert_y)
 		view_fov = cfg.get_value("settings", "fov", view_fov)
+		touch_dpad_enabled = cfg.get_value("settings", "dpad", touch_dpad_enabled)
+		gyro_aim_enabled = cfg.get_value("settings", "gyro", gyro_aim_enabled)
 		seen_warning = cfg.get_value("settings", "seen_warning", seen_warning)
 
 
@@ -379,6 +389,8 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "reduce_roll", reduce_roll)
 	cfg.set_value("settings", "invert_y", invert_y)
 	cfg.set_value("settings", "fov", view_fov)
+	cfg.set_value("settings", "dpad", touch_dpad_enabled)
+	cfg.set_value("settings", "gyro", gyro_aim_enabled)
 	cfg.set_value("settings", "seen_warning", seen_warning)
 	cfg.save("user://settings.cfg")
 

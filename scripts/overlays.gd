@@ -44,6 +44,10 @@ var _sector_label: Label
 var _high_label: Label
 var _help_pad: Label   # K6: gamepad line on the controls screen, shown only when enabled
 
+# D11: install-nudge buttons (start/game_over/victory), built once at boot but
+# hidden/shown live — see _refresh_install_buttons().
+var _install_buttons: Array[Button] = []
+
 
 func _ready() -> void:
 	_build_start()
@@ -64,6 +68,12 @@ func show_only(panel_name: String) -> void:
 		_panels[key].visible = key == panel_name
 	if panel_name == "start":
 		_refresh_start()
+	# D11: beforeinstallprompt fires asynchronously and may not have arrived yet when
+	# these panels were first built at boot (Overlays._ready() runs as early as
+	# anything in the pipeline) — re-check live every time a panel that can show the
+	# button becomes visible, instead of baking a one-time answer into construction.
+	if panel_name in ["start", "game_over", "victory"]:
+		_refresh_install_buttons()
 	if panel_name == "help" and _help_pad:
 		_help_pad.text = "PAD  stick · A/RT fire · X/B roll" \
 			if GameState.gamepad_enabled else ""
@@ -230,6 +240,7 @@ func _build_start() -> void:
 		gauntlet_requested.emit())
 	# M1.4: build stamp, so a bug report can name the build it came from
 	_at(p, Vector2(4, 190), BuildInfo.label(), 7, Color("3d4a63"))
+	_install_button(p, Vector2(176, 176))   # D11: quiet, next to the build stamp
 
 
 func _build_help() -> void:
@@ -311,6 +322,7 @@ func _build_game_over() -> void:
 	rec.name = "Record"
 	_button(p, Vector2(120, 132), "@ RETRY LEVEL", func() -> void: retry_requested.emit())
 	_feedback_button(p, Vector2(104, 158))   # M3
+	_install_button(p, Vector2(104, 182))   # D11
 
 
 func _build_level_clear() -> void:
@@ -339,13 +351,25 @@ func _build_victory() -> void:
 	rec.name = "Record"
 	_button(p, Vector2(112, 136), "@ NEW CAMPAIGN", func() -> void: new_campaign_requested.emit())
 	_feedback_button(p, Vector2(104, 160))   # M3
+	_install_button(p, Vector2(104, 184))   # D11
 
 
 ## H: volume + mouse sensitivity (stepper rows) and a dither on/off toggle. All
 ## values live on GameState, which applies + persists them; rows just adjust + refresh.
-## Phase H settings, rebuilt at M2 for ten controls: three adjustable rows across
-## the top, then a two-column toggle grid. 320x200 has no room for ten stacked
-## rows, and a scrolling settings panel in a DOS cockpit would look wrong.
+## Phase H settings, rebuilt at M2 and extended at M4c: eleven controls — three
+## adjustable stepper rows across the top, then a 2x4 toggle grid. 320x200 has no
+## room for eleven stacked rows, and a scrolling settings panel in a DOS cockpit
+## would look wrong.
+##
+## M4c final review: a twelfth control (GYRO AIM) briefly lived above the box and
+## pushed everything below it down by 18, which clipped the BACK button against the
+## canvas bottom. It was removed — Godot 4.7's web export has no device-orientation
+## source feeding Input.get_gyroscope() (grep the exported index.js: zero
+## deviceorientation/devicemotion handlers), and web is this game's only mobile
+## delivery, so the toggle was inert. GameState.gyro_aim_enabled and player.gd's
+## additive nudge stay as dormant scaffolding for a future real JS bridge; with no
+## UI to set the flag, nothing can turn them on. The layout below is back to its
+## pre-gyro geometry.
 func _build_settings() -> void:
 	var p := _panel("settings")
 	_title(p, "SETTINGS", 14, TITLE_COL, 4)
@@ -369,6 +393,10 @@ func _build_settings() -> void:
 		GameState.reduce_flashing = not GameState.reduce_flashing)
 	_toggle_row(p, Vector2(166, 128), "REDUCE ROLL", "reduce_roll", func() -> void:
 		GameState.reduce_roll = not GameState.reduce_roll)
+	_toggle_row(p, Vector2(166, 146), "TOUCH D-PAD", "dpad", func() -> void:
+		GameState.touch_dpad_enabled = not GameState.touch_dpad_enabled)
+	# BACK is a plain (non-_compact) Button, so its stylebox makes it ~20 units tall:
+	# y=174 puts its bottom edge at ~194, clear of the 200-unit canvas floor.
 	_button(p, Vector2(134, 174), "< BACK", func() -> void: show_only(_settings_return))
 	_refresh_settings()
 
@@ -416,6 +444,7 @@ func _refresh_settings() -> void:
 	_set_toggle("reduce_flash", GameState.reduce_flashing)
 	_set_toggle("reduce_roll", GameState.reduce_roll)
 	_set_toggle("invert_y", GameState.invert_y)
+	_set_toggle("dpad", GameState.touch_dpad_enabled)
 
 
 func _set_label(key: String, text: String) -> void:
@@ -630,6 +659,40 @@ func _feedback_button(p: Control, pos: Vector2) -> void:
 	if not Feedback.is_configured():
 		return
 	_button(p, pos, "F  SEND FEEDBACK", func() -> void: Feedback.open_form(), ORANGE_COL)
+
+
+## D11: one install-nudge button, built the same way everywhere it appears.
+## Compact-styled (see _compact) and TEXT_COL rather than a CTA color, because
+## this is a passive, always-skippable nudge, never a gate — "ask only at the
+## end," per D11. Never built at all off the web (desktop/headless — JavaScriptBridge
+## doesn't exist there and never will). On the web it IS always constructed, but
+## starts hidden: beforeinstallprompt (which vrCanInstall() depends on) fires
+## asynchronously and may not have arrived yet by the time this panel is first
+## built at boot (Overlays._ready() runs as early as anything in the pipeline), so
+## the yes/no answer can't be decided once here. _refresh_install_buttons() below
+## re-checks live and shows/hides it whenever a panel that can display it is shown.
+func _install_button(p: Control, pos: Vector2) -> void:
+	if not OS.has_feature("web"):
+		return
+	var b := _compact(_button(p, pos, "INSTALL APP", func() -> void:
+		JavaScriptBridge.eval("if (window.vrPromptInstall) window.vrPromptInstall();"), TEXT_COL))
+	b.add_theme_font_size_override("font_size", 6)   # quieter still — narrow enough to sit in a row gap
+	b.visible = false
+	_install_buttons.append(b)
+
+
+## D11: re-evaluates window.vrCanInstall() and shows/hides every tracked install
+## button to match. Called from show_only() whenever a panel that can display one
+## becomes visible — cheap (a single JS bridge call), and correctly picks up a
+## beforeinstallprompt that arrived after boot. A shown-but-hidden button on a
+## panel that isn't the visible one costs nothing: Control visibility is AND'd
+## with every ancestor's, so it stays invisible regardless of its own flag.
+func _refresh_install_buttons() -> void:
+	if _install_buttons.is_empty():
+		return
+	var can: bool = JavaScriptBridge.eval("window.vrCanInstall ? window.vrCanInstall() : false")
+	for b in _install_buttons:
+		b.visible = can
 
 
 ## M2: Godot's default Button stylebox carries enough content margin that at font

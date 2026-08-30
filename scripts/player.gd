@@ -21,6 +21,13 @@ const KB_YAW_RATE := 1.7
 const KB_PITCH_RATE := 1.15
 const MOUSE_SENS := 0.0021
 
+# M4c: gyro fine-aim — an additive nudge from device tilt, layered on top of
+# whatever discrete steering (keyboard/gamepad/stick/D-pad) is already active.
+# GYRO_MAX_NUDGE keeps it a fine-aim assist, never the whole turn.
+const GYRO_YAW_SENS := 0.6     # rad/s of device tilt -> yaw rad/s
+const GYRO_PITCH_SENS := 0.6
+const GYRO_MAX_NUDGE := 0.35   # rad/s cap
+
 # K4 dodge roll: a quick lateral displacement with a short invulnerability window.
 # Spends the shared afterburner energy pool — evading and boosting compete.
 const DODGE_COST := 20.0
@@ -147,6 +154,13 @@ func update_flight(delta: float) -> void:
 		pitch = clampf(pitch + ps * kb_inv * su, -PITCH_LIMIT, PITCH_LIMIT)
 	if sd > 0.0:
 		pitch = clampf(pitch - ps * kb_inv * sd, -PITCH_LIMIT, PITCH_LIMIT)
+	# --- M4c: gyro fine-aim, additive on top of stick/D-pad/keyboard above ---
+	if GameState.gyro_aim_enabled:
+		var gyro := Input.get_gyroscope()
+		var gyaw := clampf(-gyro.y * GYRO_YAW_SENS, -GYRO_MAX_NUDGE, GYRO_MAX_NUDGE)
+		var gpitch := clampf(gyro.x * GYRO_PITCH_SENS * kb_inv, -GYRO_MAX_NUDGE, GYRO_MAX_NUDGE)
+		yaw += gyaw * delta
+		pitch = clampf(pitch + gpitch * delta, -PITCH_LIMIT, PITCH_LIMIT)
 	# --- K6: opt-in gamepad — analog left-stick steer (buttons ride the Input Map;
 	# no pad connected reads 0, so this is inert unless the setting is on) ---
 	if GameState.gamepad_enabled:
