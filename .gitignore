@@ -19,3 +19,4 @@ radix*
 # macOS
 .DS_Store
 .certs/
+.worktrees/
