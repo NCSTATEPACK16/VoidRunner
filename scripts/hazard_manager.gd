@@ -18,17 +18,14 @@ var player: PlayerShip
 var path: PathGen
 
 var _traps: Array[Dictionary] = []   # {node, ring, side, phase, hurt_cd, warned}
-var _mat: StandardMaterial3D
+var _mat: Material
 
 
-## Per-level: crushers wear the zone's wall texture with a hot accent edge —
-## a duplicate of an already-warmed material class (same as doors), so no new
-## shader variant compiles mid-flight.
-func setup(wall_mat: StandardMaterial3D, accent: Color) -> void:
-	_mat = wall_mat.duplicate()
-	_mat.emission_enabled = true
-	_mat.emission = accent
-	_mat.emission_energy_multiplier = 0.3
+## Per-level: crushers wear the zone's wall texture with a hot accent glow —
+## 3.0: a WorldBuilder.prop_material (the one sector shader), so no new shader
+## variant compiles mid-flight.
+func setup(mat: Material) -> void:
+	_mat = mat
 
 
 func clear_all() -> void:

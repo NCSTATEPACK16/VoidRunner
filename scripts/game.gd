@@ -30,6 +30,7 @@ var automap: Automap             # V2.2 L4a: Tab automap, inside the 320x200 Sub
 var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
 var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipped
 var palette_lut: PaletteLUT     # 3.0: 256-color palette + GPU-baked lookup table
+var light_rig: LightRig         # 3.0: every dynamic light (no OmniLight3D anywhere)
 var env: Environment            # K1: per-level fog/ambient moods retune this
 
 var _fire_cd := 0.0
@@ -95,7 +96,10 @@ func _ready() -> void:
 	_gauntlet_def.rings = 200   # initial batch; extend_to() grows it in flight
 	_build_game_view()
 	_build_environment()
+	light_rig = LightRig.new()
+	add_child(light_rig)
 	world = WorldBuilder.new()
+	world.light_rig = light_rig
 	view.add_child(world)
 	player = PlayerShip.new()
 	view.add_child(player)
@@ -260,8 +264,8 @@ func _build_environment() -> void:
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color.BLACK
-	env.fog_depth_begin = 10.0
-	env.fog_depth_end = 100.0
+	env.fog_depth_begin = 18.0   # 3.0: the lit near field reads before the dark eats it
+	env.fog_depth_end = 110.0
 	var we := WorldEnvironment.new()
 	we.environment = env
 	view.add_child(we)
@@ -331,8 +335,7 @@ func _load_level_world(index: int) -> void:
 	automap.setup(path, player)   # V2.2 L4a: explored map resets to the new level
 	var theme: Dictionary = TextureGen.THEMES[level.theme_id]
 	_apply_theme_mood(theme, level)
-	world.rebuild(path, TextureGen.theme_set(level.theme_id, level.level_seed),
-		theme.accent, theme.accent2)
+	world.rebuild(path, level.theme_id)
 	player.world = world
 	enemy_mgr.clear_all()
 	shot_mgr.clear_all()
@@ -341,11 +344,12 @@ func _load_level_world(index: int) -> void:
 	hazard_mgr.clear_all()
 	gib_mgr.clear_all()
 	hazard_mgr.path = path
-	hazard_mgr.setup(world.mats.wall, theme.accent2)
+	hazard_mgr.setup(world.prop_material("wall_d", 0.95, Color.WHITE, theme.accent2 * 0.3))
 	_place_props(level)
 	_place_hazards(level)
 	_place_secrets(level)
-	spur_mgr.setup(path, player, pickup_mgr, world.mats.wall, theme.accent2)   # V2.2 L5
+	spur_mgr.setup(path, player, pickup_mgr,   # V2.2 L5
+		world.prop_material("wall_c", 1.0, Color(1.0, 0.9, 0.7), theme.accent2 * 0.2))
 	_arena_spawned.clear()
 	_arena_kills.clear()
 	_door_queue.clear()
@@ -506,11 +510,13 @@ func _build_secret(ri: int, side: float) -> Dictionary:
 	var ring: Dictionary = path.rings[ri]
 	var mi := MeshInstance3D.new()
 	var box := BoxMesh.new()
-	box.size = Vector3(2.4, (ring.hh - ring.fo - ring.co) * 2.0 - 0.6, PathGen.SEG * 1.6)
+	# 3.0: sized to the wall face between the corner chamfers, not the full height
+	var face_h: float = (ring.hh - ring.fo - ring.co - ring.ch) * 2.0
+	box.size = Vector3(2.4, face_h - 0.6, PathGen.SEG * 1.6)
 	mi.mesh = box
-	var mat: StandardMaterial3D = world.mats.wall.duplicate()
-	mat.albedo_color = Color(0.86, 0.86, 0.97)   # cooler than true wall — the tell
-	mi.material_override = mat
+	# lit to match the wall it hides in, a shade cooler — the manual's "tell"
+	mi.material_override = world.prop_material("wall_a", 1.0,
+		world.ring_light(ri) * Color(0.9, 0.93, 1.12))
 	mi.transform = Transform3D(Basis(ring.r, ring.u, -ring.d),
 		ring.p + ring.r * (side * (ring.hw - 1.2)) + ring.u * ((ring.fo - ring.co) * 0.5))
 	world.add_child(mi)
@@ -834,7 +840,7 @@ func _start_warmup() -> void:
 			+ Vector3.UP * (float(i / 6) - 1.0) * 1.1
 		_warmup_rig.add_child(s)
 	world.warmup_meshes(_warmup_rig, base + Vector3.UP * 2.4)
-	player.muzzle_light.light_energy = 0.6
+	player.muzzle_energy = 0.6
 	shot_mgr.warmup_boom_light(base, true)
 	# teardown is owned by the caller: the desktop path arms a 0.5s timer, the web
 	# path frees the rig after WARM_FRAMES rendered frames (see _web_load_and_warm)
@@ -843,7 +849,7 @@ func _start_warmup() -> void:
 func _end_warmup() -> void:
 	if _warmup_rig and is_instance_valid(_warmup_rig):
 		_warmup_rig.queue_free()
-		player.muzzle_light.light_energy = 0.0
+		player.muzzle_energy = 0.0
 		shot_mgr.warmup_boom_light(Vector3.ZERO, false)
 	_warmup_rig = null
 
@@ -878,6 +884,7 @@ func _process(delta: float) -> void:
 		# geometry + buffer uploads land here so flight never builds a chunk
 		world.prebuild_step(4000)
 	if state != State.PLAYING:
+		_update_lights(delta)
 		return
 	player.update_flight(delta)
 	automap.note_ring(player.ring_idx)   # V2.2 L4a: track the high-water explored ring
@@ -915,9 +922,23 @@ func _process(delta: float) -> void:
 		AudioSys.play_hit()
 	elif GameState.shields > 30.0:
 		_low_shield_warned = false
+	_update_lights(delta)
 	if world.portal_active \
 			and player.position.distance_squared_to(world.portal_position) < PORTAL_TRIGGER_SQ:
 		_level_complete()
+
+
+## 3.0: this frame's dynamic light — headlight, muzzle flash, explosion flashes,
+## glowing shots — then LightRig folds in the level's animated lamps and pushes
+## the best eight into every sector material.
+func _update_lights(delta: float) -> void:
+	light_rig.begin(player.position)
+	light_rig.add(player.headlight_position(), PlayerShip.HEADLIGHT_COLOR,
+		PlayerShip.HEADLIGHT_ENERGY, PlayerShip.HEADLIGHT_RANGE)
+	if player.muzzle_energy > 0.02:
+		light_rig.add(player.muzzle_position(), player.muzzle_color, player.muzzle_energy, 26.0)
+	shot_mgr.feed_lights(light_rig)
+	light_rig.commit(delta)
 
 
 func _update_heat(delta: float) -> void:

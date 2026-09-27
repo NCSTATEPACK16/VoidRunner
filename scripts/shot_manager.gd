@@ -31,8 +31,13 @@ var _pshots: Array[Dictionary] = []
 var _eshots: Array[Dictionary] = []
 var _explosions: Array[Dictionary] = []
 var _sparks: Array[Dictionary] = []
-var _boom_lights: Array[OmniLight3D] = []
+## 3.0: explosion flashes are LightRig feeds, not OmniLight3Ds — a small ring of
+## {pos, energy, color} slots that decay each frame (feed_lights pushes them).
+var _booms: Array[Dictionary] = []
 var _boom_cursor := 0
+const BOOM_SLOTS := 3
+## Glowing shots light the walls as they fly: this many nearest ones get a light.
+const SHOT_LIGHTS := 4
 var _explosion_frames: Array[ImageTexture] = []
 var _enemy_shot_tex: ImageTexture
 var _spark_tex: ImageTexture
@@ -54,13 +59,8 @@ func _ready() -> void:
 	_spark_tex = SpriteGen.star_texture(Palette.ORANGE_3, Palette.ORANGE_1, 8)
 	_dodge_spark_tex = SpriteGen.star_texture(Palette.CYAN_3, Palette.BLUE_2, 8)
 	_missile_tex = SpriteGen.missile_texture()
-	for i in 3:
-		var light := OmniLight3D.new()
-		light.light_color = Color("ff7733")
-		light.light_energy = 0.0
-		light.omni_range = 45.0
-		add_child(light)
-		_boom_lights.append(light)
+	for i in BOOM_SLOTS:
+		_booms.append({"pos": Vector3.ZERO, "energy": 0.0, "color": Color("ff7733")})
 	for i in POOL_PREWARM:   # before the briefing warm-up rig ever runs
 		var s := SpriteGen.make_sprite(_spark_tex, 1.0)
 		s.visible = false
@@ -98,8 +98,8 @@ func clear_all() -> void:
 		for s in arr:
 			_release(s.node)   # pooled nodes survive level transitions
 		arr.clear()
-	for l in _boom_lights:   # no explosion light survives a level transition / warm-up
-		l.light_energy = 0.0
+	for b in _booms:   # no explosion light survives a level transition / warm-up
+		b.energy = 0.0
 
 
 ## Every texture a fight can draw, for the briefing-screen shader warm-up.
@@ -116,11 +116,41 @@ func warmup_textures(weapon_list: Array[WeaponDef]) -> Array:
 	return texes
 
 
-## Briefly energize one boom light during warm-up so lit shader variants compile
-## before the first explosion; off again when the rig is freed.
+## Briefly energize one boom light during warm-up (kept from the OmniLight era —
+## harmless now that lights are shader uniforms, and it keeps the flash path hot).
 func warmup_boom_light(pos: Vector3, on: bool) -> void:
-	_boom_lights[0].position = pos
-	_boom_lights[0].light_energy = 1.0 if on else 0.0
+	_booms[0].pos = pos
+	_booms[0].energy = 1.0 if on else 0.0
+
+
+## 3.0: this frame's explosion flashes + the nearest glowing shots, into LightRig.
+func feed_lights(rig: LightRig) -> void:
+	for b in _booms:
+		if b.energy > 0.02:
+			rig.add(b.pos, b.color, b.energy, 38.0)
+	var fed := 0
+	var i := _pshots.size() - 1
+	while i >= 0 and fed < SHOT_LIGHTS:
+		var s: Dictionary = _pshots[i]
+		rig.add(s.node.position, s.get("color", Color.WHITE), 0.55, 15.0)
+		fed += 1
+		i -= 1
+	var q := _eshots.size() - 1
+	fed = 0
+	while q >= 0 and fed < SHOT_LIGHTS:
+		var es: Dictionary = _eshots[q]
+		if es.node.position.distance_squared_to(player.position) < 3600.0:
+			rig.add(es.node.position, Color(1.0, 0.45, 0.15), 0.5, 13.0)
+			fed += 1
+		q -= 1
+
+
+## Energy of every explosion-flash slot (tests: nothing leaks out of a warm-up).
+func boom_energies() -> Array[float]:
+	var out: Array[float] = []
+	for b in _booms:
+		out.append(b.energy)
+	return out
 
 
 ## V2.2 L3c: testable seam — base pellet count + SCATTER mark bonus. `weapons`
@@ -170,7 +200,7 @@ func fire_player(w: WeaponDef) -> void:
 			"node": sprite, "vel": dir * spd, "dmg": dmg,
 			"life": (w.fuse + 0.5) if w.fuse > 0.0 else 1.4,
 			"fuse": w.fuse, "splash": spl, "splash_dmg": w.splash_damage,
-			"homing": w.homing, "homing_turn": w.homing_turn,
+			"homing": w.homing, "homing_turn": w.homing_turn, "color": w.color,
 		}
 		_pshots.append(shot)
 		spawned += 1
@@ -213,10 +243,10 @@ func spawn_explosion(pos: Vector3, big: bool) -> void:
 	for i in n:
 		if not _spawn_spark(_spark_tex, pos, 14.0):
 			break
-	var light := _boom_lights[_boom_cursor]
-	_boom_cursor = (_boom_cursor + 1) % _boom_lights.size()
-	light.position = pos
-	light.light_energy = 3.2 if big else 2.2
+	var boom: Dictionary = _booms[_boom_cursor]
+	_boom_cursor = (_boom_cursor + 1) % _booms.size()
+	boom.pos = pos
+	boom.energy = 2.4 if big else 1.6
 	AudioSys.play_boom(big)
 
 
@@ -265,8 +295,8 @@ func _steer_homing(s: Dictionary, delta: float) -> void:
 
 
 func update_shots(delta: float) -> void:
-	for light in _boom_lights:
-		light.light_energy *= pow(0.002, delta)
+	for b in _booms:
+		b.energy *= pow(0.002, delta)
 	# hot loops are index-walked `while`s: range() allocates an Array per call,
 	# and these run every frame (nested per shot × enemy in the worst case)
 	# --- player shots ---

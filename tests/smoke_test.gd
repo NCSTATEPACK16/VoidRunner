@@ -59,6 +59,22 @@ func _run() -> void:
 			assert(hard_corners == 0)  # boss approach stays smooth
 			for ri in range(path.arenas[0].start, path.rings.size()):
 				assert(path.rings[ri].fo < 0.5 and path.rings[ri].co < 0.5)
+		# --- 3.0 Phase 2: octagonal sections — every ring is chamfered, and
+		# clamp_to_ring never leaves a point outside the cut corners ---
+		var crng := RandomNumberGenerator.new()
+		crng.seed = 4242 + i
+		for probe in 60:
+			var ri := crng.randi_range(0, path.rings.size() - 1)
+			var ring: Dictionary = path.rings[ri]
+			assert(ring.ch > 0.0 and ring.ch < ring.hw)
+			var wild: Vector3 = ring.p + ring.r * crng.randf_range(-2.0, 2.0) * ring.hw \
+				+ ring.u * crng.randf_range(-2.0, 2.0) * ring.hh
+			var m := 1.5
+			var q: Vector3 = path.clamp_to_ring(wild, ri, m)
+			var lat: float = (q - ring.p).dot(ring.r)
+			var vert: float = (q - ring.p).dot(ring.u)
+			var edge: float = (ring.hh - ring.co) if vert >= 0.0 else (ring.hh - ring.fo)
+			assert(absf(lat) + absf(vert) <= ring.hw + edge - ring.ch - m * 1.41 + 0.01)
 		print("L%d(%s): rings=%d arenas=%d locked=%d corners=%d" % [
 			i, level.kind, path.rings.size(), path.arenas.size(), locked, hard_corners])
 		i += 1
@@ -87,6 +103,17 @@ func _run() -> void:
 	print("boot ok — state=%d levels=%d" % [game.state, game.levels.size()])
 	assert(game.palette_lut.lut_texture != null)
 	assert(game.palette_lut.palette_texture.get_width() == 256)
+	# --- 3.0 Phase 2: one shader for the world, no OmniLight3D anywhere ---
+	for key in TextureGen.KEYS:
+		assert(game.world.mats[key] is ShaderMaterial)
+	assert(game.light_rig.material_count() >= TextureGen.KEYS.size())
+	assert(game.find_children("*", "OmniLight3D", true, false).is_empty())
+	for theme_id in TextureGen.THEMES:
+		var texes: Dictionary = TextureGen.theme_textures(theme_id)
+		for key in TextureGen.KEYS:
+			assert((texes[key] as ImageTexture).get_width() == TextureGen.SIZE)
+	print("world ok — %d themes x %d textures, %d sector materials, no OmniLights" % [
+		TextureGen.THEMES.size(), TextureGen.KEYS.size(), game.light_rig.material_count()])
 	# pin the campaign start to L1: game._ready() loads records.cfg, and the start
 	# screen pre-selects the furthest unlocked sector — on a machine with progress
 	# that would launch a later (even boss) level and break the L1 asserts below
@@ -681,11 +708,15 @@ func _run() -> void:
 	GameState.reduce_flashing = true
 	game.hud.flash_white()
 	assert(game.hud._bomb_flash.color.a < bright * 0.5)
-	# ...and holds animated arena lights steady instead of strobing them
-	game.world.animate(0.25)
-	game.world.animate(0.25)
-	for l in game.world._lights:
-		assert(is_equal_approx(l.light.light_energy, l.energy))
+	# ...and holds animated arena lights steady instead of strobing them (3.0: the
+	# arena mood lamps are LightRig statics, animated in commit())
+	game.light_rig.add_static(Vector3.ZERO, Color.WHITE, 0.9, 60.0, "strobe", 0.3)
+	game.light_rig.add_static(Vector3.ZERO, Color.WHITE, 0.9, 60.0, "flicker", 1.7)
+	for _k in 6:
+		game.light_rig.begin(game.player.position)
+		game.light_rig.commit(0.13)
+		for lamp in game.light_rig.statics():
+			assert(is_equal_approx(lamp.live, lamp.energy))
 	GameState.reduce_flashing = false
 	# M2.2: invert-Y actually flips the pitch response
 	game.player.pitch = 0.0

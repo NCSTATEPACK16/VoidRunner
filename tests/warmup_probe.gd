@@ -43,13 +43,13 @@ func _run() -> void:
 	assert(GameState.level_shots == shots_before)   # accuracy stat left untouched
 	assert(AudioServer.is_bus_mute(0) == mute_before)  # audio mute restored
 	var dark := true
-	for l in game.shot_mgr._boom_lights:
-		if l.light_energy != 0.0:
+	for e in game.shot_mgr.boom_energies():
+		if e != 0.0:
 			dark = false
 	assert(dark)                                    # no explosion light leaked into play
 	assert(game.path != null and game.path.rings.size() > 0)  # level world was built
 	print("warmup ok — rig freed, %d boom lights dark, shots=%d, %d rings built" % [
-		game.shot_mgr._boom_lights.size(), GameState.level_shots, game.path.rings.size()])
+		game.shot_mgr.boom_energies().size(), GameState.level_shots, game.path.rings.size()])
 	print("WARMUP PROBE COMPLETE")
 
 	for f in saved:

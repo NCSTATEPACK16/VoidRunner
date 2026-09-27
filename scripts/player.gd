@@ -65,8 +65,13 @@ var _tap_r := -99.0
 
 var _turn_sm := 0.0
 var camera: Camera3D
-var _headlight: OmniLight3D
-var muzzle_light: OmniLight3D
+## 3.0: the headlight and muzzle flash are LightRig feeds (game.gd pushes them each
+## frame), not OmniLight3Ds — the sector shader lights the walls from these.
+const HEADLIGHT_COLOR := Color(0.62, 0.72, 1.0)
+const HEADLIGHT_ENERGY := 0.55
+const HEADLIGHT_RANGE := 46.0
+var muzzle_energy := 0.0
+var muzzle_color := Color.WHITE
 
 
 func _ready() -> void:
@@ -76,17 +81,16 @@ func _ready() -> void:
 	camera.far = 400.0
 	add_child(camera)
 	camera.make_current()
-	_headlight = OmniLight3D.new()
-	_headlight.light_color = Color("8fb4ff")
-	_headlight.light_energy = 1.7        # a little more reach so the mid tunnel reads
-	_headlight.omni_range = 95.0
-	_headlight.position = Vector3(0, 0, -6)
-	add_child(_headlight)
-	muzzle_light = OmniLight3D.new()
-	muzzle_light.light_energy = 0.0
-	muzzle_light.omni_range = 30.0
-	muzzle_light.position = Vector3(0, -0.4, -4)
-	add_child(muzzle_light)
+
+
+## 3.0: where the headlight / muzzle flash sit this frame (a little ahead of the
+## nose, so the walls you are flying toward catch the light, not the ones beside you).
+func headlight_position() -> Vector3:
+	return position + forward() * 8.0
+
+
+func muzzle_position() -> Vector3:
+	return position + forward() * 4.0 + Vector3.UP * -0.4
 
 
 func reset_to_start() -> void:
@@ -231,7 +235,7 @@ func update_flight(delta: float) -> void:
 	# V2.2 L1: muzzle kick — a sharp pitch-up that springs back within a few frames
 	_kick_pitch = lerpf(_kick_pitch, 0.0, minf(10.0 * delta, 1.0))
 	camera.rotation.x = deg_to_rad(_kick_pitch)
-	muzzle_light.light_energy *= pow(0.0006, delta)
+	muzzle_energy *= pow(0.0006, delta)
 
 
 ## K4: start a dodge if it's off cooldown and the shared energy pool can pay for it.
@@ -278,6 +282,22 @@ func _wall_collide() -> void:
 		position += ring.u * (-max_bot - vert)
 		bounce += ring.u * 16.0
 		hit = true
+	# 3.0: the octagonal section's 45-degree corner faces (PathGen.section) — same
+	# rule as PathGen._clamp_chamfer, plus the same bounce + scrape as a flat wall
+	var ch: float = ring.get("ch", 0.0)
+	if ch > 0.0:
+		rel = position - ring.p as Vector3
+		lat = rel.dot(ring.r)
+		vert = rel.dot(ring.u)
+		var sx := 1.0 if lat >= 0.0 else -1.0
+		var sy := 1.0 if vert >= 0.0 else -1.0
+		var edge: float = (ring.hh - ring.co) if sy > 0.0 else (ring.hh - ring.fo)
+		var over: float = sx * lat + sy * vert - (ring.hw + edge - ch - 1.45 * 1.41421)
+		if over > 0.0:
+			var n: Vector3 = (ring.r * sx + ring.u * sy) * 0.70711
+			position -= n * (over * 0.70711)
+			bounce -= n * 16.0
+			hit = true
 	# K4: a dash ends at the wall — one clamped contact, damage-free, instead of
 	# feeding the bounce impulse every contact frame into a violent ricochet
 	# (tunnels are narrower than DODGE_DIST, so corridor dodges always reach a wall).
@@ -345,5 +365,5 @@ func add_shake(strength: float) -> void:
 
 
 func flash_muzzle(color: Color) -> void:
-	muzzle_light.light_color = color
-	muzzle_light.light_energy = 2.4
+	muzzle_color = color
+	muzzle_energy = 1.6

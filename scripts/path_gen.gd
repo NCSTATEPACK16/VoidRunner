@@ -7,6 +7,8 @@ extends RefCounted
 ## Each ring is a Dictionary:
 ##   p: Vector3 center · d/r/u: forward/right/up basis · hw/hh: half-width/height
 ##   fo/co: floor-raise / ceiling-drop offsets (K2/V-08 — 0 in arenas & boss rooms)
+##   ch: 3.0 corner chamfer — the cross-section is an octagon, each corner cut by
+##       a 45-degree face this far from the corner along both edges
 ##   arena: bool · arena_center: bool · arena_id: int (-1 outside arenas)
 
 const SEG := 12.0            # metres per ring
@@ -19,6 +21,9 @@ const ARENA_HH := 15.0
 const BOSS_HW := 46.0
 const BOSS_HH := 22.0
 const BOSS_ROOM_RINGS := 24
+## 3.0: chamfer = this fraction of the smaller half-extent (tunnel ~1.8 u, arena
+## ~4.5 u, boss room ~6.6 u). Every clamp below honors the cut corners.
+const CHAMFER_FRAC := 0.3
 
 var rings: Array[Dictionary] = []
 ## Arena runs: { id, start, end, door_ring (-1 = unlocked), spawn_rings: Array[int], is_final }
@@ -193,9 +198,10 @@ func _push_ring() -> void:
 	var u := r.cross(d).normalized()
 	# arena_center rings get ceiling lights; a boss room is long enough to need three
 	var center := (_arena_in in [20, 12, 4]) if _boss else _arena_in == 5
+	var ch := minf(_hw, (2.0 * _hh - _fo - _co) * 0.5) * CHAMFER_FRAC
 	rings.append({
 		"p": _pos, "d": d, "r": r, "u": u, "hw": _hw, "hh": _hh,
-		"fo": _fo, "co": _co,
+		"fo": _fo, "co": _co, "ch": ch,
 		"arena": _arena_in > 0, "arena_center": center, "arena_id": -1,
 	})
 
@@ -336,7 +342,43 @@ func clamp_to_ring(pos: Vector3, idx: int, margin: float) -> Vector3:
 		pos += ring.u * (m_top - vert)
 	elif vert < -m_bot:
 		pos += ring.u * (-m_bot - vert)
+	return _clamp_chamfer(pos, ring, margin)
+
+
+## 3.0: keep pos off the 45-degree corner faces. In the quadrant pos sits in, the
+## cut face is the line sx*lat + sy*vert = hw + edge - ch; staying `margin` off it
+## means sx*lat + sy*vert <= hw + edge - ch - margin*sqrt(2). Any excess moves pos
+## straight back along the face normal (sx, sy)/sqrt(2).
+func _clamp_chamfer(pos: Vector3, ring: Dictionary, margin: float) -> Vector3:
+	var ch: float = ring.get("ch", 0.0)
+	if ch <= 0.0:
+		return pos
+	var rel: Vector3 = pos - ring.p
+	var lat: float = rel.dot(ring.r)
+	var vert: float = rel.dot(ring.u)
+	var sx := 1.0 if lat >= 0.0 else -1.0
+	var sy := 1.0 if vert >= 0.0 else -1.0
+	var edge: float = (ring.hh - ring.co) if sy > 0.0 else (ring.hh - ring.fo)
+	var over: float = sx * lat + sy * vert - (ring.hw + edge - ch - margin * 1.41421)
+	if over > 0.0:
+		pos -= (ring.r * sx + ring.u * sy) * (over * 0.5)
 	return pos
+
+
+## 3.0: the ring's octagonal cross-section as (lateral, vertical) offsets from its
+## centre, counter-clockwise from the floor's left end. Face k runs from point k to
+## point k+1: 0 floor, 1 lower-right cut, 2 right wall, 3 upper-right cut,
+## 4 ceiling, 5 upper-left cut, 6 left wall, 7 lower-left cut.
+static func section(ring: Dictionary) -> PackedVector2Array:
+	var hw: float = ring.hw
+	var ch: float = ring.get("ch", 0.0)
+	var top: float = ring.hh - ring.co
+	var bot: float = -(ring.hh - ring.fo)
+	return PackedVector2Array([
+		Vector2(-hw + ch, bot), Vector2(hw - ch, bot), Vector2(hw, bot + ch),
+		Vector2(hw, top - ch), Vector2(hw - ch, top), Vector2(-hw + ch, top),
+		Vector2(-hw, top - ch), Vector2(-hw, bot + ch),
+	])
 
 
 func corner(ring: Dictionary, sr: float, su: float) -> Vector3:
