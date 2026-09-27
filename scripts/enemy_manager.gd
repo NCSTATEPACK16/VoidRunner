@@ -30,21 +30,23 @@ const MAX_SUMMONS := 4
 
 ## Per-type tuning (I3). Stats derive from the level's base numbers × these, so each
 ## type stays relative as the campaign scales. behavior: "chase" | "weave".
+## 3.0: sizes grew ~12% — the baked sprites leave a margin inside their cell.
 const TYPES := {
-	"drone":  {"hp_mul": 1.0, "hp_add": 0,  "speed_mul": 1.0,  "fire_mul": 1.0,  "score": 100, "size": 4.2, "behavior": "chase"},
-	"weaver": {"hp_mul": 1.0, "hp_add": -1, "speed_mul": 1.7,  "fire_mul": 0.85, "score": 150, "size": 3.2, "behavior": "weave"},
-	"hulk":   {"hp_mul": 2.0, "hp_add": 3,  "speed_mul": 0.55, "fire_mul": 0.7,  "score": 300, "size": 5.6, "behavior": "chase"},
-	"turret": {"hp_mul": 1.5, "hp_add": 2,  "speed_mul": 0.0,  "fire_mul": 1.1,  "score": 200, "size": 4.6, "behavior": "turret"},
+	"drone":  {"hp_mul": 1.0, "hp_add": 0,  "speed_mul": 1.0,  "fire_mul": 1.0,  "score": 100, "size": 4.7, "behavior": "chase"},
+	"weaver": {"hp_mul": 1.0, "hp_add": -1, "speed_mul": 1.7,  "fire_mul": 0.85, "score": 150, "size": 3.8, "behavior": "weave"},
+	"hulk":   {"hp_mul": 2.0, "hp_add": 3,  "speed_mul": 0.55, "fire_mul": 0.7,  "score": 300, "size": 6.2, "behavior": "chase"},
+	"turret": {"hp_mul": 1.5, "hp_add": 2,  "speed_mul": 0.0,  "fire_mul": 1.1,  "score": 200, "size": 5.0, "behavior": "turret"},
 }
 
 var path: PathGen
 var player: PlayerShip
 var level: LevelDef
+var world: WorldBuilder   # 3.0: sprites take the baked light of the ring they're in
 
 var enemies: Array[Dictionary] = []
 ## The live boss's dict (also present in `enemies`), or {} — HUD/radar poll this.
 var boss := {}
-var _type_frames := {}   # type_id -> Array[ImageTexture]
+var _sets := {}   # 3.0: model id -> SpriteForge sprite set (8 angles x 2 frames + flash)
 # V2.1: small node cache so arena-discovery and boss-summon spawn bursts (and the
 # matching kill bursts) stop churning Sprite3D instantiate/queue_free mid-combat
 const NODE_CACHE_CAP := 16
@@ -61,13 +63,8 @@ const GIB_TINTS := {
 
 
 func _ready() -> void:
-	_type_frames = {
-		"drone": SpriteGen.drone_frames(),
-		"weaver": SpriteGen.weaver_frames(),
-		"hulk": SpriteGen.hulk_frames(),
-		"turret": SpriteGen.turret_frames(),
-		"boss": SpriteGen.boss_frames(),
-	}
+	for id in SpriteModels.ENEMIES + SpriteModels.BOSSES:
+		_sets[id] = SpriteForge.sprite_set(id)
 
 
 func clear_all() -> void:
@@ -98,36 +95,71 @@ func _release_node(s: Sprite3D) -> void:
 	_node_cache.append(s)
 
 
-## First frame of every enemy type (incl. boss), for the briefing shader warm-up.
+## First frame of every enemy type (incl. bosses), for the briefing shader warm-up.
 func warmup_textures() -> Array:
 	var texes: Array = []
-	for type_id in _type_frames:
-		texes.append(_type_frames[type_id][0])
+	for id in _sets:
+		texes.append(_sets[id].tex[0])
 	return texes
+
+
+## 3.0: pick the baked angle for where the camera sits relative to the enemy's
+## facing, and show the current idle frame (or the hit flash while it's fresh).
+func _skin(e: Dictionary) -> void:
+	var st: Dictionary = e.skin
+	var node: Sprite3D = e.node
+	var a := SpriteForge.angle_index(e.facing, player.position - node.position, st.angles)
+	if e.flash_t > 0.0:
+		node.texture = st.flash[a]
+	else:
+		node.texture = st.tex[a * st.anim + e.frame]
+
+
+## 3.0: turn toward `want` (flattened to the horizontal) at `rate` per second.
+func _turn(e: Dictionary, want: Vector3, rate: float, delta: float) -> void:
+	want.y = 0.0
+	if want.length_squared() < 0.0001:
+		return
+	e.facing = (e.facing as Vector3).slerp(want.normalized(), minf(1.0, rate * delta))
+
+
+## 3.0: sprites stand in the sector light — a drone under a lamp pops, one in a
+## dark arena reads as a silhouette (never fully black: they must stay readable).
+func _light_for(ring_idx: int) -> Color:
+	if world == null:
+		return Color.WHITE
+	var l := world.ring_light(ring_idx)
+	return Color(clampf(0.45 + l.r * 0.75, 0.5, 1.25), clampf(0.45 + l.g * 0.75, 0.5, 1.25),
+		clampf(0.45 + l.b * 0.75, 0.5, 1.25))
 
 
 func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 	if enemies.size() >= ENEMY_CAP and arena_id < 0:
 		return
 	var t: Dictionary = TYPES.get(type_id, TYPES["drone"])
-	var frames: Array = _type_frames.get(type_id, _type_frames["drone"])
+	var st: Dictionary = _sets.get(type_id, _sets["drone"])
 	var ring: Dictionary = path.rings[ring_idx]
-	var sprite := _acquire_node(frames[0], t.size)
+	var sprite := _acquire_node(st.tex[0], t.size)
 	var pos: Vector3 = ring.p \
 		+ ring.r * (randf_range(-1.0, 1.0) * ring.hw * 0.5) \
 		+ ring.u * (randf_range(-1.0, 1.0) * ring.hh * 0.4)
 	sprite.position = path.clamp_to_ring(pos, ring_idx, 2.5)
+	# 3.0: enemies spawn facing back down the tunnel, toward where the player comes from
+	var facing: Vector3 = -ring.d
 	if t.behavior == "turret":
 		# V2.0 wall turret: anchored flush against one wall, never moves
 		var side := 1.0 if randf() < 0.5 else -1.0
 		sprite.position = ring.p + ring.r * (side * (ring.hw - 1.6)) \
 			+ ring.u * (randf_range(-0.35, 0.25) * (ring.hh - ring.fo - ring.co))
+		facing = ring.r * -side   # its muzzle looks across the tunnel
+	sprite.modulate = _light_for(ring_idx)
 	enemies.append({
 		"node": sprite, "hp": maxi(1, int(round(level.enemy_hp * t.hp_mul)) + int(t.hp_add)),
 		"fire_t": 1.5 + randf() * 2.0,
 		"bob_p": randf() * TAU, "ring": ring_idx, "arena_id": arena_id,
 		"anim_t": randf() * FRAME_TIME, "frame": 0, "flash_t": 0.0,
-		"frames": frames, "speed": level.enemy_speed * t.speed_mul,
+		"skin": st, "facing": facing, "lit_ring": ring_idx,
+		"speed": level.enemy_speed * t.speed_mul,
 		"fire": level.enemy_fire * t.fire_mul, "score": int(t.score),
 		"behavior": t.behavior, "weave_p": randf() * TAU, "hit_r2": HIT_R2,
 		"type": type_id,
@@ -144,14 +176,16 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 ## matches its sprite, and runs its own brain in _update_boss.
 func spawn_boss(ring_idx: int, lvl: LevelDef) -> void:
 	var ring: Dictionary = path.rings[ring_idx]
-	var sprite := _acquire_node(_type_frames["boss"][0], lvl.boss_size)
+	# 3.0: each boss is its own baked model (LevelDef.boss_model), not one tinted sprite
+	var st: Dictionary = _sets.get(lvl.boss_model, _sets["sentinel"])
+	var sprite := _acquire_node(st.tex[0], lvl.boss_size)
 	sprite.modulate = lvl.boss_tint
 	sprite.position = ring.p
 	boss = {
 		"node": sprite, "hp": lvl.boss_hp, "max_hp": lvl.boss_hp,
 		"fire_t": 2.0, "bob_p": 0.0, "ring": ring_idx, "arena_id": -1,
 		"anim_t": 0.0, "frame": 0, "flash_t": 0.0,
-		"frames": _type_frames["boss"], "speed": lvl.enemy_speed,
+		"skin": st, "facing": -ring.d, "lit_ring": ring_idx, "speed": lvl.enemy_speed,
 		"fire": lvl.enemy_fire, "score": lvl.boss_hp * 10, "behavior": "boss",
 		"weave_p": 0.0, "hit_r2": pow(lvl.boss_size * 0.42, 2.0),
 		"is_boss": true, "size": lvl.boss_size, "phase": 1,
@@ -164,19 +198,22 @@ func update_enemies(delta: float) -> void:
 	for k in range(enemies.size() - 1, -1, -1):
 		var e: Dictionary = enemies[k]
 		var node: Sprite3D = e.node
-		# sprite animation: 2-frame leg bob, hit flash overrides briefly
+		# sprite animation: 2-frame idle cycle; the hit flash overrides briefly
+		# (3.0: the texture itself is chosen by _skin once facing is known)
 		e.anim_t += delta
 		if e.flash_t > 0.0:
 			e.flash_t -= delta
-			node.texture = e.frames[2]
-		else:
-			if e.anim_t >= FRAME_TIME:
-				e.anim_t = 0.0
-				e.frame = (e.frame + 1) % 2
-			node.texture = e.frames[e.frame]
+		elif e.anim_t >= FRAME_TIME:
+			e.anim_t = 0.0
+			e.frame = (e.frame + 1) % 2
 		e.bob_p += delta * 2.0
+		if e.ring != e.lit_ring:   # 3.0: re-sample the sector light on ring change
+			e.lit_ring = e.ring
+			node.modulate = _light_for(e.ring) * (level.boss_tint if e.get("is_boss", false) \
+				else Color.WHITE)
 		if e.get("is_boss", false):
 			_update_boss(e, delta)
+			_skin(e)
 			continue  # never despawns, never dies on contact
 		if e.behavior == "turret":
 			# V2.0 wall turret: a fixed gun, not a ram — no drift, no clamp, no
@@ -196,6 +233,8 @@ func update_enemies(delta: float) -> void:
 					and node.position.distance_squared_to(player.position) > 90000.0:
 				_release_node(node)
 				enemies.remove_at(k)
+				continue
+			_skin(e)
 			continue
 		var to_player: Vector3 = player.position - node.position
 		var dist := to_player.length()
@@ -203,11 +242,16 @@ func update_enemies(delta: float) -> void:
 			var dir := to_player / maxf(dist, 0.001)
 			if dist > 13.0:
 				node.position += dir * (e.speed * delta)
+			var heading := dir
 			# weavers strafe sideways as they close — harder to draw a bead on
 			if e.behavior == "weave":
 				e.weave_p += delta * 3.0
 				var side := dir.cross(Vector3.UP).normalized()
-				node.position += side * (sin(e.weave_p) * e.speed * 0.7 * delta)
+				var strafe: float = sin(e.weave_p) * e.speed * 0.7
+				node.position += side * (strafe * delta)
+				# 3.0: they bank into the strafe, so their baked side views show
+				heading = dir * maxf(e.speed, 0.1) + side * (strafe * 1.6)
+			_turn(e, heading, 5.0, delta)
 			node.position.y += sin(e.bob_p) * delta * 1.5
 			e.ring = path.nearest_ring(node.position, e.ring)
 			node.position = path.clamp_to_ring(node.position, e.ring, 2.2)
@@ -229,6 +273,8 @@ func update_enemies(delta: float) -> void:
 				and node.position.distance_squared_to(player.position) > 90000.0:
 			_release_node(node)
 			enemies.remove_at(k)
+			continue
+		_skin(e)
 
 
 ## Phase J boss brain: three HP-gated phases — aimed heavy shots, then +spread
@@ -263,6 +309,8 @@ func _update_boss(e: Dictionary, delta: float) -> void:
 	var dir := target - node.position
 	if dir.length() > 0.5:
 		node.position += dir.normalized() * (e.speed * speed_mul * delta)
+	# 3.0: keep its face on the player, swinging a little with the strafe
+	_turn(e, to_player + dir * 0.35, 1.8, delta)
 	node.position.y += sin(e.bob_p) * delta * 1.2
 	e.ring = maxi(path.nearest_ring(node.position, e.ring), e.home_ring - 8)
 	node.position = path.clamp_to_ring(node.position, e.ring, e.size * 0.5)

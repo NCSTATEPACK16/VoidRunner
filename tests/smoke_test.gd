@@ -96,6 +96,29 @@ func _run() -> void:
 			assert(Palette.ramp(r, sh).get_luminance() >= Palette.ramp(r, sh - 1).get_luminance())
 	assert(Palette.ramp_f(Palette.RED, 1.0) == Palette.ramp(Palette.RED, 15))
 	print("palette ok — %d colors in %d ramps" % [Palette.ALL.size(), Palette.RAMP_STOPS.size()])
+	# --- 3.0 Phase 3: sprite forge (headless = pixel fallback, same set shape) ---
+	for id in SpriteModels.ENEMIES + SpriteModels.BOSSES:
+		var st: Dictionary = SpriteForge.sprite_set(id)
+		assert(st.tex.size() == st.angles * st.anim and st.flash.size() == st.angles)
+	for kind in SpriteModels.PICKUPS:
+		assert(not SpriteForge.pickup_frames(kind).is_empty())
+	assert(SpriteForge.prop_texture() != null)
+	for lv in [3, 6, 9]:
+		var bl: LevelDef = load("res://resources/levels/level_%d.tres" % lv)
+		assert(SpriteModels.BOSSES.has(bl.boss_model))
+	# the angle picker: camera dead ahead = front cell, behind = back, and the
+	# model-yaw convention (cell a = model turned a * 45 deg) round-trips
+	assert(SpriteForge.angle_index(Vector3.FORWARD, Vector3.FORWARD, 8) == 0)
+	assert(SpriteForge.angle_index(Vector3.FORWARD, Vector3.BACK, 8) == 4)
+	for a in 8:
+		var yaw := a * TAU / 8.0
+		var facing := Vector3(sin(yaw), 0.0, cos(yaw))   # model front after yaw
+		assert(SpriteForge.angle_index(facing, Vector3.BACK, 8) == a)
+	assert(FxGen.fireball_frames().size() == 10)
+	assert(FxGen.orb_frames(Palette.CYAN).size() == 2)
+	print("forge ok — %d enemy + %d boss sets, %d pickups, gpu=%s" % [
+		SpriteModels.ENEMIES.size(), SpriteModels.BOSSES.size(), SpriteModels.PICKUPS.size(),
+		SpriteForge.gpu_baked])
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()
 	add_child(game)
 	await get_tree().process_frame

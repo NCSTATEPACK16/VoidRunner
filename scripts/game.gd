@@ -77,6 +77,10 @@ func _ready() -> void:
 		JavaScriptBridge.eval("window.vrDiag && window.vrDiag('GAME BOOTING');", true)
 	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
 	GameState.load_records()    # Phase J: high score / best ranks / unlocked sector
+	# 3.0: turntable-render every enemy/boss/pickup sprite from its code-built model
+	# (one synchronous GPU pass; headless falls back to the pixel sprites). Before
+	# any manager exists — they pick their sprite sets up in _ready.
+	SpriteForge.bake(self)
 	for w in ["neutron", "scatter", "bolt", "missile"]:
 		weapons.append(load("res://resources/weapons/%s.tres" % w))
 	# Phase J: probe rather than hardcode the count — adding level_N.tres extends
@@ -155,6 +159,7 @@ func _ready() -> void:
 	shot_mgr.enemy_mgr = enemy_mgr
 	shot_mgr.weapons = weapons   # V2.2 L3c: pellet_count seam
 	enemy_mgr.player = player
+	enemy_mgr.world = world
 	world.tunnel_spawn_requested.connect(_on_tunnel_spawn)
 	enemy_mgr.enemy_fired.connect(shot_mgr.fire_enemy)
 	enemy_mgr.exploded.connect(shot_mgr.spawn_explosion)

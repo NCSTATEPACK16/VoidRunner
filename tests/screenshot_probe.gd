@@ -97,6 +97,20 @@ func _run() -> void:
 	game.player.pitch = 0.0
 	await _fly(game, 30)   # let enemies turn toward us and shots fly
 	await _capture(game, "shot_arena.png", dir)
+	# 2b) 3.0 combat: bolts in flight (lighting the walls), a missile trailing smoke,
+	# and blasts at two stages of their fireball
+	var fwd: Vector3 = game.player.forward()
+	var right: Vector3 = fwd.cross(Vector3.UP).normalized()
+	game.shot_mgr.spawn_explosion(game.player.position + fwd * 26.0 + right * 7.0, true)
+	await _fly(game, 5)
+	game.shot_mgr.spawn_explosion(game.player.position + fwd * 20.0 - right * 6.0, false)
+	GameState.weapon_index = 3
+	game.shot_mgr.fire_player(game.weapons[3])
+	GameState.weapon_index = 0
+	for k in 8:
+		game.shot_mgr.fire_player(game.weapons[0])
+		await _fly(game, 2)
+	await _capture(game, "shot_combat.png", dir)
 	# 3) L3 boss room with the boss in frame
 	GameState.reset_run()
 	GameState.level_index = 2

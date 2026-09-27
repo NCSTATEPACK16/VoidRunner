@@ -16,12 +16,19 @@ const THREAT_RANGE_SQ := 70.0 * 70.0   # V2.1: threat lamp radius (was Hud's)
 # pool — nodes are created once, hidden with visible=false, never freed during
 # play. instantiate/queue_free churn during fuel-cell chains, boss deaths and
 # plasma bombs was a busy-combat stall on the single-threaded web build.
-const POOL_PREWARM := 96
-const POOL_HARD_CAP := 192        # > PSHOT+ESHOT+EXPLOSION+SPARK caps combined
+const POOL_PREWARM := 128
+const POOL_HARD_CAP := 256        # > every per-class cap below combined
 const PSHOT_CAP := 48             # overflow: skip (fire rates can't reach this)
 const ESHOT_CAP := 64             # overflow: reuse-oldest (oldest bolt vanishes)
 const EXPLOSION_CAP := 12         # overflow: reuse-oldest (finishes an old one)
 const SPARK_CAP := 60             # overflow: skip (pure garnish)
+const SHOCK_CAP := 6              # 3.0 big-blast shock rings; overflow: skip
+const PUFF_CAP := 48              # 3.0 missile-trail / aftermath smoke; overflow: skip
+## 3.0 FX timing: a 10-frame fireball at this rate lasts ~0.65 s
+const BOOM_FRAME_T := 0.065
+const SHOCK_FRAME_T := 0.05
+const PUFF_LIFE := 0.5
+const TRAIL_EVERY := 0.04         # a missile drops a smoke puff this often
 
 var player: PlayerShip
 var enemy_mgr: EnemyManager
@@ -31,6 +38,8 @@ var _pshots: Array[Dictionary] = []
 var _eshots: Array[Dictionary] = []
 var _explosions: Array[Dictionary] = []
 var _sparks: Array[Dictionary] = []
+var _shocks: Array[Dictionary] = []   # 3.0
+var _puffs: Array[Dictionary] = []    # 3.0
 ## 3.0: explosion flashes are LightRig feeds, not OmniLight3Ds — a small ring of
 ## {pos, energy, color} slots that decay each frame (feed_lights pushes them).
 var _booms: Array[Dictionary] = []
@@ -39,6 +48,9 @@ const BOOM_SLOTS := 3
 ## Glowing shots light the walls as they fly: this many nearest ones get a light.
 const SHOT_LIGHTS := 4
 var _explosion_frames: Array[ImageTexture] = []
+var _shock_frames: Array[ImageTexture] = []    # 3.0 FxGen sets
+var _eshot_frames: Array[ImageTexture] = []
+var _smoke_frames: Array[ImageTexture] = []
 var _enemy_shot_tex: ImageTexture
 var _spark_tex: ImageTexture
 var _dodge_spark_tex: ImageTexture   # K4: cool blue, reads as thrusters not damage
@@ -54,8 +66,12 @@ var threat_near := false
 
 
 func _ready() -> void:
-	_explosion_frames = SpriteGen.explosion_frames()
-	_enemy_shot_tex = SpriteGen.star_texture(Palette.ORANGE_2, Palette.RED_2)
+	# 3.0: noise fireballs, spiky plasma, smoke — FxGen, painted once and cached
+	_explosion_frames = FxGen.fireball_frames()
+	_shock_frames = FxGen.shockwave_frames()
+	_eshot_frames = FxGen.plasma_frames()
+	_smoke_frames = FxGen.smoke_frames()
+	_enemy_shot_tex = _eshot_frames[0]
 	_spark_tex = SpriteGen.star_texture(Palette.ORANGE_3, Palette.ORANGE_1, 8)
 	_dodge_spark_tex = SpriteGen.star_texture(Palette.CYAN_3, Palette.BLUE_2, 8)
 	_missile_tex = SpriteGen.missile_texture()
@@ -94,7 +110,7 @@ func _release(s: Sprite3D) -> void:
 
 
 func clear_all() -> void:
-	for arr in [_pshots, _eshots, _explosions, _sparks]:
+	for arr in [_pshots, _eshots, _explosions, _sparks, _shocks, _puffs]:
 		for s in arr:
 			_release(s.node)   # pooled nodes survive level transitions
 		arr.clear()
@@ -106,14 +122,19 @@ func clear_all() -> void:
 ## Also pre-populates the per-weapon bolt cache so no texture is built mid-flight.
 func warmup_textures(weapon_list: Array[WeaponDef]) -> Array:
 	var texes: Array = [_explosion_frames[0], _enemy_shot_tex, _spark_tex,
-		_dodge_spark_tex, _missile_tex]
+		_dodge_spark_tex, _missile_tex, _shock_frames[0], _smoke_frames[0]]
 	for w in weapon_list:
 		if w.fuse > 0.0:
 			continue
-		if not _bolt_cache.has(w.display_name):
-			_bolt_cache[w.display_name] = SpriteGen.bolt_texture(w.color, w.color.darkened(0.4))
-		texes.append(_bolt_cache[w.display_name])
+		texes.append(_bolt_frames(w)[0])
 	return texes
+
+
+## 3.0: a weapon's two shimmer frames — a glowing orb drawn in its color ramp.
+func _bolt_frames(w: WeaponDef) -> Array:
+	if not _bolt_cache.has(w.display_name):
+		_bolt_cache[w.display_name] = FxGen.orb_frames(FxGen.ramp_for(w.color))
+	return _bolt_cache[w.display_name]
 
 
 ## Briefly energize one boom light during warm-up (kept from the OmniLight era —
@@ -185,14 +206,8 @@ func fire_player(w: WeaponDef) -> void:
 		if count > 2:
 			ang = (i - (count - 1) / 2.0) * w.spread
 		var dir := (fwd + right * sin(ang)).normalized()
-		var tex: Texture2D
-		if w.fuse > 0.0:
-			tex = _missile_tex
-		else:
-			if not _bolt_cache.has(w.display_name):
-				_bolt_cache[w.display_name] = SpriteGen.bolt_texture(w.color, w.color.darkened(0.4))
-			tex = _bolt_cache[w.display_name]
-		var sprite := _acquire(tex, 1.6 * w.sprite_scale)
+		var frames: Array = [_missile_tex] if w.fuse > 0.0 else _bolt_frames(w)
+		var sprite := _acquire(frames[0], 1.8 * w.sprite_scale)
 		if sprite == null:
 			break
 		sprite.position = player.position + fwd * 3.0 + right * lateral + Vector3.UP * -0.45
@@ -201,6 +216,7 @@ func fire_player(w: WeaponDef) -> void:
 			"life": (w.fuse + 0.5) if w.fuse > 0.0 else 1.4,
 			"fuse": w.fuse, "splash": spl, "splash_dmg": w.splash_damage,
 			"homing": w.homing, "homing_turn": w.homing_turn, "color": w.color,
+			"frames": frames, "trail": 0.12,   # first puff once clear of the nose
 		}
 		_pshots.append(shot)
 		spawned += 1
@@ -214,7 +230,7 @@ func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
 	if _eshots.size() >= ESHOT_CAP:
 		_release(_eshots[0].node)   # reuse-oldest: the stalest bolt vanishes
 		_eshots.remove_at(0)
-	var sprite := _acquire(_enemy_shot_tex, shot_size)
+	var sprite := _acquire(_enemy_shot_tex, shot_size * 1.2)
 	if sprite == null:
 		return
 	sprite.position = origin
@@ -235,10 +251,15 @@ func spawn_explosion(pos: Vector3, big: bool) -> void:
 	if _explosions.size() >= EXPLOSION_CAP:
 		_release(_explosions[0].node)   # reuse-oldest: it was about to finish anyway
 		_explosions.remove_at(0)
-	var sprite := _acquire(_explosion_frames[0], 7.0 if big else 4.5)
+	var sprite := _acquire(_explosion_frames[0], 9.0 if big else 6.0)
 	if sprite:
 		sprite.position = pos
 		_explosions.append({"node": sprite, "t": 0.0})
+	if big and _shocks.size() < SHOCK_CAP:   # 3.0: a shock ring races out of big blasts
+		var ring := _acquire(_shock_frames[0], 13.0)
+		if ring:
+			ring.position = pos
+			_shocks.append({"node": ring, "t": 0.0})
 	var n := 6 if big else 4
 	for i in n:
 		if not _spawn_spark(_spark_tex, pos, 14.0):
@@ -248,6 +269,17 @@ func spawn_explosion(pos: Vector3, big: bool) -> void:
 	boom.pos = pos
 	boom.energy = 2.4 if big else 1.6
 	AudioSys.play_boom(big)
+
+
+## 3.0: one pooled smoke puff (missile trails).
+func _spawn_puff(pos: Vector3, size: float) -> void:
+	if _puffs.size() >= PUFF_CAP:
+		return
+	var p := _acquire(_smoke_frames[0], size)
+	if p == null:
+		return
+	p.position = pos
+	_puffs.append({"node": p, "t": PUFF_LIFE})
 
 
 ## K4: blue spark puff at the dodge origin — same lifecycle as explosion sparks.
@@ -307,6 +339,15 @@ func update_shots(delta: float) -> void:
 			_steer_homing(s, delta)
 		s.node.position += s.vel * delta
 		s.life -= delta
+		# 3.0: bolts shimmer between their two frames; missiles leave smoke
+		var fr: Array = s.frames
+		if fr.size() > 1:
+			s.node.texture = fr[int(s.life * 16.0) % fr.size()]
+		if s.fuse > 0.0:
+			s.trail -= delta
+			if s.trail <= 0.0:
+				s.trail = TRAIL_EVERY
+				_spawn_puff(s.node.position, 1.3)
 		var boom := false
 		if s.fuse > 0.0:
 			s.fuse -= delta
@@ -367,6 +408,7 @@ func update_shots(delta: float) -> void:
 					* es.vel.length()
 		es.node.position += es.vel * delta
 		es.life -= delta
+		es.node.texture = _eshot_frames[int(es.life * 12.0) % _eshot_frames.size()]   # 3.0 spin
 		var kill: bool = es.life <= 0.0
 		if not kill and es.node.position.distance_squared_to(player.position) < PLAYER_HIT_RANGE_SQ:
 			player_hit.emit(es.get("dmg", ENEMY_SHOT_DMG), es.node.position)
@@ -384,13 +426,38 @@ func update_shots(delta: float) -> void:
 	while x >= 0:
 		var ex: Dictionary = _explosions[x]
 		ex.t += delta
-		var frame := int(ex.t / 0.15)
+		var frame := int(ex.t / BOOM_FRAME_T)
 		if frame >= _explosion_frames.size():
 			_release(ex.node)
 			_explosions.remove_at(x)
 		else:
 			ex.node.texture = _explosion_frames[frame]
 		x -= 1
+	# --- 3.0 shock rings ---
+	var h := _shocks.size() - 1
+	while h >= 0:
+		var sh: Dictionary = _shocks[h]
+		sh.t += delta
+		var sf := int(sh.t / SHOCK_FRAME_T)
+		if sf >= _shock_frames.size():
+			_release(sh.node)
+			_shocks.remove_at(h)
+		else:
+			sh.node.texture = _shock_frames[sf]
+		h -= 1
+	# --- 3.0 smoke puffs: drift up, age through their dissolve frames ---
+	var u := _puffs.size() - 1
+	while u >= 0:
+		var pf: Dictionary = _puffs[u]
+		pf.t -= delta
+		if pf.t <= 0.0:
+			_release(pf.node)
+			_puffs.remove_at(u)
+		else:
+			pf.node.position.y += delta * 1.5
+			var k := int((1.0 - pf.t / PUFF_LIFE) * _smoke_frames.size())
+			pf.node.texture = _smoke_frames[mini(k, _smoke_frames.size() - 1)]
+		u -= 1
 	# --- sparks ---
 	var p := _sparks.size() - 1
 	while p >= 0:

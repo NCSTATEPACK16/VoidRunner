@@ -26,7 +26,7 @@ var _tex: ImageTexture
 
 
 func _ready() -> void:
-	_tex = SpriteGen.prop_texture()
+	_tex = SpriteForge.prop_texture()   # 3.0: baked canister
 
 
 func clear_all() -> void:
@@ -40,7 +40,7 @@ func warmup_textures() -> Array:
 
 
 func spawn_prop(pos: Vector3) -> void:
-	var sprite := SpriteGen.make_sprite(_tex, 2.6)
+	var sprite := SpriteGen.make_sprite(_tex, 3.0)
 	sprite.position = pos
 	add_child(sprite)
 	props.append({"node": sprite, "hp": 2, "fuse": -1.0})
