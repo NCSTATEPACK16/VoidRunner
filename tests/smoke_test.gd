@@ -71,11 +71,22 @@ func _run() -> void:
 		assert(gf is Texture2D and gf.get_width() >= 8)
 	assert(SpriteGen.gib_frames()[0] == gframes[0])   # cached, not re-rendered
 	print("gib frames ok — %d shapes" % gframes.size())
+	# --- 3.0 Phase 1: 256-color ramp palette ---
+	assert(Palette.ALL.size() == 256)
+	assert(Palette.ramp(Palette.GREY, 0) == Color(0, 0, 0))   # fog black is a real entry
+	assert(Palette.ramp(Palette.GREY, 15) == Color(1, 1, 1))
+	for r in Palette.RAMP_STOPS.size():   # every ramp brightens monotonically
+		for sh in range(1, Palette.RAMP_LEN):
+			assert(Palette.ramp(r, sh).get_luminance() >= Palette.ramp(r, sh - 1).get_luminance())
+	assert(Palette.ramp_f(Palette.RED, 1.0) == Palette.ramp(Palette.RED, 15))
+	print("palette ok — %d colors in %d ramps" % [Palette.ALL.size(), Palette.RAMP_STOPS.size()])
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	print("boot ok — state=%d levels=%d" % [game.state, game.levels.size()])
+	assert(game.palette_lut.lut_texture != null)
+	assert(game.palette_lut.palette_texture.get_width() == 256)
 	# pin the campaign start to L1: game._ready() loads records.cfg, and the start
 	# screen pre-selects the furthest unlocked sector — on a machine with progress
 	# that would launch a later (even boss) level and break the L1 asserts below

@@ -29,6 +29,7 @@ var view: SubViewport
 var automap: Automap             # V2.2 L4a: Tab automap, inside the 320x200 SubViewport
 var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
 var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipped
+var palette_lut: PaletteLUT     # 3.0: 256-color palette + GPU-baked lookup table
 var env: Environment            # K1: per-level fog/ambient moods retune this
 
 var _fire_cd := 0.0
@@ -287,7 +288,11 @@ func _refresh_view_fx() -> void:
 
 ## Phase G2: palette-quantize + Bayer-dither the finished frame (3D + HUD, not the
 ## menu overlays). Sits on CanvasLayer 5, between the HUD (1) and overlays (10).
+## 3.0: 256 colors via a GPU-baked lookup table (PaletteLUT) instead of a
+## per-pixel palette loop.
 func _build_dither_layer() -> void:
+	palette_lut = PaletteLUT.new()
+	add_child(palette_lut)
 	var layer := CanvasLayer.new()
 	layer.layer = 5
 	var rect := ColorRect.new()
@@ -295,13 +300,7 @@ func _build_dither_layer() -> void:
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/palette_dither.gdshader")
-	var colors := PackedVector3Array()
-	for c in Palette.ALL:
-		colors.append(Vector3(c.r, c.g, c.b))
-	while colors.size() < 64:  # pad to the shader's fixed uniform array size
-		colors.append(colors[colors.size() - 1])
-	mat.set_shader_parameter("palette", colors)
-	mat.set_shader_parameter("palette_size", Palette.ALL.size())
+	mat.set_shader_parameter("lut_tex", palette_lut.lut_texture)
 	rect.material = mat
 	layer.add_child(rect)
 	view.add_child(layer)

@@ -1,7 +1,14 @@
 class_name Palette
-## The single source of color truth (PLAN.md C1). Every texture, sprite, and HUD
-## element samples ONLY from these colors — that restraint is the "VGA feel."
-## Families: grey metal, navy/blue, olive/brown rock, red, orange, cyan, green, void.
+## The single source of color truth (PLAN.md C1). 3.0: a full 256-color "VGA"
+## palette — 16 hue ramps x 16 shades, built the way mid-90s DOS art palettes
+## were: every ramp runs near-black -> pure hue -> near-white, hue-shifted
+## (shadows lean cool, highlights lean warm) so lighting stays colorful all the
+## way down instead of greying out. The final frame is quantized to exactly
+## these 256 entries (shaders/palette_dither.gdshader via PaletteLUT).
+##
+## The named constants below predate the 256-color palette; HUD and the headless
+## fallback sprites still use them, and the quantizer snaps them to the nearest
+## ramp entry anyway, so they stay valid colors to paint with.
 
 const VOID_0 := Color("020308")
 const VOID_1 := Color("05070c")
@@ -44,19 +51,63 @@ const GREEN_1 := Color("2a7a3a")
 const GREEN_2 := Color("37ff9a")
 const WHITE := Color("e8ecf4")
 
-## Full palette array — the dither/quantize shader (Phase G) and any "snap to
-## palette" helper iterate this.
-const ALL: Array[Color] = [
-	VOID_0, VOID_1,
-	GREY_0, GREY_1, GREY_2, GREY_3, GREY_4, GREY_5, GREY_6, GREY_7,
-	NAVY_0, NAVY_1, NAVY_2, BLUE_0, BLUE_1, BLUE_2,
-	ROCK_0, ROCK_1, ROCK_2, ROCK_3, ROCK_4, ROCK_5, ROCK_6,
-	RED_0, RED_1, RED_2, RED_3, RED_4,
-	ORANGE_0, ORANGE_1, ORANGE_2, ORANGE_3,
-	CYAN_0, CYAN_1, CYAN_2, CYAN_3,
-	GREEN_0, GREEN_1, GREEN_2,
-	WHITE,
+# --- 3.0: the 256-color ramp palette ---
+const RAMP_LEN := 16
+## Ramp ids (index into RAMP_STOPS). Paint with Palette.ramp(Palette.STEEL, 9).
+enum { STEEL, GREY, BRASS, BLUE, CYAN, GREEN, LIME, GOLD, ORANGE, RED, MAGENTA,
+	VIOLET, FLESH, RUST, OLIVE, FIRE }
+## Four key stops per ramp, at shades 0 / 5 / 10 / 15; shades between are linear.
+## Shade 0 is near-black but keeps its hue, so fogged and unlit surfaces still
+## read as the right material. GREY starts at pure black (the fog color) and ends
+## at pure white.
+const RAMP_STOPS := [
+	["07080d", "3a4458", "8290ad", "e6ecf8"],   # STEEL — cool blue-grey metal
+	["000000", "4a4a4a", "9c9c9c", "ffffff"],   # GREY — neutral, black to white
+	["0e0904", "5a3e1c", "b58a45", "fff0b8"],   # BRASS — warm metal / bronze
+	["03041a", "1c2c8c", "4c7ce8", "c8e0ff"],   # BLUE — navy to sky
+	["021018", "0b5a70", "22c4d8", "c8fcff"],   # CYAN
+	["021208", "0e6a34", "2ed070", "d0ffe0"],   # GREEN — emerald
+	["0a1002", "3e6a0a", "9ad62a", "f4ffc0"],   # LIME
+	["140c00", "7a5a06", "eac21a", "fffcd0"],   # GOLD
+	["160600", "883006", "f07818", "ffe0b0"],   # ORANGE
+	["160204", "800c10", "e8302a", "ffc8b8"],   # RED
+	["14020e", "7a0c5a", "e03cb0", "ffd0f4"],   # MAGENTA
+	["08031a", "3c1886", "8a5ae8", "e8d8ff"],   # VIOLET
+	["120608", "6a2e30", "d08070", "ffe4d4"],   # FLESH — organic hive tissue
+	["0c0604", "4c2a16", "9a6038", "eccaa0"],   # RUST — rock and earth
+	["0a0a04", "3e4220", "8a9050", "e8ecc0"],   # OLIVE — moss / khaki
+	["100000", "a01000", "ff9010", "fffff0"],   # FIRE — ember to white-hot
 ]
+
+## Full palette array — 256 entries, ramp-major (index = ramp * 16 + shade).
+## The GPU lookup table (PaletteLUT) and nearest() both iterate this.
+static var ALL: Array[Color] = _build_all()
+
+
+static func _build_all() -> Array[Color]:
+	var out: Array[Color] = []
+	for r in RAMP_STOPS.size():
+		for sh in RAMP_LEN:
+			out.append(_ramp_color(r, sh))
+	return out
+
+
+static func _ramp_color(r: int, shade: int) -> Color:
+	var stops: Array = RAMP_STOPS[r]
+	var sh := clampi(shade, 0, RAMP_LEN - 1)
+	var seg := mini(sh / 5, 2)
+	var t := (sh - seg * 5) / 5.0
+	return Color(stops[seg]).lerp(Color(stops[seg + 1]), t)
+
+
+## One palette entry: ramp id (STEEL, RED, ...) and shade 0 (dark) .. 15 (bright).
+static func ramp(r: int, shade: int) -> Color:
+	return ALL[clampi(r, 0, RAMP_STOPS.size() - 1) * RAMP_LEN + clampi(shade, 0, RAMP_LEN - 1)]
+
+
+## Shade picked by a 0..1 brightness value — the texture painters' main entry.
+static func ramp_f(r: int, t: float) -> Color:
+	return ramp(r, roundi(clampf(t, 0.0, 1.0) * (RAMP_LEN - 1)))
 
 
 static func nearest(color: Color) -> Color:
