@@ -76,3 +76,22 @@ removed method: reverting the radar to `enemy_shot_positions()` throws
 frame, and the cache fix clears it. The **felt** gate stays John's in-browser
 test — fewer canvas draw calls per frame is a single-threaded-WebGL win, the
 same class as the Step 1/2 chunk-build removals.
+
+## 3.0 "Technicolor Void" re-baseline (2026-09-28)
+
+Re-run on `main` after PR #6 merged (sector shader, SpriteForge sprites,
+STINGER/SPINNER/MINE, time-sliced music). Godot 4.7-stable headless on a
+shared 4-vCPU cloud container, so treat ±1–2 ms as noise. Rendered runs weren't
+repeated this pass. The rendered and web checks in
+`docs/revamp/2026-09-27-v3-technicolor-revamp.md` §5 still stand.
+
+| Run | Mode | Worst step | Spikes | Notes |
+|---|---|---|---|---|
+| L8 | headless | 3.5 ms | 0 >8 ms | boot+instantiate 453 ms, briefing 33 ms |
+| L9 boss | headless | 3.6 ms | 0 >8 ms | ring 52/58, reaches victory state |
+| Gauntlet | headless | 3.8–5.8 ms in 7 of 8 runs | 1 >8 ms in 1 run | one run had a single 8–10 ms step; 7 reruns stayed under 6 ms |
+
+That's within 1 ms of the phase-7 numbers (3.0 / 1.7 / 3.1 ms) on L8 and
+the gauntlet. The L9 boss is ~2 ms higher, but still far under the 8 ms spike
+bar. Watch the single gauntlet outlier in the in-browser test: if the gauntlet
+stutters on iPad, start here.
