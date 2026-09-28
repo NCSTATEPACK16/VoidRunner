@@ -489,7 +489,25 @@ func _run() -> void:
 	var mix_b: AudioStream = MusicGen.render_loop(2)
 	assert(is_equal_approx(mix_a.get_length(), mix_b.get_length()))   # phase-aligned
 	assert(AudioSys._music.size() == 3)   # three synced players
-	print("mixes ok — 3 phase-aligned music beds")
+	# 3.0: the soundtrack renders a slice per frame — drive the job to the end and
+	# every player must hold a stem of the same length (phase lock needs it)
+	var music_slices := 0
+	while AudioSys._music_job != null and music_slices < 2000:
+		AudioSys._process(1.0 / 60.0)
+		music_slices += 1
+	assert(AudioSys._music_job == null)
+	for mp in AudioSys._music:
+		assert(mp.stream != null)
+		assert(is_equal_approx(mp.stream.get_length(), mix_a.get_length()))
+	assert(mix_a.get_length() > 20.0)   # eight phrases, not the old 7 s riff
+	# stems reproduce the old full-mix crossfade: calm = base, combat = base +
+	# combat layer, frenzy = everything, halfway blends in half a layer
+	assert(AudioSys._stem_gains(AudioSys._mix_weights(0.0)) == Vector3(1, 0, 0))
+	assert(AudioSys._stem_gains(AudioSys._mix_weights(1.0)) == Vector3(1, 1, 0))
+	assert(AudioSys._stem_gains(AudioSys._mix_weights(2.0)) == Vector3(1, 1, 1))
+	assert(AudioSys._stem_gains(AudioSys._mix_weights(1.5)).is_equal_approx(Vector3(1, 1, 0.5)))
+	print("mixes ok — 3 phase-aligned music stems, %.1f s song, rendered in %d frame slices" % [
+		mix_a.get_length(), music_slices])
 	# --- V2.2 L2b: combat-intensity engine — boss forces frenzy, calm decays ---
 	GameState.boss_active = true
 	AudioSys._update_intensity(0.1, game.player.position)
