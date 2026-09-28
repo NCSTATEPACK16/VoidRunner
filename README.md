@@ -6,6 +6,25 @@ and a chunky 320×200 look with light that dies into black shadow.
 
 **Play it in your browser:** <https://beyondthevoidrunner.netlify.app/>
 
+## What's new in 3.0
+
+- **256-color VGA look.** A ramp palette and a GPU-baked lookup table quantize every frame. Sectors
+  are lit by baked lamps plus up to eight live lights (headlight, muzzle flashes, explosions,
+  glowing bolts) that fall off into banded shadow. Tunnels are chamfered octagons with themed
+  textures, split bulkhead doors and a vortex exit gate.
+- **Pre-rendered sprites.** Every enemy, boss and pickup is modeled in code and turntable-baked on
+  the GPU at boot into 8-angle, 2-frame sprites, the way mid-90s DOS games shipped rendered art.
+  Explosions, plasma and smoke are hand-shaded noise.
+- **A proper cockpit.** A bitmap pixel font everywhere, a brushed-steel console with LED gauges and
+  a bezelled radar, DOS-window menus, a chrome title logo over an attract-mode flythrough, and an
+  optional scanline / CRT filter.
+- **More to fight.** STINGERS that flash and then dive, SPINNERS that throw rings of plasma, and
+  proximity MINES that chain-react when shot. Each of the three bosses has its own attack pattern.
+- **Power-ups.** OVERDRIVE, POWER CORE and PHASE SHIELD (see below) drop from heavy enemies and
+  cleared arenas.
+- **An FM soundtrack.** A 27-second, eight-phrase song with 2-operator FM voices that layers up as
+  the fight heats up, and punchier effects.
+
 ## Controls
 
 | Action | Keys |
@@ -20,6 +39,12 @@ and a chunky 320×200 look with light that dies into black shadow.
 | Plasma bomb | P |
 | Dodge roll | A / D |
 
+| Power-up | Effect |
+|---|---|
+| OVERDRIVE | Double fire rate, and the guns never overheat (10 s) |
+| POWER CORE | Double damage (12 s) |
+| PHASE SHIELD | Nothing can hurt the ship (8 s) |
+
 ## Tech
 
 - **Godot 4.x** (GL Compatibility renderer), exported to HTML5 with threads disabled so it runs
@@ -28,6 +53,23 @@ and a chunky 320×200 look with light that dies into black shadow.
   code at runtime. There are no imported assets in this repository, from any source.
 - Deployed on Netlify: `build.sh` downloads headless Godot + export templates and exports on
   Netlify's build image; every push to `main` auto-deploys.
+- Rendering: a 320×200 SubViewport (nearest filtering, no AA) → `shaders/palette_dither.gdshader`
+  (256-color LUT + Bayer dither) → optional `shaders/crt.gdshader` over the whole window. World
+  geometry uses one `shaders/sector.gdshader`; `scripts/light_rig.gd` feeds it every light.
+- The 3.0 design and audit notes live in `docs/revamp/2026-09-27-v3-technicolor-revamp.md`.
+
+## Testing
+
+```sh
+godot --headless --import
+godot --headless --path . tests/smoke_test.tscn          # logic + UI smoke test
+xvfb-run godot --path . tests/screenshot_probe.tscn      # rendered captures (VR_SHOT_DIR=...)
+xvfb-run godot --path . tests/gallery_probe.tscn         # corridor + arena of every level
+VR_PERF_RAIL=1 VR_PERF_LEVEL=7 godot --headless --path . tests/perf_probe.tscn
+```
+
+In a headless run the sprite forge has no GPU, so it falls back to the older pixel sprites. The
+frame layout is identical, so the smoke test still exercises every real code path.
 
 ## Building locally
 

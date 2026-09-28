@@ -98,4 +98,32 @@ before any game code changed.
 
 ## 5. Status
 
-Updated as each phase lands (see git history on this branch).
+All seven phases have landed on `claude/game-revamp-dos-aesthetic-vdk6fy`:
+
+| Phase | Commit | Result |
+|---|---|---|
+| 1 | `0d2bad8` | 256-color ramp palette and GPU LUT quantizer; amber mode kept. |
+| 2 | `2c0a752` | Sector shader and LightRig (no OmniLight3D). Chamfered octagonal tunnels, six themed texture sets, split doors, vortex portal. |
+| 3 | `5af53db` | SpriteForge turntable bake for 7 enemies, 3 bosses and 8 pickups; noise fireballs, plasma, smoke. |
+| 4 | `8dc9e42` | PixelFont; DOS-window menus with keyboard focus; chrome logo over an attract flythrough; brushed-steel cockpit with LED gauges; CRT filter setting. |
+| 5 | `1d4d567` | Timed power-ups (OVERDRIVE / POWER CORE / PHASE SHIELD); STINGER, SPINNER and MINE; a distinct attack pattern per boss. |
+| 6 | `c861f87` | FM soundtrack (8 phrases, 27 s) as three time-sliced stems; FM laser, explosion and hit effects. |
+| 7 | this commit | Verification and docs (below). |
+
+Phase 7 verification:
+
+- **Smoke test** (headless) passes, including the new power-up, enemy, boss, HUD and music
+  sections.
+- **Rendered probes** (Mesa llvmpipe under Xvfb): the screenshot probe and the gallery (corridor
+  and arena of all nine levels) were reviewed frame by frame.
+- **GLES3 driver pass** (`--rendering-driver opengl3_es`, Mesa GLES 3.2) runs the full probe with
+  zero shader errors. Static scenes match desktop GL pixel for pixel (boss room 0.15%;
+  briefing and help identical).
+- **Headless perf probe:** worst step 3.0 ms on L8, 1.7 ms on the L9 boss and 3.1 ms on the
+  gauntlet, with no step over 8 ms. L8 completes and the L9 run reaches the campaign victory.
+- **Web export:** the "Web" preset (threads off) exports with the 4.7 templates. In headless
+  Chromium on WebGL 2.0 (SwiftShader) it boots in about 4 s, warms its shaders, and plays through
+  the notice, title, briefing and flight.
+- **Soak** (a temporary probe, not committed): L5 and L8 spawn every enemy type and complete;
+  all three bosses reach all three phases and die. That run caught and fixed a precision bug in
+  `Vector3.slerp` that tripped the engine's normalized-axis check in enemy turning.
