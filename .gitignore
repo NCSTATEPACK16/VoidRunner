@@ -7,6 +7,9 @@ dist/
 # Local Godot binaries downloaded by build.sh
 bin/
 
+# App icons + link-preview card painted by tools/make_icons.tscn at build time
+build/
+
 # Research material must never enter this repo (see CLAUDE.md)
 # Belt-and-suspenders: the 1995 shareware originals live outside this repo,
 # but these patterns guarantee they can never be committed even by accident.

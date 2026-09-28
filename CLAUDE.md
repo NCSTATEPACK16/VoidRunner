@@ -25,6 +25,9 @@ directory up**, outside this repo, in the parent `RadixRemix/` folder:
 
 - `netlify.toml` → `build.sh` exports the "Web" preset on Netlify's build image (pinned
   `GODOT_VERSION`, independent of the local editor). Publish dir: `dist/`.
+- Between import and export, `build.sh` runs `tools/make_icons.tscn`, which paints the app icons
+  and the 1200×630 link-preview card (`IconGen`) into gitignored `build/icons/`. `project.godot`'s
+  icon points there. A fresh clone shows Godot's default icon until that has run once.
 - Web export has `thread_support=false` so it runs on iPad Safari; keep it that way unless
   desktop-only performance forces a revisit.
 - Rendering profile (do not break): 320×200 viewport stretch `keep`, GL Compatibility,

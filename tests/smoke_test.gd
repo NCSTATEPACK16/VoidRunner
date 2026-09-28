@@ -1447,6 +1447,30 @@ func _run() -> void:
 	game.overlays.show_only("start")
 	assert(game.overlays._install_buttons.is_empty())
 	print("D11 ok — install nudge is a no-op off the web build (OS.has_feature(\"web\") == false)")
+	# --- re-audit Step 1: the app icons and link-preview card are painted by code
+	# (hard rule 1). Sizes are what the web export and the PWA manifest expect, and
+	# every pixel is a palette entry, read back through the same 8-bit Image path.
+	var pal_img := Image.create(Palette.ALL.size(), 1, false, Image.FORMAT_RGBA8)
+	for pi in Palette.ALL.size():
+		pal_img.set_pixel(pi, 0, Palette.ALL[pi])
+	var pal := {}
+	for pi in Palette.ALL.size():
+		pal[pal_img.get_pixel(pi, 0)] = true
+	for size in [144, 180, 512]:
+		var ic := IconGen.icon(size)
+		assert(ic.get_width() == size and ic.get_height() == size)
+		assert(pal.has(ic.get_pixel(0, 0)))
+	var card := IconGen.card()
+	assert(card.get_width() == 1200 and card.get_height() == 630)
+	for art: Image in [IconGen.icon_art(), IconGen.card_art()]:
+		var inks := {}
+		for y in art.get_height():
+			for x in art.get_width():
+				var px: Color = art.get_pixel(x, y)
+				assert(pal.has(px))
+				inks[px] = true
+		assert(inks.size() >= 8)   # actually painted, not a blank fill
+	print("ICONS ok — 144/180/512 icons + 1200x630 card, code-painted, palette-only")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
