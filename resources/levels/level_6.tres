@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L6 · BROOD MOTHER"
-briefing = "It fires in spreads — keep strafing and the volleys miss. Drop it, then take the ring before the nest wakes."
+briefing = "She hatches STINGERS and lays mines. Keep strafing, pop the mines from range, and take the ring before the nest wakes."
 objective = "DESTROY THE BROOD MOTHER"
 rings = 56
 spawn_tunnel = 0.09
@@ -15,7 +15,7 @@ enemy_speed = 8.4
 enemy_fire = 1.9
 theme_id = "hive"
 level_seed = 666
-enemy_types = PackedStringArray("weaver", "hulk")
+enemy_types = PackedStringArray("weaver", "hulk", "stinger")
 kind = "boss"
 boss_name = "BROOD MOTHER"
 boss_hp = 200

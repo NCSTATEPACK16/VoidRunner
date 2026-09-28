@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L2 · SUPPLY ARTERY"
-briefing = "Expect heavier patrols. Watch the radar and keep moving — a still ship is an easy target."
+briefing = "Expect heavier patrols. Keep moving — a still ship is an easy target. Mines arm when you get close: shoot them early."
 objective = "PUNCH THROUGH THE ARTERY"
 rings = 130
 spawn_tunnel = 0.08
@@ -15,5 +15,5 @@ enemy_speed = 6.8
 enemy_fire = 2.5
 theme_id = "navy"
 level_seed = 202
-enemy_types = PackedStringArray("drone", "drone", "drone", "weaver", "turret")
+enemy_types = PackedStringArray("drone", "drone", "drone", "weaver", "turret", "mine")
 spur_count = 1

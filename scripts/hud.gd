@@ -23,6 +23,13 @@ const DIGIT_COL := Color("ff9a30")
 const DIGIT_DIM := Color(0.35, 0.22, 0.10)
 const LABEL_DIM := Color(0.50, 0.56, 0.66)
 
+# 3.0 phase 5: live power-up timers stack down the right side of the view
+const POWER_ORDER := ["overdrive", "powercore", "phase"]
+const POWER_NAMES := {"overdrive": "OVERDRIVE", "powercore": "POWER CORE", "phase": "PHASE SHIELD"}
+const POWER_RAMPS := {"overdrive": Palette.GOLD, "powercore": Palette.MAGENTA, "phase": Palette.CYAN}
+const POWER_Y := 46
+const POWER_ROW := 14
+
 ## 3x5 bitmap glyphs, one int per row, 3 bits per row (MSB = left pixel).
 const GLYPHS := {
 	"0": [7, 5, 5, 5, 7], "1": [2, 6, 2, 2, 7], "2": [7, 1, 7, 4, 7],
@@ -39,6 +46,11 @@ var weapon_names: Array[String] = []
 
 var _flash: ColorRect
 var _bomb_flash: ColorRect   # V2.0 plasma bomb white-out, decays in _process
+var _phase_tint: ColorRect   # 3.0: faint cyan glaze while PHASE SHIELD runs
+var _power_draw: Control
+var _power_labels := {}      # kind -> Label
+var _c_power_live := false
+var _c_xmode := -1           # crosshair colour state (overheat / power-ups)
 var _msg: Label
 var _msg_t := 0.0
 var _level_speed: Label
@@ -101,6 +113,11 @@ func _ready() -> void:
 	_bomb_flash.color = Color(0.95, 0.98, 1.0, 0.0)
 	_bomb_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_bomb_flash)
+	_phase_tint = ColorRect.new()
+	_phase_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_phase_tint.color = Color(0.3, 0.9, 1.0, 0.0)
+	_phase_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_phase_tint)
 	# canopy frame under everything else so readouts stay on top; the static
 	# frame draws once at boot, the dynamic layer sits directly on top of it
 	_canopy_static = Control.new()
@@ -141,6 +158,19 @@ func _ready() -> void:
 	root.add_child(_style_draw)
 	GameState.style_changed.connect(_on_style_changed)
 	_combo.visible = false
+	# 3.0 phase 5: power-up timers — a name and a draining bar per live one
+	_power_draw = Control.new()
+	_power_draw.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_power_draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_power_draw.draw.connect(_draw_power)
+	root.add_child(_power_draw)
+	for kind: String in POWER_ORDER:
+		var pl := _label(root, Vector2(214, POWER_Y), POWER_NAMES[kind],
+			Palette.ramp(POWER_RAMPS[kind], 13), 8)
+		pl.size = Vector2(80, 10)
+		pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		pl.visible = false
+		_power_labels[kind] = pl
 	# ---- bottom console: the painted plate (drawn once, at boot), then the
 	# dynamic layer and labels in its wells (HudArt.WELLS) ----
 	var plate := TextureRect.new()
@@ -281,6 +311,7 @@ func _process(delta: float) -> void:
 		_c_hot = GameState.is_overheated
 		_crosshair.queue_redraw()
 		_console_draw.queue_redraw()   # HEAT LEDs go all-red on overheat
+	_update_powers()
 	# V2.2 L1e: tick down transient feedback; keep redrawing while live (the
 	# final redraw after a timer expires is what clears it from the layer)
 	if _kill_tick_t > 0.0:
@@ -307,6 +338,51 @@ func _process(delta: float) -> void:
 	_c_style_live = style_live
 
 
+## 3.0 phase 5: re-pack the power-up stack as clocks start and run out, blink a
+## name through its last two seconds, glaze the view during PHASE SHIELD, and
+## tint the crosshair for the live power.
+func _update_powers() -> void:
+	var live := false
+	var row := 0
+	for kind: String in POWER_ORDER:
+		var t: float = GameState.power_t[kind]
+		var pl: Label = _power_labels[kind]
+		if t > 0.0:
+			live = true
+			pl.position.y = POWER_Y + row * POWER_ROW
+			pl.visible = t > 2.0 or int(t * 6.0) % 2 == 0
+			row += 1
+		else:
+			pl.visible = false
+	if live or _c_power_live:
+		_power_draw.queue_redraw()   # the extra redraw after the last one ends clears it
+	_c_power_live = live
+	if GameState.power_on("phase"):
+		_phase_tint.color.a = 0.07 if GameState.reduce_flashing \
+			else 0.05 + 0.03 * sin(Time.get_ticks_msec() / 150.0)
+	else:
+		_phase_tint.color.a = 0.0
+	var xmode := 3 if GameState.is_overheated else (2 if GameState.power_on("powercore") \
+		else (1 if GameState.power_on("overdrive") else 0))
+	if xmode != _c_xmode:
+		_c_xmode = xmode
+		_crosshair.queue_redraw()
+
+
+## One draining bar under each live power-up's name, right-aligned with it.
+func _draw_power() -> void:
+	var row := 0
+	for kind: String in POWER_ORDER:
+		var t: float = GameState.power_t[kind]
+		if t <= 0.0:
+			continue
+		var y := POWER_Y + row * POWER_ROW + 9
+		var frac := clampf(t / float(GameState.POWER_TIME[kind]), 0.0, 1.0)
+		_power_draw.draw_rect(Rect2(254, y, 40, 3), PANEL_DARK)
+		_power_draw.draw_rect(Rect2(254, y, 40.0 * frac, 3), Palette.ramp(POWER_RAMPS[kind], 11))
+		row += 1
+
+
 ## V2.2 L2c: signal-driven pop so the name scales up for a beat on every grade-up.
 func _on_style_changed(grade: int) -> void:
 	if grade > 0:
@@ -330,8 +406,15 @@ func _draw_style() -> void:
 
 
 func _draw_crosshair() -> void:
-	var hot := GameState.is_overheated
-	var col := Color("ff5030") if hot else Color("62ffd0")
+	# overheat red wins; otherwise a live power-up tints it (3.0)
+	var col := Color("62ffd0")
+	match _c_xmode:
+		3:
+			col = Color("ff5030")
+		2:
+			col = Palette.ramp(Palette.MAGENTA, 13)
+		1:
+			col = Palette.ramp(Palette.GOLD, 14)
 	for arm in [Vector2(0, -1), Vector2(0, 1), Vector2(-1, 0), Vector2(1, 0)]:
 		_crosshair.draw_line(arm * 3.0, arm * 8.0, col, 1.0)
 	# V2.2 L1e: kill tick — short diagonals off the crosshair corners

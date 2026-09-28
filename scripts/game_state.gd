@@ -230,6 +230,38 @@ func register_kill(base: int) -> void:
 		style_changed.emit(grade_now)
 
 
+# --- 3.0 phase 5: timed power-ups. Each pickup starts (or refills) its own
+# clock; game._process ticks them only while PLAYING, like the combo window.
+signal power_changed(kind: String, t: float)   # t = seconds left (0 = ended)
+
+const POWER_TIME := {"overdrive": 10.0, "phase": 8.0, "powercore": 12.0}
+var power_t := {"overdrive": 0.0, "phase": 0.0, "powercore": 0.0}
+
+
+func power_on(kind: String) -> bool:
+	return power_t.get(kind, 0.0) > 0.0
+
+
+func grant_power(kind: String) -> void:
+	power_t[kind] = POWER_TIME[kind]
+	power_changed.emit(kind, power_t[kind])
+
+
+func tick_powers(delta: float) -> void:
+	for kind in power_t:
+		if power_t[kind] > 0.0:
+			power_t[kind] = maxf(0.0, power_t[kind] - delta)
+			if power_t[kind] <= 0.0:
+				power_changed.emit(kind, 0.0)
+
+
+func clear_powers() -> void:
+	for kind in power_t:
+		if power_t[kind] > 0.0:
+			power_t[kind] = 0.0
+			power_changed.emit(kind, 0.0)
+
+
 ## Called from game._process only while PLAYING, so pausing never eats a streak.
 func tick_combo(delta: float) -> void:
 	if combo_t > 0.0:
@@ -253,6 +285,7 @@ func reset_level_stats() -> void:
 	level_props = 0   # level_props_total is owned by game._place_props at world build
 	level_secrets = 0   # level_secrets_total is owned by game._place_secrets
 	combo_changed.emit(0, 1)
+	clear_powers()   # 3.0: power-ups never carry into the next level
 
 
 func load_records() -> void:

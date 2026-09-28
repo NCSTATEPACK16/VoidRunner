@@ -283,10 +283,12 @@ func _build_help() -> void:
 	# flowing — an absolute line landed exactly on the gamepad row.
 	if Feedback.is_configured():
 		left.append("F  send feedback")
+	# 3.0: the bulkhead tip lives in the L1 briefing now; this corner explains
+	# the timed power-ups instead
 	var right := [
 		"WEAPONS", "LMB/SPACE/X  fire", "1 NEUTRON 2 SCATTER", "3 BOLT    4 MISSILE",
-		"BACKSPACE cycle", "P  plasma bomb", "", "TIP", "Bulkheads unlock when",
-		"every hostile is down.",
+		"BACKSPACE cycle", "P  plasma bomb", "", "POWER-UPS", "OVERDRIVE  rapid fire",
+		"POWER CORE 2x damage", "PHASE      invulnerable",
 	]
 	for i in left.size():
 		_text(p, Vector2(16, 22 + i * 11), left[i],
@@ -294,7 +296,7 @@ func _build_help() -> void:
 	_help_pad = _text(p, Vector2(16, 22 + left.size() * 11), "", TEXT_COL)
 	for i in right.size():
 		_text(p, Vector2(166, 22 + i * 11), right[i],
-			TITLE_COL if right[i] in ["WEAPONS", "TIP"] else TEXT_COL)
+			TITLE_COL if right[i] in ["WEAPONS", "POWER-UPS"] else TEXT_COL)
 	# M3: the short version. The full privacy note lives in the README and on the
 	# form itself — anything longer than one line here and nobody reads any of it.
 	_center(p, 154, "No cookies, no accounts, no personal data.", DIM_COL)

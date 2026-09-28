@@ -191,7 +191,9 @@ func fire_player(w: WeaponDef) -> void:
 	# V2.2 L3c: marks scale the shot at spawn time — the dict carries final stats
 	var widx := GameState.weapon_index
 	var count: int = w.count + GameState.weapon_add(widx, "pellets")
-	var dmg: float = w.damage * GameState.weapon_mult(widx, "damage")
+	# 3.0: POWER CORE doubles every hit and swells the bolts so it shows
+	var core := GameState.power_on("powercore")
+	var dmg: float = w.damage * GameState.weapon_mult(widx, "damage") * (2.0 if core else 1.0)
 	var spd: float = w.speed * GameState.weapon_mult(widx, "speed")
 	var spl: float = w.splash * GameState.weapon_mult(widx, "splash")
 	for i in count:
@@ -207,14 +209,14 @@ func fire_player(w: WeaponDef) -> void:
 			ang = (i - (count - 1) / 2.0) * w.spread
 		var dir := (fwd + right * sin(ang)).normalized()
 		var frames: Array = [_missile_tex] if w.fuse > 0.0 else _bolt_frames(w)
-		var sprite := _acquire(frames[0], 1.8 * w.sprite_scale)
+		var sprite := _acquire(frames[0], 1.8 * w.sprite_scale * (1.35 if core else 1.0))
 		if sprite == null:
 			break
 		sprite.position = player.position + fwd * 3.0 + right * lateral + Vector3.UP * -0.45
 		var shot := {
 			"node": sprite, "vel": dir * spd, "dmg": dmg,
 			"life": (w.fuse + 0.5) if w.fuse > 0.0 else 1.4,
-			"fuse": w.fuse, "splash": spl, "splash_dmg": w.splash_damage,
+			"fuse": w.fuse, "splash": spl, "splash_dmg": w.splash_damage * (2 if core else 1),
 			"homing": w.homing, "homing_turn": w.homing_turn, "color": w.color,
 			"frames": frames, "trail": 0.12,   # first puff once clear of the nose
 		}

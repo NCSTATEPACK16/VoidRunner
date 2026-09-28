@@ -331,6 +331,8 @@ func take_damage(amount: float, message: String, pierce_evade := false) -> void:
 		return
 	if iframes_t > 0.0 and not pierce_evade:
 		return
+	if GameState.power_on("phase"):
+		return   # 3.0: PHASE SHIELD — nothing touches the ship, walls included
 	GameState.shields -= amount
 	last_damage = elapsed
 	shake = minf(0.6, shake + 0.35)

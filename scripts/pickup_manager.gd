@@ -4,6 +4,8 @@ extends Node3D
 ## Billboarded sprites that bob in place, magnet toward the player when close,
 ## and expire (blinking) if ignored — fly through to collect. Distance checks,
 ## no physics bodies, same as every other system in this game.
+## 3.0 phase 5 adds the timed power-ups (OVERDRIVE / PHASE SHIELD / POWER CORE):
+## bigger, longer-lived, and their effect runs on GameState's power clocks.
 
 signal collected(kind: String, value: int)   # value: salvage amount, else 0
 
@@ -11,6 +13,7 @@ const MAGNET_RANGE_SQ := 14.0 * 14.0
 const MAGNET_SPEED := 18.0
 const COLLECT_RANGE_SQ := 9.0
 const LIFETIME := 12.0
+const POWER_LIFETIME := 16.0   # 3.0: power-ups hang around a little longer
 const BLINK_AT := 3.0     # blink for the last N seconds before expiring
 
 const EFFECT := {
@@ -81,11 +84,13 @@ func _respawn_station(s: Dictionary) -> void:
 
 
 func spawn_drop(pos: Vector3, ring: int, kind: String, value := 0) -> void:
-	var sprite := SpriteGen.make_sprite(_frames[kind][0], 2.6)
+	var power := kind in GameState.POWER_TIME
+	var sprite := SpriteGen.make_sprite(_frames[kind][0], 3.4 if power else 2.6)
 	sprite.position = path.clamp_to_ring(pos, ring, 2.0)
 	add_child(sprite)
 	_pickups.append({
-		"node": sprite, "kind": kind, "bob_p": randf() * TAU, "life": LIFETIME,
+		"node": sprite, "kind": kind, "bob_p": randf() * TAU,
+		"life": POWER_LIFETIME if power else LIFETIME,
 		"value": value,   # V2.2 L3b: salvage amount rides the drop
 	})
 
@@ -142,4 +147,6 @@ func _collect(kind: String, value := 0) -> void:
 		"salvage":   # V2.2 L3b: straight into the level's unbanked haul
 			GameState.salvage_run += value
 			GameState.salvage_changed.emit(GameState.salvage_total())
+		"overdrive", "phase", "powercore":   # 3.0: timed — starts/refills its clock
+			GameState.grant_power(kind)
 	collected.emit(kind, value)

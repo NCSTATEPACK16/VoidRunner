@@ -308,6 +308,182 @@ func _run() -> void:
 	GameState.shields = hud_shields
 	assert(game.hud._led.x == ceili(hud_shields / GameState.max_shields() * Hud.LED_N))
 	print("hud ok — LED gauges follow shields")
+	# --- 3.0 phase 5: timed power-ups ---
+	var was_dead := GameState.is_dead   # the flight sim above may have ended in a death
+	GameState.is_dead = false
+	GameState.clear_powers()
+	game.shot_mgr.clear_all()
+	GameState.shields = GameState.max_shields()
+	game.player.iframes_t = 0.0
+	var pw_full := GameState.shields
+	game.pickup_mgr._collect("phase")
+	assert(GameState.power_on("phase"))
+	game.player.take_damage(10.0, "TEST")
+	assert(GameState.shields == pw_full)             # PHASE SHIELD: untouchable
+	GameState.tick_powers(GameState.POWER_TIME.phase + 0.1)
+	assert(not GameState.power_on("phase"))          # the clock ran out...
+	game.player.take_damage(10.0, "TEST")
+	assert(GameState.shields < pw_full)              # ...and hits land again
+	GameState.shields = pw_full
+	var w0: WeaponDef = game.weapons[0]
+	GameState.weapon_index = 0
+	game.shot_mgr.fire_player(w0)
+	var base_dmg: float = game.shot_mgr._pshots.back().dmg
+	game.pickup_mgr._collect("powercore")
+	game.shot_mgr.fire_player(w0)
+	assert(is_equal_approx(game.shot_mgr._pshots.back().dmg, base_dmg * 2.0))   # POWER CORE
+	GameState.heat = 50.0
+	game.pickup_mgr._collect("overdrive")
+	assert(GameState.heat == 0.0)                    # grabbing it vents the guns
+	game._fire_cd = 0.0
+	Input.action_press("fire")
+	game._update_firing(0.0)
+	Input.action_release("fire")
+	assert(GameState.heat == 0.0)                    # OVERDRIVE: the guns stay cold
+	assert(is_equal_approx(game._fire_cd,
+		w0.cooldown * GameState.weapon_mult(0, "interval") * game.OVERDRIVE_RATE))
+	for pw_i in 40:
+		assert(EnemyManager.random_power() in GameState.POWER_TIME)
+	GameState.clear_powers()
+	assert(not GameState.power_on("overdrive") and not GameState.power_on("powercore"))
+	print("powerups ok — phase blocks damage then expires, core doubles damage, overdrive vents + halves the interval")
+	# --- 3.0 phase 5: new enemy behaviours ---
+	var em: EnemyManager = game.enemy_mgr
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	game.player.reset_to_start()   # mid-tunnel on a straight: placements stay inside
+	var pring: int = game.player.ring_idx
+	var pfwd: Vector3 = game.player.forward()
+	# MINE: arms when the ship is close, bursts inside a second, hurts if still near
+	em.spawn(pring, -1, "mine")
+	var mine: Dictionary = em.enemies.back()
+	assert(mine.hp == 1 and mine.mode == "idle")
+	mine.node.position = game.player.position + pfwd * 6.0
+	em.update_enemies(dt)
+	assert(mine.mode == "armed")
+	var mine_sh := GameState.shields
+	for f in 60:
+		em.update_enemies(dt)
+	assert(em.enemies.is_empty())                    # burst and gone
+	assert(GameState.shields < mine_sh)              # the ship was inside the blast
+	GameState.shields = pw_full
+	game.player.bounce = Vector3.ZERO
+	# a mine shot from range pops harmlessly and chains into its neighbour
+	em.spawn(pring, -1, "mine")
+	var m2: Dictionary = em.enemies.back()
+	m2.node.position = game.player.position + pfwd * 40.0
+	em.spawn(pring, -1, "drone")
+	var bystander: Dictionary = em.enemies.back()
+	bystander.node.position = m2.node.position + Vector3(3, 0, 0)
+	bystander.hp = 3
+	var chain_score := GameState.score
+	em.hit_enemy(em.enemies.find(m2), 5)
+	assert(em._pending_blasts.size() == 1)           # the burst waits for next frame
+	em.update_enemies(dt)
+	assert(not em.enemies.has(bystander))            # ...then takes the drone with it
+	assert(GameState.shields == pw_full)             # a mine you shoot can't hurt you
+	assert(GameState.score > chain_score)
+	em.clear_all()
+	# STINGER: winds up only in front of the ship, then dives; sidestep and it misses
+	game.player.wall_hurt_t = 0.0
+	em.spawn(pring, -1, "stinger")
+	var sting: Dictionary = em.enemies.back()
+	sting.node.position = game.player.position + pfwd * 40.0
+	sting.mode_t = 0.0
+	em.update_enemies(dt)
+	assert(sting.mode == "wind")                        # the tell
+	var sting_flash := false
+	for f in 60:
+		em.update_enemies(dt)
+		sting_flash = sting_flash or sting.flash_t > 0.0
+		if sting.mode == "dive":
+			break
+	assert(sting.mode == "dive" and sting_flash)
+	var sting_home: Vector3 = game.player.position
+	game.player.position += pfwd.cross(Vector3.UP).normalized() * 12.0   # sidestep
+	for f in 120:
+		em.update_enemies(dt)
+	assert(GameState.shields == pw_full)             # dodged
+	assert(em.enemies.has(sting))                       # a miss doesn't spend it
+	game.player.position = sting_home
+	em.clear_all()
+	# ...hold still and the dive connects, spending the stinger
+	em.spawn(pring, -1, "stinger")
+	var sting2: Dictionary = em.enemies.back()
+	sting2.node.position = game.player.position + pfwd * 30.0
+	sting2.mode = "dive"
+	sting2.mode_t = EnemyManager.STINGER_DIVE_T
+	sting2.dive_dir = -pfwd
+	for f in 90:
+		em.update_enemies(dt)
+		if em.enemies.is_empty():
+			break
+	assert(em.enemies.is_empty() and GameState.shields < pw_full)
+	GameState.shields = pw_full
+	# SPINNER: one full ring per burst, its hole aimed at the ship
+	em.spawn(pring, -1, "spinner")
+	var spn: Dictionary = em.enemies.back()
+	spn.node.position = game.player.position + pfwd * 45.0
+	spn.fire_t = 0.0
+	var ring_vels: Array[Vector3] = []
+	var grab := func(_o: Vector3, v: Vector3, _d: float, _s: float, _k: bool) -> void:
+		ring_vels.append(v)
+	em.enemy_fired.connect(grab)
+	em.update_enemies(dt)
+	em.enemy_fired.disconnect(grab)
+	assert(ring_vels.size() == EnemyManager.SPINNER_SPOKES)
+	var ring_sum := Vector3.ZERO
+	for v in ring_vels:
+		ring_sum += v
+	assert(ring_sum.normalized().dot(
+		(game.player.position - spn.node.position).normalized()) > 0.99)
+	em.clear_all()
+	print("enemies ok — mine arms/bursts/chains, stinger tells + dives + misses, spinner rings")
+	# --- 3.0 phase 5: every boss has its own pattern ---
+	em.spawn_boss(pring, game.levels[5])              # BROOD MOTHER
+	var bb: Dictionary = em.boss
+	assert(bb.model == "brood")
+	bb.node.position = game.player.position + pfwd * 50.0
+	bb.anchor = bb.node.position
+	bb.summon_t = 0.0
+	em.update_enemies(dt)
+	var hatch := 0
+	for en in em.enemies:
+		if en.get("type", "") == "stinger" and en.get("summoned", false):
+			hatch += 1
+	assert(hatch == 1)                               # phase 1: a hatchling
+	bb.hp = int(bb.max_hp * 0.5)
+	bb.lay_t = 0.0
+	em.update_enemies(dt)
+	var laid := 0
+	for en in em.enemies:
+		if en.get("laid", false):
+			laid += 1
+	assert(bb.phase == 2 and laid == 1)              # phase 2: she lays mines
+	em.clear_all()
+	em.spawn_boss(pring, game.levels[8])              # THE RIFT MAW
+	var mb: Dictionary = em.boss
+	assert(mb.model == "maw")
+	mb.node.position = game.player.position + pfwd * 60.0
+	mb.anchor = mb.node.position
+	mb.hp = int(mb.max_hp * 0.2)                     # phase 3: the double spiral
+	mb.fire_t = 99.0
+	mb.volley_t = 99.0
+	mb.summon_t = 99.0
+	mb.spiral_t = 1.0
+	var spiral := [0]
+	var tally := func(_o: Vector3, _v: Vector3, _d: float, _s: float, _k: bool) -> void:
+		spiral[0] += 1
+	em.enemy_fired.connect(tally)
+	for f in 30:
+		em.update_enemies(dt)
+	em.enemy_fired.disconnect(tally)
+	assert(mb.phase == 3 and spiral[0] >= 8)         # ~5 steps x 2 arms in 0.5 s
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	GameState.shields = pw_full
+	GameState.is_dead = was_dead
+	print("bosses ok — brood hatches stingers + lays mines, maw hoses a double spiral")
 	# --- V2.2 L2a: three phase-aligned music mixes on synced players ---
 	var mix_a: AudioStream = MusicGen.render_loop(0)
 	var mix_b: AudioStream = MusicGen.render_loop(2)
@@ -690,6 +866,12 @@ func _run() -> void:
 	assert(lore_s.position.y + lore_s.size.y * lore_s.scale.y <= lore_o.position.y)
 	assert(lore_o.position.y + 3 * 11.0 <= lore_b.position.y)
 	assert(lore_b.position.y + lore_b.size.y * lore_b.scale.y <= 164.0)   # above buttons
+	# 3.0: the enemy tips grew some briefings — every level's body must still fit
+	for bidx in game.levels.size():
+		game.overlays.set_briefing(game.levels[bidx])
+		await get_tree().process_frame
+		assert(lore_b.get_line_count() <= 3)
+	game.overlays.set_briefing(game.levels[4])
 	print("lore ok — 9+gauntlet stories + load lines; briefing bands don't overlap")
 	# --- M1/M2 beta readiness: safety notice, comfort settings, build stamp ---
 	# every new setting round-trips through settings.cfg

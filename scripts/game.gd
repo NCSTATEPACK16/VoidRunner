@@ -8,6 +8,9 @@ enum State { MENU, BRIEFING, PLAYING, PAUSED, GAME_OVER, LEVEL_CLEAR, VICTORY }
 const HEAT_COOL := 26.0
 const OVERHEAT_LOCK := 3.0
 const PORTAL_TRIGGER_SQ := 49.0
+const OVERDRIVE_RATE := 0.5   # 3.0: fire-interval multiplier while OVERDRIVE runs
+## 3.0: odds that clearing a locked arena leaves a power-up for the player
+const ARENA_POWER_CHANCE := 0.5
 
 var state := State.MENU
 var weapons: Array[WeaponDef] = []
@@ -629,14 +632,21 @@ func _apply_gauntlet_tier(tier: int) -> void:
 	var pool := PackedStringArray(["drone", "drone"])
 	if tier >= 1:
 		pool.append("weaver")
+		pool.append("mine")      # 3.0
 	if tier >= 2:
 		pool.append("hulk")
 		pool.append("turret")
+		pool.append("stinger")   # 3.0
 	if tier >= 3:
 		pool.append("weaver")
+		pool.append("spinner")   # 3.0
+	if tier >= 4:
+		pool.append("stinger")
+		pool.append("mine")
 	if tier >= 5:
 		pool.append("hulk")
 		pool.append("turret")   # tier 5+ turrets fire seekers (enemy_speed >= 9)
+		pool.append("spinner")
 	_gauntlet_def.enemy_types = pool
 	AudioSys.set_music_intensity(tier / 8.0)
 
@@ -934,6 +944,7 @@ func _process(delta: float) -> void:
 	_drain_stream_queues()
 	world.update_streaming(player.ring_idx)
 	GameState.tick_combo(delta)
+	GameState.tick_powers(delta)   # 3.0: power-up clocks run only while flying
 	_update_heat(delta)
 	_update_firing(delta)
 	enemy_mgr.update_enemies(delta)
@@ -1029,15 +1040,19 @@ func _update_firing(delta: float) -> void:
 	if w.energy_cost > 0.0 and GameState.energy < w.energy_cost:
 		_notify_cant_fire("LOW ENERGY")
 		return
-	# V2.2 L3c: NEUTRON marks shorten the interval; heat sinks cool every weapon
-	_fire_cd = w.cooldown * GameState.weapon_mult(GameState.weapon_index, "interval")
+	# V2.2 L3c: NEUTRON marks shorten the interval; heat sinks cool every weapon.
+	# 3.0: OVERDRIVE doubles the fire rate and the guns stop heating at all.
+	var overdrive := GameState.power_on("overdrive")
+	_fire_cd = w.cooldown * GameState.weapon_mult(GameState.weapon_index, "interval") \
+		* (OVERDRIVE_RATE if overdrive else 1.0)
 	shot_mgr.fire_player(w)
 	player.add_kick(GameState.weapon_index)   # V2.2 L1: per-weapon muzzle kick
 	if w.uses_ammo:
 		GameState.missiles -= 1
 	if w.energy_cost > 0.0:
 		GameState.energy -= w.energy_cost   # shared afterburner pool; regens in player.gd
-	GameState.heat += w.heat * GameState.heat_mult()
+	if not overdrive:
+		GameState.heat += w.heat * GameState.heat_mult()
 	if GameState.heat >= 100.0:
 		GameState.is_overheated = true
 		_overheat_t = OVERHEAT_LOCK
@@ -1096,7 +1111,19 @@ func _on_pickup_collected(kind: String, value := 0) -> void:
 			hud.show_message("PLASMA BOMB +1")
 		"salvage":   # V2.2 L3b
 			hud.show_message("SALVAGE +%d" % value)
-	AudioSys.play_select()
+		"overdrive":   # 3.0 timed power-ups
+			GameState.heat = 0.0   # the rush vents the guns, even mid-overheat
+			GameState.is_overheated = false
+			_overheat_t = 0.0
+			hud.show_message("OVERDRIVE — RAPID FIRE!", 2.0)
+		"phase":
+			hud.show_message("PHASE SHIELD — INVULNERABLE!", 2.0)
+		"powercore":
+			hud.show_message("POWER CORE — DOUBLE DAMAGE!", 2.0)
+	if kind in GameState.POWER_TIME:
+		AudioSys.play_powerup()
+	else:
+		AudioSys.play_select()
 
 
 func _on_boss_killed() -> void:
@@ -1110,10 +1137,15 @@ func _on_boss_killed() -> void:
 
 func _on_boss_phase(phase: int) -> void:
 	gib_mgr.hit_stop(90)   # V2.2 L1: phase transitions land with a beat
-	if phase == 2:
-		hud.show_message("SIGNATURE SHIFTING — VOLLEY PATTERN", 2.5)
-	elif phase == 3:
-		hud.show_message("SIGNATURE CRITICAL — STAY MOBILE", 2.5)
+	# 3.0: each boss announces its own new trick, so the player knows what's coming
+	var msgs := {
+		"sentinel": ["SIGNATURE SHIFTING — VOLLEY PATTERN", "SIGNATURE CRITICAL — STAY MOBILE"],
+		"brood": ["SHE IS LAYING MINES — SHOOT THEM EARLY", "THE BROOD SWARMS — STAY MOBILE"],
+		"maw": ["SPIRAL STORM — KEEP MOVING", "THE MAW RAGES — STAY MOBILE"],
+	}
+	var lines: Array = msgs.get(_current_level().boss_model, msgs.sentinel)
+	if phase >= 2:
+		hud.show_message(lines[mini(phase, 3) - 2], 2.5)
 	AudioSys.play_overheat()
 	pickup_mgr.replenish_stations()   # back-wall resupply respawns each phase
 
@@ -1128,6 +1160,10 @@ func _on_enemy_killed(arena_id: int) -> void:
 		world.open_door(arena_id)
 		hud.show_message("BULKHEAD OPEN")
 		AudioSys.play_select()
+		# 3.0: a cleared room often leaves a power-up floating in the flight line
+		if randf() < ARENA_POWER_CHANCE:
+			var ring := mini(player.ring_idx + 2, path.rings.size() - 1)
+			pickup_mgr.spawn_drop(path.rings[ring].p, ring, EnemyManager.random_power())
 
 
 func _on_tunnel_spawn(ring_idx: int) -> void:

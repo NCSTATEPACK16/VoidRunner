@@ -59,7 +59,10 @@ func _draw() -> void:
 			if int(Time.get_ticks_msec() / 250) % 2 == 0:
 				draw_rect(Rect2(p - Vector2(2, 2), Vector2(4, 4)), Color("ff9a30"))
 		else:
-			draw_rect(Rect2(p - Vector2(1, 1), Vector2(2, 2)), Color("ff3838"))
+			# 3.0: mines read as hazards (amber), not targets
+			var mine: bool = e.get("type", "") == "mine"
+			draw_rect(Rect2(p - Vector2(1, 1), Vector2(2, 2)),
+				Color("ffc030") if mine else Color("ff3838"))
 	for shot_pos in shot_mgr.eshot_cache:  # V2.1: shared per-frame cache (no realloc)
 		var ex: float = shot_pos.x - player.position.x
 		var ez: float = shot_pos.z - player.position.z

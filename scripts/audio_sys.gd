@@ -39,6 +39,8 @@ var _bomb: AudioStreamWAV
 var _engine_loop: AudioStreamWAV
 var _gib_tick: AudioStreamWAV
 var _sting: AudioStreamWAV   # V2.2 L2c: style-grade fanfare, repitched per grade
+var _powerup: AudioStreamWAV   # 3.0: timed power-up grabbed
+var _warn: AudioStreamWAV      # 3.0: stinger wind-up / mine arming tell
 var _gib_voices: Array[AudioStreamPlayer] = []   # V2.2 L1f: dedicated, caps ticks at 2
 
 
@@ -60,6 +62,8 @@ func _ready() -> void:
 	_engine_loop = _render_engine_loop()
 	_gib_tick = _render_gib_tick()
 	_sting = _render_sting()
+	_powerup = _render_powerup()
+	_warn = _render_warn()
 	for i in 2:
 		var g := AudioStreamPlayer.new()
 		g.bus = "Master"
@@ -204,6 +208,14 @@ func play_dodge() -> void:
 
 func play_bomb() -> void:
 	_play(_bomb)
+
+
+func play_powerup() -> void:
+	_play(_powerup)
+
+
+func play_warn() -> void:
+	_play(_warn)
 
 
 ## V2.2 L1f: quiet debris click on gib ricochet. Dedicated 2-voice pool — when
@@ -436,6 +448,38 @@ func _render_bomb() -> AudioStreamWAV:
 		lp += (rng.randf_range(-1.0, 1.0) - lp) * alpha * 3.0
 		var sub := sin(TAU * lerpf(90.0, 34.0, minf(1.0, t / 0.5)) * t)
 		out[i] = clampf(lp * 0.4 * exp(-t * 4.0) + sub * 0.4 * exp(-t * 6.0), -1.0, 1.0)
+	return _make_wav(out)
+
+
+func _render_powerup() -> AudioStreamWAV:
+	# 3.0: bright 25%-pulse arpeggio C5-E5-G5-C6, then a vibrato hold on the top.
+	var notes: Array[float] = [523.25, 659.26, 783.99, 1046.5]
+	var n := int(SAMPLE_RATE * 0.42)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		var k := mini(int(t / 0.055), notes.size() - 1)
+		var f := notes[k] * (1.0 + (0.012 * sin(t * TAU * 11.0) if k == notes.size() - 1 else 0.0))
+		phase += f / SAMPLE_RATE
+		var env := 0.10 * (exp(-(t - k * 0.055) * 9.0) if k < notes.size() - 1 \
+			else exp(-(t - 0.165) * 5.0))
+		out[i] = (1.0 if fmod(phase, 1.0) < 0.25 else -1.0) * env
+	return _make_wav(out)
+
+
+func _render_warn() -> AudioStreamWAV:
+	# 3.0: two short high blips — the "something is about to happen" tell.
+	var n := int(SAMPLE_RATE * 0.16)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		var on := t < 0.05 or (t > 0.09 and t < 0.14)
+		phase += 1320.0 / SAMPLE_RATE
+		out[i] = ((1.0 if fmod(phase, 1.0) < 0.5 else -1.0) * 0.07) if on else 0.0
 	return _make_wav(out)
 
 
