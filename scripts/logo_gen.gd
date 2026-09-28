@@ -7,6 +7,12 @@ class_name LogoGen
 
 
 static func chrome(text: String, scale := 3, extrude := 4) -> ImageTexture:
+	return ImageTexture.create_from_image(chrome_image(text, scale, extrude))
+
+
+## The same logo as a plain Image — IconGen paints the app icon and link-preview
+## card from it on the CPU, where there may be no renderer to read a texture back.
+static func chrome_image(text: String, scale := 3, extrude := 4) -> Image:
 	var cw := PixelFont.ADVANCE * scale
 	var gh := 7 * scale
 	var w := text.length() * cw + extrude + 2
@@ -25,6 +31,14 @@ static func chrome(text: String, scale := 3, extrude := 4) -> ImageTexture:
 						var x := 1 + i * cw + rx * scale + bx
 						var y := 1 + ry * scale + by
 						mask[y * w + x] = 1
+	return chrome_from_mask(mask, w, h, gh, extrude)
+
+
+## The chrome treatment for any ink mask (w x h, 1 = ink). The ink starts on row 1
+## and is `gh` rows tall, which sets where the sky/sunset horizon falls; the mask
+## leaves `extrude` + 1 px free right and below for the slab and the outline.
+static func chrome_from_mask(mask: PackedByteArray, w: int, h: int, gh: int,
+		extrude: int) -> Image:
 	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
 	# 2) extrusion: the mask stamped back-right, darkest furthest away
 	for d in range(extrude, 0, -1):
@@ -65,4 +79,4 @@ static func chrome(text: String, scale := 3, extrude := 4) -> ImageTexture:
 			if y > 0 and mask[(y - 1) * w + x] == 0 and y < horizon:
 				c = Palette.ramp(Palette.GREY, 15)
 			img.set_pixel(x, y, c)
-	return ImageTexture.create_from_image(img)
+	return img

@@ -1447,6 +1447,121 @@ func _run() -> void:
 	game.overlays.show_only("start")
 	assert(game.overlays._install_buttons.is_empty())
 	print("D11 ok — install nudge is a no-op off the web build (OS.has_feature(\"web\") == false)")
+	# --- re-audit Step 2: a real pause menu, a touch pause tab, pause on focus loss,
+	# and QUIT TO TITLE back to a title screen as clean as a fresh boot
+	GameState.reset_run()
+	GameState.level_index = 0
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game.state == game.State.PLAYING)
+	var pause_panel := game.overlays._panels["pause"] as Control
+	var pause_rows := {}
+	for child in pause_panel.get_children():
+		if child is Button:
+			pause_rows[(child as Button).text] = child
+	for want in ["> RESUME", "FLIGHT MANUAL", "SETTINGS", "QUIT TO TITLE"]:
+		assert(pause_rows.has(want))
+	assert(pause_panel.mouse_filter == Control.MOUSE_FILTER_STOP)   # swallows stray clicks
+	# losing focus pauses; more focus events (or coming back) never resume by themselves
+	game.notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	assert(game.state == game.State.PAUSED and pause_panel.visible)
+	game.notification(Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT)
+	game.notification(Node.NOTIFICATION_APPLICATION_FOCUS_IN)
+	assert(game.state == game.State.PAUSED)
+	# a click that reaches the game no longer resumes either
+	var stray := InputEventMouseButton.new()
+	stray.button_index = MOUSE_BUTTON_LEFT
+	stray.pressed = true
+	game._unhandled_input(stray)
+	assert(game.state == game.State.PAUSED)
+	# the manual opened from pause offers no START, and BACK returns to pause
+	(pause_rows["FLIGHT MANUAL"] as Button).pressed.emit()
+	assert((game.overlays._panels["help"] as Control).visible)
+	assert(not game.overlays._help_start.visible)
+	game.overlays._help_back.pressed.emit()
+	assert(pause_panel.visible)
+	# ...and so does SETTINGS
+	(pause_rows["SETTINGS"] as Button).pressed.emit()
+	assert((game.overlays._panels["settings"] as Control).visible)
+	(game.overlays._focus["settings"] as Button).pressed.emit()
+	assert(pause_panel.visible)
+	(pause_rows["> RESUME"] as Button).pressed.emit()
+	assert(game.state == game.State.PLAYING)
+	# touch: the II tab sits inside the canvas, clear of every other control, and a
+	# tap on it pauses without claiming the steering or fire finger
+	var ptouch := TouchControls.new()
+	add_child(ptouch)
+	ptouch.enable(game.player)
+	await get_tree().process_frame
+	var tab: Rect2 = ptouch._pause_btn.get_global_rect()
+	assert(Rect2(Vector2.ZERO, Vector2(320, 200)).encloses(tab))
+	assert(tab.position.x > 320.0 * TouchControls.LEFT_ZONE_FRAC)
+	for c in [ptouch._fire_btn, ptouch._bomb_btn, ptouch._weapon_btn]:
+		assert(not tab.intersects(c.get_global_rect()))
+	var tab_paused := [false]
+	ptouch.pause_tapped.connect(func() -> void: tab_paused[0] = true)
+	var tab_tap := InputEventScreenTouch.new()
+	tab_tap.index = 0
+	tab_tap.position = tab.get_center()
+	tab_tap.pressed = true
+	ptouch._input(tab_tap)
+	assert(tab_paused[0])
+	assert(ptouch._steer_touch < 0 and ptouch._fire_touch < 0)
+	ptouch.set_flight_active(false)
+	ptouch.queue_free()
+	# QUIT TO TITLE: the first press only arms it, the second quits the run
+	GameState.weapon_marks = [2, 1, 0, 0]
+	GameState.shields = 20.0
+	game._toggle_pause()
+	assert(game.state == game.State.PAUSED)
+	game.overlays._quit_btn.pressed.emit()
+	assert(game.state == game.State.PAUSED)
+	assert(game.overlays._quit_btn.text != "QUIT TO TITLE")   # asking again
+	game._toggle_pause()   # resume and re-pause: the arming doesn't survive
+	game._toggle_pause()
+	assert(game.overlays._quit_btn.text == "QUIT TO TITLE")
+	game.overlays._quit_btn.pressed.emit()
+	game.overlays._quit_btn.pressed.emit()
+	assert(game.state == game.State.MENU)
+	assert((game.overlays._panels["start"] as Control).visible)
+	assert(GameState.weapon_marks == [0, 0, 0, 0])            # a new run starts clean
+	assert(GameState.shields == GameState.max_shields())
+	assert(GameState.level_index == 0 and game._built_level == 0)
+	assert(not game.player.active)
+	# ...and the title still launches a campaign from there
+	game.overlays._sector = 0
+	game._on_launch()   # MENU -> BRIEFING
+	assert(game.state == game.State.BRIEFING)
+	for f in 20:
+		game._process(1.0 / 60.0)
+	game._on_launch()   # BRIEFING -> PLAYING
+	await get_tree().process_frame
+	assert(game.state == game.State.PLAYING)
+	print("PAUSE ok — menu rows, focus-loss pause, touch II tab, armed quit to a clean title")
+	# --- re-audit Step 1: the app icons and link-preview card are painted by code
+	# (hard rule 1). Sizes are what the web export and the PWA manifest expect, and
+	# every pixel is a palette entry, read back through the same 8-bit Image path.
+	var pal_img := Image.create(Palette.ALL.size(), 1, false, Image.FORMAT_RGBA8)
+	for pi in Palette.ALL.size():
+		pal_img.set_pixel(pi, 0, Palette.ALL[pi])
+	var pal := {}
+	for pi in Palette.ALL.size():
+		pal[pal_img.get_pixel(pi, 0)] = true
+	for size in [144, 180, 512]:
+		var ic := IconGen.icon(size)
+		assert(ic.get_width() == size and ic.get_height() == size)
+		assert(pal.has(ic.get_pixel(0, 0)))
+	var card := IconGen.card()
+	assert(card.get_width() == 1200 and card.get_height() == 630)
+	for art: Image in [IconGen.icon_art(), IconGen.card_art()]:
+		var inks := {}
+		for y in art.get_height():
+			for x in art.get_width():
+				var px: Color = art.get_pixel(x, y)
+				assert(pal.has(px))
+				inks[px] = true
+		assert(inks.size() >= 8)   # actually painted, not a blank fill
+	print("ICONS ok — 144/180/512 icons + 1200x630 card, code-painted, palette-only")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

@@ -1,5 +1,9 @@
 # M7: Baked Sprite Pipeline Implementation Plan
 
+> **Retired 2026-09-28:** 3.0's `SpriteForge` turntable-bakes code-built models at boot, so this
+> Blender pipeline and its hard-rule-1 change are not needed. What remains (device measurement)
+> is Step 7 in `docs/revamp/2026-09-28-m5-m9-reaudit.md` (§3.3).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the procedurally-drawn player ship, then the three bosses, then (only if needed) the hulk and turret, with Blender-modeled, MCP-scripted, multi-angle-baked sprites — run in priority order per `PLAN.md`'s M7, each subject shipping only if it demonstrably reads better than its procedural equivalent at fog distance, in-engine.

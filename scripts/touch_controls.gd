@@ -20,6 +20,7 @@ class_name TouchControls
 signal fire_held(down: bool)
 signal weapon_tapped
 signal bomb_tapped
+signal pause_tapped   # re-audit Step 2: touch had no way to pause at all
 
 ## D9: the touch steering stick — radius and dead zone, in 320x200 canvas units.
 const STICK_RADIUS := 40.0
@@ -48,6 +49,9 @@ const DPAD_DEAD := 6.0
 ## into the 320x200 canvas_items space.
 const FIRE_SIZE := 32.0
 const SIDE_SIZE := 22.0
+## Re-audit Step 2: the pause tab, top-right, clear of the HUD's readouts and of
+## every other control (the steering zone is the left 45%, the buttons sit low).
+const PAUSE_RECT := Rect2(291.0, 3.0, 26.0, 16.0)
 ## Idle fade: how long with no touch before the layer dims, and to what alpha.
 const IDLE_FADE_AFTER := 2.5
 const IDLE_ALPHA := 0.35
@@ -75,6 +79,7 @@ var _root: Control
 var _fire_btn: Panel
 var _weapon_btn: Panel
 var _bomb_btn: Panel
+var _pause_btn: Panel
 var _stick_ring: Panel
 var _stick_knob: Panel
 var _dpad_root: Control
@@ -110,6 +115,7 @@ func _build() -> void:
 		Color(0.55, 0.2, 0.85, 0.14), Color(0.7, 0.4, 1.0, 0.7))
 	_weapon_btn = _make_button(SIDE_SIZE, Vector2(62.0, 60.0), "WPN",
 		Color(0.2, 0.55, 0.85, 0.14), Color(0.4, 0.75, 1.0, 0.7))
+	_build_pause_tab()
 	# floating stick visuals — hidden until a steering touch begins
 	_stick_ring = Panel.new()
 	var ring_sb := StyleBoxFlat.new()
@@ -138,6 +144,28 @@ func _build() -> void:
 	_fps_label.add_theme_color_override("font_color", Color(0.4, 1.0, 0.6))
 	_root.add_child(_fps_label)
 	_build_dpad()
+
+
+func _build_pause_tab() -> void:
+	_pause_btn = Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.1, 0.9, 0.85, 0.12)
+	sb.border_color = Color(0.33, 1.0, 0.93, 0.6)
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(3)
+	_pause_btn.add_theme_stylebox_override("panel", sb)
+	_pause_btn.position = PAUSE_RECT.position
+	_pause_btn.size = PAUSE_RECT.size
+	_pause_btn.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_pause_btn)
+	var l := Label.new()
+	l.text = "II"
+	l.add_theme_color_override("font_color", Color(0.8, 1.0, 0.97))
+	l.set_anchors_preset(Control.PRESET_FULL_RECT)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pause_btn.add_child(l)
 
 
 func _build_dpad() -> void:
@@ -273,7 +301,11 @@ func _input(event: InputEvent) -> void:
 func _on_touch(t: InputEventScreenTouch) -> void:
 	_idle_t = 0.0
 	if t.pressed:
-		if _in_rect(_fire_btn, t.position) and _fire_touch < 0:
+		if _in_rect(_pause_btn, t.position):
+			# game.gd pauses, which turns this layer off and releases every held
+			# input (_release_all), so this touch never needs tracking
+			pause_tapped.emit()
+		elif _in_rect(_fire_btn, t.position) and _fire_touch < 0:
 			_fire_touch = t.index
 			fire_held.emit(true)
 		elif _in_rect(_bomb_btn, t.position) and _bomb_touch < 0:

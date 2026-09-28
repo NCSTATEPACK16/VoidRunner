@@ -1,5 +1,9 @@
 # M9: Repo Hygiene, Release Gates, and Staged Posting Implementation Plan
 
+> **Revised 2026-09-28 (post-3.0):** still valid in outline; the automated gates are covered by
+> 3.0 phase 7 and the Blender posting angle is gone. See
+> `docs/revamp/2026-09-28-m5-m9-reaudit.md` §3.5 and §4 Step 9.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The last phase before a public post — scope the repo's public-facing hygiene down to match D7 ("players, not contributors"), run the release gates that have never once been completed (a full 9-sector-plus-gauntlet playthrough, a re-judged 1995-screenshot verdict, cross-browser/device coverage), then post in the staged sequence John already decided (D8).

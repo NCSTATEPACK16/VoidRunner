@@ -1,5 +1,9 @@
 # M8: Landing Page and Capture Implementation Plan
 
+> **Revised 2026-09-28 (post-3.0):** the start-screen baseline this plan designs from no longer
+> exists, and the `/play` move now ships together with app-install (PWA) mode. See
+> `docs/revamp/2026-09-28-m5-m9-reaudit.md` §3.4 and §4 Step 8.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Split the deployed site so the root domain serves a static DOS-terminal landing page and the game moves to `/play`, then produce a 30-60 second looping muted capture for the mandatory r/destroymygame submission format.

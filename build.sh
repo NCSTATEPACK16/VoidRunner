@@ -34,6 +34,11 @@ fi
 echo "--- Importing project ---"
 "${GODOT}" --headless --import
 
+# The app icons are painted by code (hard rule 1), not stored: favicon, PWA sizes
+# and the link-preview card land in build/icons/ for the export below.
+echo "--- Painting app icons ---"
+"${GODOT}" --headless tools/make_icons.tscn
+
 echo "--- Exporting Web build ---"
 "${GODOT}" --headless --export-release "Web" dist/index.html
 
