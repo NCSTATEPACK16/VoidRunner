@@ -31,6 +31,8 @@ var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
 var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipped
 var palette_lut: PaletteLUT     # 3.0: 256-color palette + GPU-baked lookup table
 var light_rig: LightRig         # 3.0: every dynamic light (no OmniLight3D anywhere)
+var crt_layer: CanvasLayer      # 3.0: scanline / CRT monitor pass over the whole window
+var _crt_mat: ShaderMaterial
 var env: Environment            # K1: per-level fog/ambient moods retune this
 
 var _fire_cd := 0.0
@@ -75,6 +77,7 @@ func _ready() -> void:
 	# engine started but the game did not.
 	if OS.has_feature("web"):
 		JavaScriptBridge.eval("window.vrDiag && window.vrDiag('GAME BOOTING');", true)
+	PixelFont.install()   # 3.0: the game's own bitmap font for every Control, from the start
 	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
 	GameState.load_records()    # Phase J: high score / best ranks / unlocked sector
 	# 3.0: turntable-render every enemy/boss/pickup sprite from its code-built model
@@ -135,6 +138,7 @@ func _ready() -> void:
 	overlays = Overlays.new()
 	overlays.layer = 10
 	add_child(overlays)
+	_build_crt_layer()
 	# M4a: touch mode is opt-in via ?touch=1 while the spike is being measured, so
 	# the default desktop build is byte-identical to before.
 	if OS.has_feature("web"):
@@ -218,6 +222,7 @@ func _ready() -> void:
 	# terminal mode; either being on keeps the layer visible.
 	GameState.dither_toggled.connect(func(_on: bool) -> void: _refresh_view_fx())
 	GameState.amber_toggled.connect(func(_on: bool) -> void: _refresh_view_fx())
+	GameState.crt_changed.connect(_apply_crt)
 	GameState.apply_settings()
 	# idle backdrop behind the start screen (v2.2 does the same)
 	_load_level_world(0)
@@ -293,6 +298,28 @@ func _apply_theme_mood(theme: Dictionary, level: LevelDef) -> void:
 func _refresh_view_fx() -> void:
 	dither_layer.visible = GameState.dither_enabled or GameState.amber_mode
 	_dither_mat.set_shader_parameter("amber", 1.0 if GameState.amber_mode else 0.0)
+
+
+## 3.0: the monitor — a full-window pass (above the menus and touch controls too)
+## that draws scanlines, or a curved RGB-masked CRT. Off costs nothing: the layer
+## is hidden.
+func _build_crt_layer() -> void:
+	crt_layer = CanvasLayer.new()
+	crt_layer.layer = 100
+	var rect := ColorRect.new()
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_crt_mat = ShaderMaterial.new()
+	_crt_mat.shader = load("res://shaders/crt.gdshader")
+	rect.material = _crt_mat
+	crt_layer.add_child(rect)
+	add_child(crt_layer)
+	_apply_crt(GameState.crt_mode)
+
+
+func _apply_crt(mode: int) -> void:
+	crt_layer.visible = mode > 0
+	_crt_mat.set_shader_parameter("mode", float(mode))
 
 
 ## Phase G2: palette-quantize + Bayer-dither the finished frame (3D + HUD, not the
@@ -878,6 +905,10 @@ func _on_new_campaign() -> void:
 
 func _process(delta: float) -> void:
 	world.animate(delta)
+	# 3.0: the title screen is translucent over the attract flythrough — no cockpit
+	hud.visible = state != State.MENU
+	if state == State.MENU:
+		_attract(delta)
 	# M4b: touch_ui's own active/visible state used to be set once by enable() and
 	# never revisited, so it kept drawing (and accepting input) over the pause menu,
 	# game-over screen, and every other non-flight state. This line is the fix — it
@@ -931,6 +962,31 @@ func _process(delta: float) -> void:
 	if world.portal_active \
 			and player.position.distance_squared_to(world.portal_position) < PORTAL_TRIGGER_SQ:
 		_level_complete()
+
+
+## 3.0 attract mode: behind the title screen the camera flies the sector-1 tunnel on
+## autopilot (the way mid-90s DOS games demoed themselves) — steering for a point a
+## few rings ahead, banking into the bends, looping back to the start at the end.
+## No input, no enemies (tunnel spawns are ignored in MENU), just the world.
+func _attract(delta: float) -> void:
+	if path == null or path.rings.size() < 8:
+		return
+	var last: int = (path.main_ring_count if path.main_ring_count > 0 else path.rings.size()) - 1
+	var ahead: Vector3 = path.rings[mini(player.ring_idx + 3, last)].p
+	var to := (ahead - player.position).normalized()
+	var want_yaw := atan2(-to.x, -to.z)
+	var turn := wrapf(want_yaw - player.yaw, -PI, PI)
+	player.yaw += turn * minf(1.0, delta * 1.6)
+	player.pitch = lerpf(player.pitch, clampf(asin(clampf(to.y, -1.0, 1.0)), -0.45, 0.45),
+		minf(1.0, delta * 1.6))
+	player.roll = lerpf(player.roll, clampf(turn * 1.4, -0.3, 0.3), minf(1.0, delta * 2.0))
+	player.rotation = Vector3(player.pitch, player.yaw, player.roll)
+	player.position += player.forward() * (PlayerShip.BASE_SPEED * delta)
+	player.ring_idx = path.nearest_ring(player.position, player.ring_idx)
+	player.position = path.clamp_to_ring(player.position, player.ring_idx, 2.5)
+	world.update_streaming(player.ring_idx)
+	if player.ring_idx >= last - 10:
+		player.reset_to_start()
 
 
 ## 3.0: this frame's dynamic light — headlight, muzzle flash, explosion flashes,

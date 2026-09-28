@@ -314,6 +314,7 @@ func record_gauntlet(dist: int) -> bool:
 # --- Phase H: player settings, persisted to user://settings.cfg ---
 signal dither_toggled(on: bool)
 signal amber_toggled(on: bool)   # V2.0: amber "terminal" view mode
+signal crt_changed(mode: int)    # 3.0: CRT filter mode
 
 var master_volume := 0.8
 var mouse_sens_mult := 1.0
@@ -321,6 +322,10 @@ var dither_enabled := true
 var gamepad_enabled := false   # K6: opt-in, never default
 var amber_mode := false        # amber-monochrome terminal look (via the dither shader)
 var screen_shake := true       # V2.2 L1: camera kick/shake master switch (accessibility)
+## 3.0: post filter over the whole window — 0 off, 1 scanlines, 2 full CRT
+## (scanlines + aperture mask + curvature + vignette). Scanlines by default: they
+## read as "a 1995 monitor" without bending anything.
+var crt_mode := 1
 # --- M1/M2 beta-readiness accessibility + comfort settings ---
 ## M1.2: suppresses the plasma-bomb white-out and freezes strobing/flickering
 ## arena lights. The strobe runs at ~1.1 Hz and the flicker is a smooth energy
@@ -355,6 +360,7 @@ func apply_settings() -> void:
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), db)
 	dither_toggled.emit(dither_enabled)
 	amber_toggled.emit(amber_mode)
+	crt_changed.emit(crt_mode)
 	InputSetup.set_gamepad(gamepad_enabled)
 	_save_settings()
 
@@ -375,6 +381,7 @@ func load_settings() -> void:
 		touch_dpad_enabled = cfg.get_value("settings", "dpad", touch_dpad_enabled)
 		gyro_aim_enabled = cfg.get_value("settings", "gyro", gyro_aim_enabled)
 		seen_warning = cfg.get_value("settings", "seen_warning", seen_warning)
+		crt_mode = clampi(int(cfg.get_value("settings", "crt", crt_mode)), 0, 2)
 
 
 func _save_settings() -> void:
@@ -392,6 +399,7 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "dpad", touch_dpad_enabled)
 	cfg.set_value("settings", "gyro", gyro_aim_enabled)
 	cfg.set_value("settings", "seen_warning", seen_warning)
+	cfg.set_value("settings", "crt", crt_mode)
 	cfg.save("user://settings.cfg")
 
 

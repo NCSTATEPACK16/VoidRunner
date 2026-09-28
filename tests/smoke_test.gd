@@ -298,6 +298,16 @@ func _run() -> void:
 	game.hud.show_damage_from(game.player.position + Vector3(30, 0, 0))
 	assert(game.hud._dmg_arcs.size() > 0)   # damage arc registered
 	print("feedback ok — kill tick + damage arcs")
+	# --- 3.0 phase 4: LED gauges track the meters (a partial segment still lights)
+	var hud_shields := GameState.shields
+	GameState.shields = GameState.max_shields() * 0.5
+	assert(game.hud._led.x == Hud.LED_N / 2)
+	GameState.shields = 1.0
+	assert(game.hud._led.x == 1)
+	assert(game.hud._shield_num.text == "1")
+	GameState.shields = hud_shields
+	assert(game.hud._led.x == ceili(hud_shields / GameState.max_shields() * Hud.LED_N))
+	print("hud ok — LED gauges follow shields")
 	# --- V2.2 L2a: three phase-aligned music mixes on synced players ---
 	var mix_a: AudioStream = MusicGen.render_loop(0)
 	var mix_b: AudioStream = MusicGen.render_loop(2)
@@ -811,9 +821,9 @@ func _run() -> void:
 	assert(GameState.seen_warning and game.overlays._panels.start.visible)
 	# M1.4: a build stamp is present and non-placeholder-empty
 	assert(BuildInfo.label().length() > 5)
-	# M1.5: the sector arrows sit clear of the longest sector label. The label is a
-	# 640-wide centred _line scaled 0.5, so its painted span is measured from the
-	# text width, not the node's box.
+	# M1.5: the sector arrows sit clear of the longest sector label. The label is
+	# centred across the 320 px canvas, so its painted span is measured from the
+	# text width (times the label's scale), not the node's box.
 	var arrows: Array[Button] = []
 	for child in game.overlays._panels.start.get_children():
 		if child is Button and (child as Button).text in ["<", ">"]:
@@ -824,7 +834,7 @@ func _run() -> void:
 		var f: Font = game.overlays._sector_label.get_theme_default_font()
 		var fs: int = game.overlays._sector_label.get_theme_font_size("font_size")
 		var w: float = f.get_string_size("SECTOR: %s" % (lname as LevelDef).display_name,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x * 0.5
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x * game.overlays._sector_label.scale.x
 		longest = maxf(longest, w)
 	var label_left := 160.0 - longest * 0.5
 	var label_right := 160.0 + longest * 0.5

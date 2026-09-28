@@ -63,6 +63,8 @@ func _run() -> void:
 	GameState.level_index = 0
 	GameState.score = 0
 	game.overlays.show_only("start")
+	for i in 150:   # 3.0: let the attract-mode flythrough get going behind the title
+		await get_tree().process_frame
 	await _capture_root("shot_start.png", dir)
 	# M1/M2: the two panels this session changed most — the settings grid now packs
 	# ten controls into 320x200, and the photosensitivity notice is brand new.

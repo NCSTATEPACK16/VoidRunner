@@ -28,6 +28,9 @@ func _draw() -> void:
 	draw_arc(c, radius * 0.33, 0, TAU, 16, ring_col)
 	draw_line(c - Vector2(0, radius), c + Vector2(0, radius), ring_col)
 	draw_line(c - Vector2(radius, 0), c + Vector2(radius, 0), ring_col)
+	# 3.0 phase 4: raised steel bezel, lit from the top-left like the console
+	draw_arc(c, radius + 0.5, PI * 0.75, PI * 1.75, 12, Palette.ramp(Palette.STEEL, 11), 1.0)
+	draw_arc(c, radius + 0.5, -PI * 0.25, PI * 0.75, 12, Palette.ramp(Palette.STEEL, 3), 1.0)
 	# rotating sweep
 	var sweep_dir := Vector2(cos(_sweep), sin(_sweep))
 	draw_line(c, c + sweep_dir * radius, Color(0.24, 1.0, 0.63, 0.45))

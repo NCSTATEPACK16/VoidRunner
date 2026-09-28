@@ -46,7 +46,10 @@ static func fireball_frames() -> Array[ImageTexture]:
 						continue
 					if nz > 0.64 and d < 0.65:
 						img.set_pixel(x, y, Palette.ramp(Palette.FIRE, clampi(5 + roundi((nz - 0.64) * 20.0), 5, 9)))
-					else:
+					elif (x + y) % 2 == 0:
+						# stipple translucency: smoke on a checkerboard, the way
+						# software renderers faked alpha — a blast next to the
+						# camera never becomes an opaque wall
 						img.set_pixel(x, y, Palette.ramp(Palette.GREY, clampi(1 + roundi(nz * 4.0), 1, 4)))
 					continue
 				img.set_pixel(x, y, Palette.ramp_f(Palette.FIRE, clampf(v * 1.1 + 0.18, 0.3, 1.0)))
@@ -157,6 +160,8 @@ static func smoke_frames(size := 16) -> Array[ImageTexture]:
 				var nz := n.get_noise_3d(x * 1.0, y * 1.0, f * 5.0) * 0.5 + 0.5
 				if d + (nz - 0.5) * 0.5 > r or nz < f * 0.16:
 					continue
+				if f >= 2 and (x + y) % 2 == 1:
+					continue   # stipple: thinning puffs go see-through
 				img.set_pixel(x, y, Palette.ramp(Palette.GREY, clampi(8 - f - roundi(d * 3.0), 2, 9)))
 		out.append(ImageTexture.create_from_image(img))
 	_cache[key] = out
