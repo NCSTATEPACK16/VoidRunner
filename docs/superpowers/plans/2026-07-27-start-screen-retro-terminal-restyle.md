@@ -557,7 +557,7 @@ as a final gate, matching this project's established pre-ship checklist
 
 - [ ] **Step 4: Update the project session log**
 
-  Append a dated entry to `/Users/johnbradner/Documents/ClaudeWork/RadixRemix/CLAUDE.md`
+  Append a dated entry to the parent folder's `../CLAUDE.md`
   §6 (Session log) summarizing: the Figma/PDF source, the restyle scope
   decision (hero + backstory + terminal-prompt CTA only), and verification
   results — following the exact style of the existing entries in that
@@ -566,6 +566,6 @@ as a final gate, matching this project's established pre-ship checklist
 - [ ] **Step 5: Final commit**
 
   ```bash
-  git add /Users/johnbradner/Documents/ClaudeWork/RadixRemix/CLAUDE.md
+  git add ../CLAUDE.md
   git commit -m "Log start-screen retro-terminal restyle session"
   ```

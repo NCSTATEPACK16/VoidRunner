@@ -32,7 +32,7 @@ Do **not** attach `reference/originals/` — the 1995 shareware files stay local
 > expectations, not recalled generalities. Cite sources inline.
 >
 > **The game:** VOID RUNNER — an original, MIT-licensed, fully open-source homage to 1995 DOS
-> tunnel shooters ('95 DOS games / the *Descent* lineage) with a Doom-era look. Built in
+> tunnel shooters (the *Descent* lineage) with a Doom-era look. Built in
 > Godot 4.7, exported to HTML5, deployed on Netlify, playable instantly in a browser with no
 > download. All art, audio, and levels are generated procedurally by code at runtime — the repo
 > contains zero imported art assets. Nine campaign sectors with bosses at 3/6/9, an endless "Void
@@ -73,7 +73,7 @@ Do **not** attach `reference/originals/` — the 1995 shareware files stay local
 > EU-reachable page.
 >
 > **4. First-ten-minutes audit.** Using only the attached screenshots and PRD, predict where a
-> cold Reddit player who has never heard of '95 DOS games will bounce. Be specific about the first 60
+> cold Reddit player who has never played a '95 DOS tunnel shooter will bounce. Be specific about the first 60
 > seconds: the loading overlay, the start screen, the briefing wall of text, control discovery,
 > and the first enemy encounter. Research current expectations for browser games — acceptable
 > time-to-first-input, whether mouse-lock prompts cause abandonment, mobile/tablet traffic share
@@ -93,7 +93,7 @@ Do **not** attach `reference/originals/` — the 1995 shareware files stay local
 > **6. Feel: Doom + '95 DOS games, modernized.** Research and synthesize the specific, *mechanical*
 > sources of the Doom feel — weapon kick, hit-stop, enemy pain states and infighting, sprite
 > billboarding readability at distance, sound-design layering, movement speed relative to level
-> geometry — and separately the '95-DOS-games/Descent-lineage feel of tunnel flight (constant forward
+> geometry — and separately the '95 DOS tunnel-shooter feel of tunnel flight (constant forward
 > motion, wall-bounce forgiveness, spatial disorientation and how the good games mitigate it).
 > Produce a prioritized list of the ten changes most likely to raise "this feels great" scores in
 > beta feedback, each with an estimated implementation size (S/M/L) and the risk it damages the
