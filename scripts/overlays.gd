@@ -19,6 +19,8 @@ signal next_level_requested
 signal retry_requested
 signal new_campaign_requested
 signal warning_acknowledged   # M1.2: photosensitivity notice dismissed
+signal resume_requested       # re-audit Step 2: pause menu RESUME
+signal quit_to_title_requested   # re-audit Step 2: pause menu QUIT TO TITLE (confirmed)
 
 const BG := Color(0.008, 0.012, 0.03, 0.975)   # full screens: the HUD must not bleed through
 const START_BG := Color(0.0, 0.0, 0.02, 0.38)  # the title lets the attract flythrough show
@@ -50,6 +52,11 @@ var _panels := {}
 var _focus := {}                 # panel name -> Button that takes keyboard focus on show
 var _settings_labels := {}       # H: setting key -> its value Label/Button
 var _settings_return := "start"  # where the settings BACK button returns to
+var _help_return := "start"      # re-audit Step 2: the manual opens from pause too
+var _help_start: Button          # "> START" — only offered when opened from the title
+var _help_back: Button
+var _quit_btn: Button
+var _quit_armed := false
 var _bay_rows := {}              # V2.2 L3d: row id -> {status: Label, buy: Button}
 var _bay_salvage_label: Label
 
@@ -93,6 +100,12 @@ func show_only(panel_name: String) -> void:
 	if panel_name == "help" and _help_pad:
 		_help_pad.text = "PAD  stick · A/RT fire · X/B roll" \
 			if GameState.gamepad_enabled else ""
+	if panel_name == "help" and _help_start:
+		# from pause the manual is reference only: no START, BACK returns to pause
+		_help_start.visible = _help_return == "start"
+		_focus["help"] = _help_start if _help_start.visible else _help_back
+	if panel_name == "pause":
+		_disarm_quit()
 	if panel_name != "":
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		# 3.0: keyboard-drivable menus — the panel's first action takes focus
@@ -258,6 +271,7 @@ func _build_start() -> void:
 		AudioSys.unlock()
 		gauntlet_requested.emit())
 	_menu_button(p, Rect2(58, 109, 204, 11), "FLIGHT MANUAL", func() -> void:
+		_help_return = "start"
 		show_only("help"))
 	_menu_button(p, Rect2(58, 121, 204, 11), "SETTINGS", func() -> void:
 		_settings_return = "start"
@@ -300,12 +314,12 @@ func _build_help() -> void:
 	# M3: the short version. The full privacy note lives in the README and on the
 	# form itself — anything longer than one line here and nobody reads any of it.
 	_center(p, 154, "No cookies, no accounts, no personal data.", DIM_COL)
-	var start := _menu_button(p, Rect2(84, 170, 70, 11), "> START", func() -> void:
+	_help_start = _menu_button(p, Rect2(84, 170, 70, 11), "> START", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit(), TITLE_COL, true)
-	_menu_button(p, Rect2(166, 170, 70, 11), "< BACK", func() -> void: show_only("start"),
-		TEXT_COL, true)
-	_focus["help"] = start
+	_help_back = _menu_button(p, Rect2(166, 170, 70, 11), "< BACK", func() -> void:
+		show_only(_help_return), TEXT_COL, true)
+	_focus["help"] = _help_start
 
 
 func _build_briefing() -> void:
@@ -331,14 +345,43 @@ func _build_briefing() -> void:
 	_focus["briefing"] = launch
 
 
+## Re-audit Step 2: a real menu instead of "click to re-engage". The panel now
+## swallows clicks and taps, so a stray one can't resume (or fire); RESUME, ENTER,
+## ESC or the pad's START do. Touch players reach it from the on-screen II tab.
 func _build_pause() -> void:
 	var p := _panel("pause", Color(0.0, 0.0, 0.02, 0.55))
-	# clicks must fall through so game.gd's _unhandled_input can resume
-	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_window(p, Rect2(70, 72, 180, 50), "PAUSED")
-	_center(p, 90, "Click or press ENTER", TEXT_COL)
-	_center(p, 102, "to re-engage", TEXT_COL)
+	_window(p, Rect2(84, 44, 152, 104), "PAUSED")
+	var resume := _menu_button(p, Rect2(96, 58, 128, 11), "> RESUME", func() -> void:
+		resume_requested.emit(), TITLE_COL, true)
+	_focus["pause"] = resume
+	_menu_button(p, Rect2(96, 71, 128, 11), "FLIGHT MANUAL", func() -> void:
+		_help_return = "pause"
+		show_only("help"), TEXT_COL, true)
+	_menu_button(p, Rect2(96, 84, 128, 11), "SETTINGS", func() -> void:
+		_settings_return = "pause"
+		show_only("settings"), ORANGE_COL, true)
+	_feedback_button(p, Rect2(96, 97, 128, 11))   # M3: touch has no F key
+	_quit_btn = _menu_button(p, Rect2(96, 110, 128, 11), "QUIT TO TITLE", _on_quit_pressed,
+		RED_COL, true)
+	_center(p, 131, "ENTER / ESC  RESUME", DIM_COL)
 	_text(p, Vector2(3, 190), BuildInfo.label(), Color("3d4a63"))   # M1.4
+
+
+## Quitting ends the run, so the first press only arms it: the row asks again, and
+## the second press quits. Re-showing the pause menu disarms it.
+func _on_quit_pressed() -> void:
+	if not _quit_armed:
+		_quit_armed = true
+		_quit_btn.text = "QUIT? PRESS AGAIN"
+		return
+	_disarm_quit()
+	quit_to_title_requested.emit()
+
+
+func _disarm_quit() -> void:
+	_quit_armed = false
+	if _quit_btn:
+		_quit_btn.text = "QUIT TO TITLE"
 
 
 func _build_game_over() -> void:

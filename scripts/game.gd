@@ -50,6 +50,7 @@ var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
 var _warmup_rig: Node3D
 var touch_ui: TouchControls   # M4a spike: null unless the build is in touch mode
+var _page_hidden_cb: JavaScriptObject   # re-audit Step 2 (web): keeps the listener alive
 var _touch_mode := false
 # V2.1 web loading: on single-threaded WebGL, first-use shader/pipeline compiles
 # block the main thread for seconds. On web we build + warm the level across this
@@ -161,6 +162,15 @@ func _ready() -> void:
 		touch_ui.weapon_tapped.connect(func() -> void:
 			_select_weapon((GameState.weapon_index + 1) % weapons.size()))
 		touch_ui.bomb_tapped.connect(_fire_plasma_bomb)
+		touch_ui.pause_tapped.connect(_toggle_pause)   # re-audit Step 2
+	# re-audit Step 2: a hidden tab pauses the run. Canvas blur already arrives as a
+	# focus-out notification; this catches a tab switch the blur might miss.
+	if OS.has_feature("web"):
+		_page_hidden_cb = JavaScriptBridge.create_callback(func(_args: Array) -> void:
+			if JavaScriptBridge.eval("document.hidden", true):
+				_auto_pause())
+		JavaScriptBridge.get_interface("document").addEventListener(
+			"visibilitychange", _page_hidden_cb)
 	# wiring
 	shot_mgr.player = player
 	shot_mgr.enemy_mgr = enemy_mgr
@@ -208,6 +218,8 @@ func _ready() -> void:
 	overlays.next_level_requested.connect(_on_next_level)
 	overlays.retry_requested.connect(_on_retry)
 	overlays.new_campaign_requested.connect(_on_new_campaign)
+	overlays.resume_requested.connect(_toggle_pause)                # re-audit Step 2
+	overlays.quit_to_title_requested.connect(_on_quit_to_title)
 	var names: Array[String] = []
 	for w in weapons:
 		names.append(w.display_name)
@@ -1194,9 +1206,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause_game"):
 		_toggle_pause()
 		return
-	if state == State.PAUSED and event is InputEventMouseButton and event.pressed:
-		_toggle_pause()
-		return
 	if state != State.PLAYING:
 		return
 	if event.is_action_pressed("automap"):
@@ -1241,6 +1250,46 @@ func _select_weapon(i: int) -> void:
 	GameState.weapon_index = i
 	AudioSys.play_select()
 	hud.show_message(weapons[i].display_name + " SELECTED")
+
+
+## Re-audit Step 2: leaving the window or tab mid-flight pauses the run instead of
+## letting the ship fly on unattended (web game portals expect this too). It only
+## ever pauses; coming back waits for the player to press RESUME.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT \
+			or what == NOTIFICATION_APPLICATION_PAUSED:
+		_auto_pause()
+
+
+func _auto_pause() -> void:
+	# an open automap already hard-pauses the tree; the pause menu can wait for it
+	if state == State.PLAYING and not get_tree().paused:
+		_toggle_pause()
+
+
+## Re-audit Step 2: pause -> QUIT TO TITLE. The run ends the way a death ends it
+## (score recorded, the level's unbanked salvage lost; a gauntlet run banks its haul
+## and records its distance), then the title returns over the sector-1 flythrough
+## in exactly the state a fresh boot leaves it.
+func _on_quit_to_title() -> void:
+	if state != State.PAUSED:
+		return
+	if _gauntlet:
+		GameState.bank_salvage()
+		GameState.record_gauntlet(int(player.ring_idx * PathGen.SEG))
+	else:
+		GameState.record_progress()
+	_gauntlet = false
+	GameState.gauntlet_mode = false
+	GameState.reset_run()   # marks, shields, bombs, powers: a new campaign starts clean
+	GameState.arena_locked = false
+	GameState.boss_active = false
+	AudioSys.stop_engine()
+	state = State.MENU
+	player.active = false
+	_load_level_world(0)   # clears every manager and rebuilds the attract tunnel
+	player.reset_to_start()
+	overlays.show_only("start")
 
 
 func _toggle_pause() -> void:

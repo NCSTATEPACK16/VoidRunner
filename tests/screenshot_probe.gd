@@ -9,6 +9,7 @@ extends Node
 ##   2c. stinger/spinner/mines + power-up timers -> shot_threats.png
 ##   3. L3 boss room, boss in view    -> shot_boss.png
 ##   4. game-over / victory panels    -> shot_game_over.png / shot_victory.png
+##   5. touch II tab over flight, then the pause menu -> shot_touch.png / shot_pause.png
 ## Output dir: VR_SHOT_DIR env var, else user://shots. Restores records/settings.
 
 
@@ -28,7 +29,8 @@ func _capture(game: Node3D, file_name: String, dir: String) -> void:
 	await RenderingServer.frame_post_draw
 	var img: Image = (game.view as SubViewport).get_texture().get_image()
 	img.save_png(dir + "/" + file_name)
-	print("[shot] %s/%s" % [dir, file_name])
+	# the state rides along so a stray auto-pause (focus loss under xvfb) shows up
+	print("[shot] %s/%s state=%d" % [dir, file_name, game.state])
 
 
 ## Root-window capture — overlays (briefing/menus) render at native res OUTSIDE
@@ -157,6 +159,17 @@ func _run() -> void:
 	game.player.pitch = 0.0
 	await _fly(game, 45)
 	await _capture(game, "shot_boss.png", dir)
+	# 5) re-audit Step 2: the touch layer's II pause tab over flight, then the menu
+	var touch := TouchControls.new()
+	add_child(touch)
+	touch.enable(game.player)
+	await _fly(game, 2)
+	await _capture_root("shot_touch.png", dir)
+	touch.set_flight_active(false)
+	touch.queue_free()
+	game._toggle_pause()
+	await _capture_root("shot_pause.png", dir)
+	game._toggle_pause()
 	# 4) game-over and victory — Task 4's install-nudge button lands on both; these
 	# overlays render outside the 320x200 SubViewport, hence _capture_root.
 	game.overlays.set_final_score("game_over", 4200, false)
