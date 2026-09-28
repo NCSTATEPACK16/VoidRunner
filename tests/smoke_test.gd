@@ -59,6 +59,22 @@ func _run() -> void:
 			assert(hard_corners == 0)  # boss approach stays smooth
 			for ri in range(path.arenas[0].start, path.rings.size()):
 				assert(path.rings[ri].fo < 0.5 and path.rings[ri].co < 0.5)
+		# --- 3.0 Phase 2: octagonal sections — every ring is chamfered, and
+		# clamp_to_ring never leaves a point outside the cut corners ---
+		var crng := RandomNumberGenerator.new()
+		crng.seed = 4242 + i
+		for probe in 60:
+			var ri := crng.randi_range(0, path.rings.size() - 1)
+			var ring: Dictionary = path.rings[ri]
+			assert(ring.ch > 0.0 and ring.ch < ring.hw)
+			var wild: Vector3 = ring.p + ring.r * crng.randf_range(-2.0, 2.0) * ring.hw \
+				+ ring.u * crng.randf_range(-2.0, 2.0) * ring.hh
+			var m := 1.5
+			var q: Vector3 = path.clamp_to_ring(wild, ri, m)
+			var lat: float = (q - ring.p).dot(ring.r)
+			var vert: float = (q - ring.p).dot(ring.u)
+			var edge: float = (ring.hh - ring.co) if vert >= 0.0 else (ring.hh - ring.fo)
+			assert(absf(lat) + absf(vert) <= ring.hw + edge - ring.ch - m * 1.41 + 0.01)
 		print("L%d(%s): rings=%d arenas=%d locked=%d corners=%d" % [
 			i, level.kind, path.rings.size(), path.arenas.size(), locked, hard_corners])
 		i += 1
@@ -71,11 +87,56 @@ func _run() -> void:
 		assert(gf is Texture2D and gf.get_width() >= 8)
 	assert(SpriteGen.gib_frames()[0] == gframes[0])   # cached, not re-rendered
 	print("gib frames ok — %d shapes" % gframes.size())
+	# --- 3.0 Phase 1: 256-color ramp palette ---
+	assert(Palette.ALL.size() == 256)
+	assert(Palette.ramp(Palette.GREY, 0) == Color(0, 0, 0))   # fog black is a real entry
+	assert(Palette.ramp(Palette.GREY, 15) == Color(1, 1, 1))
+	for r in Palette.RAMP_STOPS.size():   # every ramp brightens monotonically
+		for sh in range(1, Palette.RAMP_LEN):
+			assert(Palette.ramp(r, sh).get_luminance() >= Palette.ramp(r, sh - 1).get_luminance())
+	assert(Palette.ramp_f(Palette.RED, 1.0) == Palette.ramp(Palette.RED, 15))
+	print("palette ok — %d colors in %d ramps" % [Palette.ALL.size(), Palette.RAMP_STOPS.size()])
+	# --- 3.0 Phase 3: sprite forge (headless = pixel fallback, same set shape) ---
+	for id in SpriteModels.ENEMIES + SpriteModels.BOSSES:
+		var st: Dictionary = SpriteForge.sprite_set(id)
+		assert(st.tex.size() == st.angles * st.anim and st.flash.size() == st.angles)
+	for kind in SpriteModels.PICKUPS:
+		assert(not SpriteForge.pickup_frames(kind).is_empty())
+	assert(SpriteForge.prop_texture() != null)
+	for lv in [3, 6, 9]:
+		var bl: LevelDef = load("res://resources/levels/level_%d.tres" % lv)
+		assert(SpriteModels.BOSSES.has(bl.boss_model))
+	# the angle picker: camera dead ahead = front cell, behind = back, and the
+	# model-yaw convention (cell a = model turned a * 45 deg) round-trips
+	assert(SpriteForge.angle_index(Vector3.FORWARD, Vector3.FORWARD, 8) == 0)
+	assert(SpriteForge.angle_index(Vector3.FORWARD, Vector3.BACK, 8) == 4)
+	for a in 8:
+		var yaw := a * TAU / 8.0
+		var facing := Vector3(sin(yaw), 0.0, cos(yaw))   # model front after yaw
+		assert(SpriteForge.angle_index(facing, Vector3.BACK, 8) == a)
+	assert(FxGen.fireball_frames().size() == 10)
+	assert(FxGen.orb_frames(Palette.CYAN).size() == 2)
+	print("forge ok — %d enemy + %d boss sets, %d pickups, gpu=%s" % [
+		SpriteModels.ENEMIES.size(), SpriteModels.BOSSES.size(), SpriteModels.PICKUPS.size(),
+		SpriteForge.gpu_baked])
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()
 	add_child(game)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	print("boot ok — state=%d levels=%d" % [game.state, game.levels.size()])
+	assert(game.palette_lut.lut_texture != null)
+	assert(game.palette_lut.palette_texture.get_width() == 256)
+	# --- 3.0 Phase 2: one shader for the world, no OmniLight3D anywhere ---
+	for key in TextureGen.KEYS:
+		assert(game.world.mats[key] is ShaderMaterial)
+	assert(game.light_rig.material_count() >= TextureGen.KEYS.size())
+	assert(game.find_children("*", "OmniLight3D", true, false).is_empty())
+	for theme_id in TextureGen.THEMES:
+		var texes: Dictionary = TextureGen.theme_textures(theme_id)
+		for key in TextureGen.KEYS:
+			assert((texes[key] as ImageTexture).get_width() == TextureGen.SIZE)
+	print("world ok — %d themes x %d textures, %d sector materials, no OmniLights" % [
+		TextureGen.THEMES.size(), TextureGen.KEYS.size(), game.light_rig.material_count()])
 	# pin the campaign start to L1: game._ready() loads records.cfg, and the start
 	# screen pre-selects the furthest unlocked sector — on a machine with progress
 	# that would launch a later (even boss) level and break the L1 asserts below
@@ -237,12 +298,216 @@ func _run() -> void:
 	game.hud.show_damage_from(game.player.position + Vector3(30, 0, 0))
 	assert(game.hud._dmg_arcs.size() > 0)   # damage arc registered
 	print("feedback ok — kill tick + damage arcs")
+	# --- 3.0 phase 4: LED gauges track the meters (a partial segment still lights)
+	var hud_shields := GameState.shields
+	GameState.shields = GameState.max_shields() * 0.5
+	assert(game.hud._led.x == Hud.LED_N / 2)
+	GameState.shields = 1.0
+	assert(game.hud._led.x == 1)
+	assert(game.hud._shield_num.text == "1")
+	GameState.shields = hud_shields
+	assert(game.hud._led.x == ceili(hud_shields / GameState.max_shields() * Hud.LED_N))
+	print("hud ok — LED gauges follow shields")
+	# --- 3.0 phase 5: timed power-ups ---
+	var was_dead := GameState.is_dead   # the flight sim above may have ended in a death
+	GameState.is_dead = false
+	GameState.clear_powers()
+	game.shot_mgr.clear_all()
+	GameState.shields = GameState.max_shields()
+	game.player.iframes_t = 0.0
+	var pw_full := GameState.shields
+	game.pickup_mgr._collect("phase")
+	assert(GameState.power_on("phase"))
+	game.player.take_damage(10.0, "TEST")
+	assert(GameState.shields == pw_full)             # PHASE SHIELD: untouchable
+	GameState.tick_powers(GameState.POWER_TIME.phase + 0.1)
+	assert(not GameState.power_on("phase"))          # the clock ran out...
+	game.player.take_damage(10.0, "TEST")
+	assert(GameState.shields < pw_full)              # ...and hits land again
+	GameState.shields = pw_full
+	var w0: WeaponDef = game.weapons[0]
+	GameState.weapon_index = 0
+	game.shot_mgr.fire_player(w0)
+	var base_dmg: float = game.shot_mgr._pshots.back().dmg
+	game.pickup_mgr._collect("powercore")
+	game.shot_mgr.fire_player(w0)
+	assert(is_equal_approx(game.shot_mgr._pshots.back().dmg, base_dmg * 2.0))   # POWER CORE
+	GameState.heat = 50.0
+	game.pickup_mgr._collect("overdrive")
+	assert(GameState.heat == 0.0)                    # grabbing it vents the guns
+	game._fire_cd = 0.0
+	Input.action_press("fire")
+	game._update_firing(0.0)
+	Input.action_release("fire")
+	assert(GameState.heat == 0.0)                    # OVERDRIVE: the guns stay cold
+	assert(is_equal_approx(game._fire_cd,
+		w0.cooldown * GameState.weapon_mult(0, "interval") * game.OVERDRIVE_RATE))
+	for pw_i in 40:
+		assert(EnemyManager.random_power() in GameState.POWER_TIME)
+	GameState.clear_powers()
+	assert(not GameState.power_on("overdrive") and not GameState.power_on("powercore"))
+	print("powerups ok — phase blocks damage then expires, core doubles damage, overdrive vents + halves the interval")
+	# --- 3.0 phase 5: new enemy behaviours ---
+	var em: EnemyManager = game.enemy_mgr
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	game.player.reset_to_start()   # mid-tunnel on a straight: placements stay inside
+	var pring: int = game.player.ring_idx
+	var pfwd: Vector3 = game.player.forward()
+	# MINE: arms when the ship is close, bursts inside a second, hurts if still near
+	em.spawn(pring, -1, "mine")
+	var mine: Dictionary = em.enemies.back()
+	assert(mine.hp == 1 and mine.mode == "idle")
+	mine.node.position = game.player.position + pfwd * 6.0
+	em.update_enemies(dt)
+	assert(mine.mode == "armed")
+	var mine_sh := GameState.shields
+	for f in 60:
+		em.update_enemies(dt)
+	assert(em.enemies.is_empty())                    # burst and gone
+	assert(GameState.shields < mine_sh)              # the ship was inside the blast
+	GameState.shields = pw_full
+	game.player.bounce = Vector3.ZERO
+	# a mine shot from range pops harmlessly and chains into its neighbour
+	em.spawn(pring, -1, "mine")
+	var m2: Dictionary = em.enemies.back()
+	m2.node.position = game.player.position + pfwd * 40.0
+	em.spawn(pring, -1, "drone")
+	var bystander: Dictionary = em.enemies.back()
+	bystander.node.position = m2.node.position + Vector3(3, 0, 0)
+	bystander.hp = 3
+	var chain_score := GameState.score
+	em.hit_enemy(em.enemies.find(m2), 5)
+	assert(em._pending_blasts.size() == 1)           # the burst waits for next frame
+	em.update_enemies(dt)
+	assert(not em.enemies.has(bystander))            # ...then takes the drone with it
+	assert(GameState.shields == pw_full)             # a mine you shoot can't hurt you
+	assert(GameState.score > chain_score)
+	em.clear_all()
+	# STINGER: winds up only in front of the ship, then dives; sidestep and it misses
+	game.player.wall_hurt_t = 0.0
+	em.spawn(pring, -1, "stinger")
+	var sting: Dictionary = em.enemies.back()
+	sting.node.position = game.player.position + pfwd * 40.0
+	sting.mode_t = 0.0
+	em.update_enemies(dt)
+	assert(sting.mode == "wind")                        # the tell
+	var sting_flash := false
+	for f in 60:
+		em.update_enemies(dt)
+		sting_flash = sting_flash or sting.flash_t > 0.0
+		if sting.mode == "dive":
+			break
+	assert(sting.mode == "dive" and sting_flash)
+	var sting_home: Vector3 = game.player.position
+	game.player.position += pfwd.cross(Vector3.UP).normalized() * 12.0   # sidestep
+	for f in 120:
+		em.update_enemies(dt)
+	assert(GameState.shields == pw_full)             # dodged
+	assert(em.enemies.has(sting))                       # a miss doesn't spend it
+	game.player.position = sting_home
+	em.clear_all()
+	# ...hold still and the dive connects, spending the stinger
+	em.spawn(pring, -1, "stinger")
+	var sting2: Dictionary = em.enemies.back()
+	sting2.node.position = game.player.position + pfwd * 30.0
+	sting2.mode = "dive"
+	sting2.mode_t = EnemyManager.STINGER_DIVE_T
+	sting2.dive_dir = -pfwd
+	for f in 90:
+		em.update_enemies(dt)
+		if em.enemies.is_empty():
+			break
+	assert(em.enemies.is_empty() and GameState.shields < pw_full)
+	GameState.shields = pw_full
+	# SPINNER: one full ring per burst, its hole aimed at the ship
+	em.spawn(pring, -1, "spinner")
+	var spn: Dictionary = em.enemies.back()
+	spn.node.position = game.player.position + pfwd * 45.0
+	spn.fire_t = 0.0
+	var ring_vels: Array[Vector3] = []
+	var grab := func(_o: Vector3, v: Vector3, _d: float, _s: float, _k: bool) -> void:
+		ring_vels.append(v)
+	em.enemy_fired.connect(grab)
+	em.update_enemies(dt)
+	em.enemy_fired.disconnect(grab)
+	assert(ring_vels.size() == EnemyManager.SPINNER_SPOKES)
+	var ring_sum := Vector3.ZERO
+	for v in ring_vels:
+		ring_sum += v
+	assert(ring_sum.normalized().dot(
+		(game.player.position - spn.node.position).normalized()) > 0.99)
+	em.clear_all()
+	print("enemies ok — mine arms/bursts/chains, stinger tells + dives + misses, spinner rings")
+	# --- 3.0 phase 5: every boss has its own pattern ---
+	em.spawn_boss(pring, game.levels[5])              # BROOD MOTHER
+	var bb: Dictionary = em.boss
+	assert(bb.model == "brood")
+	bb.node.position = game.player.position + pfwd * 50.0
+	bb.anchor = bb.node.position
+	bb.summon_t = 0.0
+	em.update_enemies(dt)
+	var hatch := 0
+	for en in em.enemies:
+		if en.get("type", "") == "stinger" and en.get("summoned", false):
+			hatch += 1
+	assert(hatch == 1)                               # phase 1: a hatchling
+	bb.hp = int(bb.max_hp * 0.5)
+	bb.lay_t = 0.0
+	em.update_enemies(dt)
+	var laid := 0
+	for en in em.enemies:
+		if en.get("laid", false):
+			laid += 1
+	assert(bb.phase == 2 and laid == 1)              # phase 2: she lays mines
+	em.clear_all()
+	em.spawn_boss(pring, game.levels[8])              # THE RIFT MAW
+	var mb: Dictionary = em.boss
+	assert(mb.model == "maw")
+	mb.node.position = game.player.position + pfwd * 60.0
+	mb.anchor = mb.node.position
+	mb.hp = int(mb.max_hp * 0.2)                     # phase 3: the double spiral
+	mb.fire_t = 99.0
+	mb.volley_t = 99.0
+	mb.summon_t = 99.0
+	mb.spiral_t = 1.0
+	var spiral := [0]
+	var tally := func(_o: Vector3, _v: Vector3, _d: float, _s: float, _k: bool) -> void:
+		spiral[0] += 1
+	em.enemy_fired.connect(tally)
+	for f in 30:
+		em.update_enemies(dt)
+	em.enemy_fired.disconnect(tally)
+	assert(mb.phase == 3 and spiral[0] >= 8)         # ~5 steps x 2 arms in 0.5 s
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	GameState.shields = pw_full
+	GameState.is_dead = was_dead
+	print("bosses ok — brood hatches stingers + lays mines, maw hoses a double spiral")
 	# --- V2.2 L2a: three phase-aligned music mixes on synced players ---
 	var mix_a: AudioStream = MusicGen.render_loop(0)
 	var mix_b: AudioStream = MusicGen.render_loop(2)
 	assert(is_equal_approx(mix_a.get_length(), mix_b.get_length()))   # phase-aligned
 	assert(AudioSys._music.size() == 3)   # three synced players
-	print("mixes ok — 3 phase-aligned music beds")
+	# 3.0: the soundtrack renders a slice per frame — drive the job to the end and
+	# every player must hold a stem of the same length (phase lock needs it)
+	var music_slices := 0
+	while AudioSys._music_job != null and music_slices < 2000:
+		AudioSys._process(1.0 / 60.0)
+		music_slices += 1
+	assert(AudioSys._music_job == null)
+	for mp in AudioSys._music:
+		assert(mp.stream != null)
+		assert(is_equal_approx(mp.stream.get_length(), mix_a.get_length()))
+	assert(mix_a.get_length() > 20.0)   # eight phrases, not the old 7 s riff
+	# stems reproduce the old full-mix crossfade: calm = base, combat = base +
+	# combat layer, frenzy = everything, halfway blends in half a layer
+	assert(AudioSys._stem_gains(AudioSys._mix_weights(0.0)) == Vector3(1, 0, 0))
+	assert(AudioSys._stem_gains(AudioSys._mix_weights(1.0)) == Vector3(1, 1, 0))
+	assert(AudioSys._stem_gains(AudioSys._mix_weights(2.0)) == Vector3(1, 1, 1))
+	assert(AudioSys._stem_gains(AudioSys._mix_weights(1.5)).is_equal_approx(Vector3(1, 1, 0.5)))
+	print("mixes ok — 3 phase-aligned music stems, %.1f s song, rendered in %d frame slices" % [
+		mix_a.get_length(), music_slices])
 	# --- V2.2 L2b: combat-intensity engine — boss forces frenzy, calm decays ---
 	GameState.boss_active = true
 	AudioSys._update_intensity(0.1, game.player.position)
@@ -619,6 +884,12 @@ func _run() -> void:
 	assert(lore_s.position.y + lore_s.size.y * lore_s.scale.y <= lore_o.position.y)
 	assert(lore_o.position.y + 3 * 11.0 <= lore_b.position.y)
 	assert(lore_b.position.y + lore_b.size.y * lore_b.scale.y <= 164.0)   # above buttons
+	# 3.0: the enemy tips grew some briefings — every level's body must still fit
+	for bidx in game.levels.size():
+		game.overlays.set_briefing(game.levels[bidx])
+		await get_tree().process_frame
+		assert(lore_b.get_line_count() <= 3)
+	game.overlays.set_briefing(game.levels[4])
 	print("lore ok — 9+gauntlet stories + load lines; briefing bands don't overlap")
 	# --- M1/M2 beta readiness: safety notice, comfort settings, build stamp ---
 	# every new setting round-trips through settings.cfg
@@ -670,11 +941,15 @@ func _run() -> void:
 	GameState.reduce_flashing = true
 	game.hud.flash_white()
 	assert(game.hud._bomb_flash.color.a < bright * 0.5)
-	# ...and holds animated arena lights steady instead of strobing them
-	game.world.animate(0.25)
-	game.world.animate(0.25)
-	for l in game.world._lights:
-		assert(is_equal_approx(l.light.light_energy, l.energy))
+	# ...and holds animated arena lights steady instead of strobing them (3.0: the
+	# arena mood lamps are LightRig statics, animated in commit())
+	game.light_rig.add_static(Vector3.ZERO, Color.WHITE, 0.9, 60.0, "strobe", 0.3)
+	game.light_rig.add_static(Vector3.ZERO, Color.WHITE, 0.9, 60.0, "flicker", 1.7)
+	for _k in 6:
+		game.light_rig.begin(game.player.position)
+		game.light_rig.commit(0.13)
+		for lamp in game.light_rig.statics():
+			assert(is_equal_approx(lamp.live, lamp.energy))
 	GameState.reduce_flashing = false
 	# M2.2: invert-Y actually flips the pitch response
 	game.player.pitch = 0.0
@@ -746,9 +1021,9 @@ func _run() -> void:
 	assert(GameState.seen_warning and game.overlays._panels.start.visible)
 	# M1.4: a build stamp is present and non-placeholder-empty
 	assert(BuildInfo.label().length() > 5)
-	# M1.5: the sector arrows sit clear of the longest sector label. The label is a
-	# 640-wide centred _line scaled 0.5, so its painted span is measured from the
-	# text width, not the node's box.
+	# M1.5: the sector arrows sit clear of the longest sector label. The label is
+	# centred across the 320 px canvas, so its painted span is measured from the
+	# text width (times the label's scale), not the node's box.
 	var arrows: Array[Button] = []
 	for child in game.overlays._panels.start.get_children():
 		if child is Button and (child as Button).text in ["<", ">"]:
@@ -759,7 +1034,7 @@ func _run() -> void:
 		var f: Font = game.overlays._sector_label.get_theme_default_font()
 		var fs: int = game.overlays._sector_label.get_theme_font_size("font_size")
 		var w: float = f.get_string_size("SECTOR: %s" % (lname as LevelDef).display_name,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x * 0.5
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x * game.overlays._sector_label.scale.x
 		longest = maxf(longest, w)
 	var label_left := 160.0 - longest * 0.5
 	var label_right := 160.0 + longest * 0.5

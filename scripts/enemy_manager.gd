@@ -4,6 +4,12 @@ extends Node3D
 ## the player inside 120 u, bob, timed fire with target lead — and, critically, the
 ## ring-clamp every frame that fixed the "unreachable enemy" bug. Locked-arena
 ## drones never despawn, so kill-locked doors can always be opened.
+##
+## 3.0 phase 5 adds three behaviours with readable tells — STINGER (stalks, flashes,
+## then dives in a straight line), SPINNER (throws expanding rings with a safe hole
+## in the middle) and MINE (drifts, arms with a red blink, bursts; shot from range it
+## pops harmlessly and chains into its neighbours) — and gives each boss its own
+## attack pattern (see _update_boss).
 
 signal enemy_killed(arena_id: int)
 signal enemy_fired(origin: Vector3, velocity: Vector3, dmg: float, shot_size: float,
@@ -27,28 +33,54 @@ const BOSS_FIRE_RANGE := 160.0
 const BOSS_SHOT_DMG := 14.0
 const BOSS_CONTACT_DMG := 20.0
 const MAX_SUMMONS := 4
+const MAX_LAID_MINES := 5        # 3.0: brood mother's mine cap
+
+# 3.0 phase 5 tuning
+const STINGER_STANDOFF := 38.0   # hangs this far off the player's nose
+const STINGER_WIND := 0.65       # the tell: freeze + flicker + beep before a dive
+const STINGER_DIVE_T := 1.3
+const STINGER_DIVE_SPEED := 52.0
+const STINGER_DMG := 14.0
+const SPINNER_SPOKES := 8
+const MINE_ARM_R := 14.0         # arms when the ship comes this close...
+const MINE_FUSE := 0.6           # ...and bursts this long after
+const MINE_BLAST_R := 9.0
+const MINE_DMG := 15.0
+const MINE_CHAIN_DMG := 4        # what a burst does to enemies caught in it
+## Chance a scored kill drops a timed power-up (heavies carry them more often).
+const POWER_DROP := {"hulk": 0.10, "spinner": 0.08}
+const POWER_DROP_BASE := 0.025
 
 ## Per-type tuning (I3). Stats derive from the level's base numbers × these, so each
-## type stays relative as the campaign scales. behavior: "chase" | "weave".
+## type stays relative as the campaign scales. behavior: "chase" | "weave" |
+## "turret" | 3.0's "dive" (stinger) | "spin" (spinner) | "mine".
+## 3.0: sizes grew ~12% — the baked sprites leave a margin inside their cell.
 const TYPES := {
-	"drone":  {"hp_mul": 1.0, "hp_add": 0,  "speed_mul": 1.0,  "fire_mul": 1.0,  "score": 100, "size": 4.2, "behavior": "chase"},
-	"weaver": {"hp_mul": 1.0, "hp_add": -1, "speed_mul": 1.7,  "fire_mul": 0.85, "score": 150, "size": 3.2, "behavior": "weave"},
-	"hulk":   {"hp_mul": 2.0, "hp_add": 3,  "speed_mul": 0.55, "fire_mul": 0.7,  "score": 300, "size": 5.6, "behavior": "chase"},
-	"turret": {"hp_mul": 1.5, "hp_add": 2,  "speed_mul": 0.0,  "fire_mul": 1.1,  "score": 200, "size": 4.6, "behavior": "turret"},
+	"drone":  {"hp_mul": 1.0, "hp_add": 0,  "speed_mul": 1.0,  "fire_mul": 1.0,  "score": 100, "size": 4.7, "behavior": "chase"},
+	"weaver": {"hp_mul": 1.0, "hp_add": -1, "speed_mul": 1.7,  "fire_mul": 0.85, "score": 150, "size": 3.8, "behavior": "weave"},
+	"hulk":   {"hp_mul": 2.0, "hp_add": 3,  "speed_mul": 0.55, "fire_mul": 0.7,  "score": 300, "size": 6.2, "behavior": "chase"},
+	"turret": {"hp_mul": 1.5, "hp_add": 2,  "speed_mul": 0.0,  "fire_mul": 1.1,  "score": 200, "size": 5.0, "behavior": "turret"},
+	"stinger": {"hp_mul": 0.6, "hp_add": 0, "speed_mul": 1.2,  "fire_mul": 1.0,  "score": 175, "size": 4.0, "behavior": "dive"},
+	"spinner": {"hp_mul": 1.4, "hp_add": 1, "speed_mul": 0.45, "fire_mul": 1.5,  "score": 250, "size": 5.2, "behavior": "spin"},
+	"mine":   {"hp_mul": 0.0, "hp_add": 1,  "speed_mul": 0.3,  "fire_mul": 1.0,  "score": 50,  "size": 3.6, "behavior": "mine"},
 }
 
 var path: PathGen
 var player: PlayerShip
 var level: LevelDef
+var world: WorldBuilder   # 3.0: sprites take the baked light of the ring they're in
 
 var enemies: Array[Dictionary] = []
 ## The live boss's dict (also present in `enemies`), or {} — HUD/radar poll this.
 var boss := {}
-var _type_frames := {}   # type_id -> Array[ImageTexture]
+var _sets := {}   # 3.0: model id -> SpriteForge sprite set (8 angles x 2 frames + flash)
 # V2.1: small node cache so arena-discovery and boss-summon spawn bursts (and the
 # matching kill bursts) stop churning Sprite3D instantiate/queue_free mid-combat
 const NODE_CACHE_CAP := 16
 var _node_cache: Array[Sprite3D] = []
+# 3.0: mine bursts queue here and resolve at the top of the next update, outside
+# any walk over `enemies` — so a chain reaction can never corrupt a loop index
+var _pending_blasts: Array[Vector3] = []
 
 # V2.2 L1: debris tint per archetype (boss gibs use its own modulate tint instead).
 # Approximations of each sprite's dominant hull color; the dither pass re-quantizes.
@@ -57,17 +89,25 @@ const GIB_TINTS := {
 	"weaver": Color(0.45, 0.72, 0.5),
 	"hulk": Color(0.38, 0.44, 0.66),
 	"turret": Color(0.55, 0.55, 0.58),
+	"stinger": Color(0.85, 0.72, 0.2),
+	"spinner": Color(0.78, 0.35, 0.7),
+	"mine": Color(0.4, 0.4, 0.46),
 }
 
 
 func _ready() -> void:
-	_type_frames = {
-		"drone": SpriteGen.drone_frames(),
-		"weaver": SpriteGen.weaver_frames(),
-		"hulk": SpriteGen.hulk_frames(),
-		"turret": SpriteGen.turret_frames(),
-		"boss": SpriteGen.boss_frames(),
-	}
+	for id in SpriteModels.ENEMIES + SpriteModels.BOSSES:
+		_sets[id] = SpriteForge.sprite_set(id)
+
+
+## 3.0: weighted timed power-up — OVERDRIVE most common, PHASE SHIELD rarest.
+static func random_power() -> String:
+	var r := randf()
+	if r < 0.40:
+		return "overdrive"
+	if r < 0.75:
+		return "powercore"
+	return "phase"
 
 
 func clear_all() -> void:
@@ -75,6 +115,7 @@ func clear_all() -> void:
 		_release_node(e.node)   # cache keeps up to NODE_CACHE_CAP across levels
 	enemies.clear()
 	boss = {}
+	_pending_blasts.clear()
 
 
 func _acquire_node(tex: Texture2D, world_size: float) -> Sprite3D:
@@ -98,39 +139,82 @@ func _release_node(s: Sprite3D) -> void:
 	_node_cache.append(s)
 
 
-## First frame of every enemy type (incl. boss), for the briefing shader warm-up.
+## First frame of every enemy type (incl. bosses), for the briefing shader warm-up.
 func warmup_textures() -> Array:
 	var texes: Array = []
-	for type_id in _type_frames:
-		texes.append(_type_frames[type_id][0])
+	for id in _sets:
+		texes.append(_sets[id].tex[0])
 	return texes
+
+
+## 3.0: pick the baked angle for where the camera sits relative to the enemy's
+## facing, and show the current idle frame (or the hit flash while it's fresh).
+func _skin(e: Dictionary) -> void:
+	var st: Dictionary = e.skin
+	var node: Sprite3D = e.node
+	var a := SpriteForge.angle_index(e.facing, player.position - node.position, st.angles)
+	if e.flash_t > 0.0:
+		node.texture = st.flash[a]
+	else:
+		node.texture = st.tex[a * st.anim + e.frame]
+
+
+## 3.0: turn toward `want` (flattened to the horizontal) at `rate` per second.
+## Interpolates the yaw angle directly: Vector3.slerp builds its axis from a
+## cross product, which loses precision (and trips the engine's normalized-axis
+## check) when a sloped spawn facing lines up almost exactly with the target.
+func _turn(e: Dictionary, want: Vector3, rate: float, delta: float) -> void:
+	if want.x * want.x + want.z * want.z < 0.0001:
+		return
+	var f: Vector3 = e.facing
+	var cur := atan2(f.x, f.z)
+	var a := cur + wrapf(atan2(want.x, want.z) - cur, -PI, PI) * minf(1.0, rate * delta)
+	e.facing = Vector3(sin(a), 0.0, cos(a))
+
+
+## 3.0: sprites stand in the sector light — a drone under a lamp pops, one in a
+## dark arena reads as a silhouette (never fully black: they must stay readable).
+func _light_for(ring_idx: int) -> Color:
+	if world == null:
+		return Color.WHITE
+	var l := world.ring_light(ring_idx)
+	return Color(clampf(0.45 + l.r * 0.75, 0.5, 1.25), clampf(0.45 + l.g * 0.75, 0.5, 1.25),
+		clampf(0.45 + l.b * 0.75, 0.5, 1.25))
 
 
 func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 	if enemies.size() >= ENEMY_CAP and arena_id < 0:
 		return
 	var t: Dictionary = TYPES.get(type_id, TYPES["drone"])
-	var frames: Array = _type_frames.get(type_id, _type_frames["drone"])
+	var st: Dictionary = _sets.get(type_id, _sets["drone"])
 	var ring: Dictionary = path.rings[ring_idx]
-	var sprite := _acquire_node(frames[0], t.size)
+	var sprite := _acquire_node(st.tex[0], t.size)
 	var pos: Vector3 = ring.p \
 		+ ring.r * (randf_range(-1.0, 1.0) * ring.hw * 0.5) \
 		+ ring.u * (randf_range(-1.0, 1.0) * ring.hh * 0.4)
 	sprite.position = path.clamp_to_ring(pos, ring_idx, 2.5)
+	# 3.0: enemies spawn facing back down the tunnel, toward where the player comes from
+	var facing: Vector3 = -ring.d
 	if t.behavior == "turret":
 		# V2.0 wall turret: anchored flush against one wall, never moves
 		var side := 1.0 if randf() < 0.5 else -1.0
 		sprite.position = ring.p + ring.r * (side * (ring.hw - 1.6)) \
 			+ ring.u * (randf_range(-0.35, 0.25) * (ring.hh - ring.fo - ring.co))
+		facing = ring.r * -side   # its muzzle looks across the tunnel
+	sprite.modulate = _light_for(ring_idx)
 	enemies.append({
 		"node": sprite, "hp": maxi(1, int(round(level.enemy_hp * t.hp_mul)) + int(t.hp_add)),
 		"fire_t": 1.5 + randf() * 2.0,
 		"bob_p": randf() * TAU, "ring": ring_idx, "arena_id": arena_id,
 		"anim_t": randf() * FRAME_TIME, "frame": 0, "flash_t": 0.0,
-		"frames": frames, "speed": level.enemy_speed * t.speed_mul,
+		"skin": st, "facing": facing, "lit_ring": ring_idx,
+		"speed": level.enemy_speed * t.speed_mul,
 		"fire": level.enemy_fire * t.fire_mul, "score": int(t.score),
 		"behavior": t.behavior, "weave_p": randf() * TAU, "hit_r2": HIT_R2,
 		"type": type_id,
+		# 3.0 phase 5 state: stinger dive cycle, spinner ring rotation, mine arming
+		"mode": "idle" if t.behavior == "mine" else "stalk",
+		"mode_t": randf_range(1.0, 2.4), "dive_dir": Vector3.ZERO, "spin_a": randf() * TAU,
 		# V2.0: late-campaign (and deep-gauntlet) turrets fire seeking shots —
 		# the manual's seeking missile-wall variant. Dodge roll i-frames beat them.
 		"seeker": t.behavior == "turret" and (GameState.level_index >= 5
@@ -144,39 +228,54 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 ## matches its sprite, and runs its own brain in _update_boss.
 func spawn_boss(ring_idx: int, lvl: LevelDef) -> void:
 	var ring: Dictionary = path.rings[ring_idx]
-	var sprite := _acquire_node(_type_frames["boss"][0], lvl.boss_size)
+	# 3.0: each boss is its own baked model (LevelDef.boss_model), not one tinted sprite
+	var st: Dictionary = _sets.get(lvl.boss_model, _sets["sentinel"])
+	var sprite := _acquire_node(st.tex[0], lvl.boss_size)
 	sprite.modulate = lvl.boss_tint
 	sprite.position = ring.p
 	boss = {
 		"node": sprite, "hp": lvl.boss_hp, "max_hp": lvl.boss_hp,
 		"fire_t": 2.0, "bob_p": 0.0, "ring": ring_idx, "arena_id": -1,
 		"anim_t": 0.0, "frame": 0, "flash_t": 0.0,
-		"frames": _type_frames["boss"], "speed": lvl.enemy_speed,
+		"skin": st, "facing": -ring.d, "lit_ring": ring_idx, "speed": lvl.enemy_speed,
 		"fire": lvl.enemy_fire, "score": lvl.boss_hp * 10, "behavior": "boss",
 		"weave_p": 0.0, "hit_r2": pow(lvl.boss_size * 0.42, 2.0),
 		"is_boss": true, "size": lvl.boss_size, "phase": 1,
 		"volley_t": 4.0, "summon_t": 6.0, "anchor": ring.p, "home_ring": ring_idx,
+		# 3.0: which attack pattern runs (see _update_boss) and its clocks
+		"model": lvl.boss_model, "lay_t": 3.0, "spin_a": 0.0,
+		"spiral_t": 0.0, "spiral_cd": 0.0, "spiral_a": 0.0,
 	}
 	enemies.append(boss)
 
 
 func update_enemies(delta: float) -> void:
+	# 3.0: last frame's mine bursts hit whatever floats next to them (and may
+	# queue the next link of a chain for the frame after)
+	if not _pending_blasts.is_empty():
+		var blasts := _pending_blasts.duplicate()
+		_pending_blasts.clear()
+		for bp: Vector3 in blasts:
+			splash_damage(bp, MINE_BLAST_R, MINE_CHAIN_DMG)
 	for k in range(enemies.size() - 1, -1, -1):
 		var e: Dictionary = enemies[k]
 		var node: Sprite3D = e.node
-		# sprite animation: 2-frame leg bob, hit flash overrides briefly
+		# sprite animation: 2-frame idle cycle; the hit flash overrides briefly
+		# (3.0: the texture itself is chosen by _skin once facing is known)
 		e.anim_t += delta
 		if e.flash_t > 0.0:
 			e.flash_t -= delta
-			node.texture = e.frames[2]
-		else:
-			if e.anim_t >= FRAME_TIME:
-				e.anim_t = 0.0
-				e.frame = (e.frame + 1) % 2
-			node.texture = e.frames[e.frame]
+		elif e.anim_t >= FRAME_TIME:
+			e.anim_t = 0.0
+			e.frame = (e.frame + 1) % 2
 		e.bob_p += delta * 2.0
+		if e.ring != e.lit_ring:   # 3.0: re-sample the sector light on ring change
+			e.lit_ring = e.ring
+			node.modulate = _light_for(e.ring) * (level.boss_tint if e.get("is_boss", false) \
+				else Color.WHITE)
 		if e.get("is_boss", false):
 			_update_boss(e, delta)
+			_skin(e)
 			continue  # never despawns, never dies on contact
 		if e.behavior == "turret":
 			# V2.0 wall turret: a fixed gun, not a ram — no drift, no clamp, no
@@ -192,10 +291,23 @@ func update_enemies(delta: float) -> void:
 						- node.position
 					enemy_fired.emit(node.position, taim.normalized() * 24.0,
 						SHOT_DMG + 1.0, 2.1 if e.seeker else 1.8, e.seeker)
-			if e.arena_id < 0 and player.ring_idx > 20 \
-					and node.position.distance_squared_to(player.position) > 90000.0:
-				_release_node(node)
-				enemies.remove_at(k)
+			if _despawn_far(k, e):
+				continue
+			_skin(e)
+			continue
+		# 3.0 phase 5 behaviours: each returns true when it removed the enemy
+		if e.behavior == "dive" or e.behavior == "spin" or e.behavior == "mine":
+			var gone := false
+			match e.behavior:
+				"dive":
+					gone = _update_stinger(k, e, delta)
+				"spin":
+					gone = _update_spinner(k, e, delta)
+				"mine":
+					gone = _update_mine(k, e, delta)
+			if gone or _despawn_far(k, e):
+				continue
+			_skin(e)
 			continue
 		var to_player: Vector3 = player.position - node.position
 		var dist := to_player.length()
@@ -203,11 +315,16 @@ func update_enemies(delta: float) -> void:
 			var dir := to_player / maxf(dist, 0.001)
 			if dist > 13.0:
 				node.position += dir * (e.speed * delta)
+			var heading := dir
 			# weavers strafe sideways as they close — harder to draw a bead on
 			if e.behavior == "weave":
 				e.weave_p += delta * 3.0
 				var side := dir.cross(Vector3.UP).normalized()
-				node.position += side * (sin(e.weave_p) * e.speed * 0.7 * delta)
+				var strafe: float = sin(e.weave_p) * e.speed * 0.7
+				node.position += side * (strafe * delta)
+				# 3.0: they bank into the strafe, so their baked side views show
+				heading = dir * maxf(e.speed, 0.1) + side * (strafe * 1.6)
+			_turn(e, heading, 5.0, delta)
 			node.position.y += sin(e.bob_p) * delta * 1.5
 			e.ring = path.nearest_ring(node.position, e.ring)
 			node.position = path.clamp_to_ring(node.position, e.ring, 2.2)
@@ -224,11 +341,178 @@ func update_enemies(delta: float) -> void:
 				player.take_damage(CONTACT_DMG, "COLLISION")
 				_kill(k, false)
 				continue
-		# far-behind despawn — never for locked-arena drones (they gate a door)
-		if e.arena_id < 0 and player.ring_idx > 20 \
-				and node.position.distance_squared_to(player.position) > 90000.0:
-			_release_node(node)
-			enemies.remove_at(k)
+		if _despawn_far(k, e):
+			continue
+		_skin(e)
+
+
+## Far-behind despawn — never for locked-arena enemies (they gate a door).
+func _despawn_far(k: int, e: Dictionary) -> bool:
+	if e.arena_id < 0 and player.ring_idx > 20 \
+			and e.node.position.distance_squared_to(player.position) > 90000.0:
+		_release_node(e.node)
+		enemies.remove_at(k)
+		return true
+	return false
+
+
+## 3.0 STINGER: hangs off the player's nose, then telegraphs — freezes, flickers
+## white, beeps — and dives in a straight line at where the ship WAS: sidestep or
+## roll. A dive that connects spends the stinger; a miss coasts past and resets.
+## It only ever winds up in front of the ship, so no dive comes from off-screen.
+func _update_stinger(k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	if dist > 130.0 and e.mode == "stalk":
+		return false   # dormant until the ship is near
+	var dir := to_player / maxf(dist, 0.001)
+	e.mode_t -= delta
+	match e.mode:
+		"stalk":
+			if dist > STINGER_STANDOFF + 6.0:
+				node.position += dir * (e.speed * delta)
+			elif dist < STINGER_STANDOFF - 10.0:
+				node.position -= dir * (e.speed * 0.6 * delta)
+			e.weave_p += delta * 2.2
+			node.position += dir.cross(Vector3.UP).normalized() \
+				* (sin(e.weave_p) * e.speed * 0.5 * delta)
+			node.position.y += sin(e.bob_p) * delta * 1.2
+			_turn(e, to_player, 4.0, delta)
+			if e.mode_t <= 0.0 and dist < STINGER_STANDOFF + 20.0 \
+					and player.forward().dot(-dir) > 0.45:
+				e.mode = "wind"
+				e.mode_t = STINGER_WIND
+				AudioSys.play_warn()
+		"wind":
+			_turn(e, to_player, 10.0, delta)
+			# the tell: a white flicker (held steady under REDUCE FLASH)
+			e.flash_t = 0.05 if GameState.reduce_flashing or int(e.mode_t * 12.0) % 2 == 0 \
+				else 0.0
+			if e.mode_t <= 0.0:
+				e.mode = "dive"
+				e.mode_t = STINGER_DIVE_T
+				e.dive_dir = dir   # locked now: the ship can still get out of the way
+		"dive":
+			node.position += (e.dive_dir as Vector3) * (STINGER_DIVE_SPEED * delta)
+			_turn(e, e.dive_dir, 12.0, delta)
+			if e.mode_t <= 0.0:
+				e.mode = "recover"
+				e.mode_t = 1.0
+		"recover":
+			# coast to a stop past the miss, turning back toward the ship
+			node.position += (e.dive_dir as Vector3) \
+				* (STINGER_DIVE_SPEED * 0.3 * maxf(e.mode_t, 0.0) * delta)
+			_turn(e, to_player, 3.0, delta)
+			if e.mode_t <= 0.0:
+				e.mode = "stalk"
+				e.mode_t = randf_range(1.4, 2.6)
+	e.ring = path.nearest_ring(node.position, e.ring)
+	node.position = path.clamp_to_ring(node.position, e.ring, 2.0)
+	if dist < 4.5 and player.wall_hurt_t <= 0.0:
+		player.wall_hurt_t = 0.45
+		player.take_damage(STINGER_DMG, "STINGER HIT")
+		_kill(k, false)
+		return true
+	return false
+
+
+## 3.0 SPINNER: turns like a top at a standoff and throws expanding rings of
+## plasma at the ship. The ring arrives wide with a hole in the middle — hold
+## your line and it passes around you; swerve late and you fly into it.
+func _update_spinner(k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	e.facing = (e.facing as Vector3).rotated(Vector3.UP, delta * 2.6)   # always turning
+	if dist > 120.0:
+		return false
+	var dir := to_player / maxf(dist, 0.001)
+	if dist > 52.0:
+		node.position += dir * (e.speed * delta)
+	elif dist < 30.0:
+		node.position -= dir * (e.speed * delta)
+	node.position.y += sin(e.bob_p) * delta * 1.2
+	e.ring = path.nearest_ring(node.position, e.ring)
+	node.position = path.clamp_to_ring(node.position, e.ring, 2.6)
+	e.fire_t -= delta
+	if e.fire_t <= 0.0 and dist < 90.0:
+		e.fire_t = e.fire * randf_range(0.9, 1.25)
+		_ring_burst(node.position, SPINNER_SPOKES, e.spin_a, 17.0, 4.5)
+		e.spin_a += PI / SPINNER_SPOKES   # the next ring comes rotated half a gap
+	if dist < 4.5 and player.wall_hurt_t <= 0.0:
+		player.wall_hurt_t = 0.45
+		player.take_damage(CONTACT_DMG, "COLLISION")
+		_kill(k, false)
+		return true
+	return false
+
+
+## 3.0 MINE: drifts on a slow bob and creeps toward passing hulls. Come within
+## MINE_ARM_R and it arms — red blink, beep — then bursts, hurting the ship if it
+## is still inside the blast. Shot from range it pops harmlessly (for the player)
+## and its burst chains into anything floating next to it.
+func _update_mine(k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	node.position.y += sin(e.bob_p) * delta * 0.7
+	e.facing = (e.facing as Vector3).rotated(Vector3.UP, delta * 0.7)   # lazy tumble
+	if e.mode != "armed":
+		if dist < MINE_ARM_R:
+			e.mode = "armed"
+			e.mode_t = MINE_FUSE
+			AudioSys.play_warn()
+		elif dist < 45.0:
+			node.position += to_player / maxf(dist, 0.001) * (e.speed * delta)
+			e.ring = path.nearest_ring(node.position, e.ring)
+			node.position = path.clamp_to_ring(node.position, e.ring, 2.0)
+		return false
+	e.mode_t -= delta
+	# armed: blinks hot red (a steady red glow under REDUCE FLASH)
+	var hot: bool = GameState.reduce_flashing or int(e.mode_t * 14.0) % 2 == 0
+	node.modulate = Color(1.9, 0.35, 0.25) if hot else _light_for(e.ring)
+	if e.mode_t > 0.0:
+		return false
+	if dist < MINE_BLAST_R:
+		player.take_damage(MINE_DMG, "MINE BLAST")
+		player.bounce += to_player / maxf(dist, 0.001) * 10.0   # the burst shoves the ship
+	_kill(k, false)
+	return true
+
+
+## 3.0: basis looking from `origin` at the ship — [forward, side, up].
+func _aim_basis(origin: Vector3) -> Array[Vector3]:
+	var fwd := (player.position - origin).normalized()
+	var side := fwd.cross(Vector3.UP)
+	if side.length_squared() < 0.0001:
+		side = Vector3.RIGHT
+	side = side.normalized()
+	return [fwd, side, side.cross(fwd)]
+
+
+## 3.0: an expanding ring of `count` bolts flying at the ship. They leave on a
+## small circle (from angle a0) and spread as they travel, so the ring arrives
+## wide with a hole in the middle.
+func _ring_burst(origin: Vector3, count: int, a0: float, speed: float, spread: float,
+		dmg := SHOT_DMG) -> void:
+	var b := _aim_basis(origin)
+	for i in count:
+		var a := a0 + TAU * i / float(count)
+		var radial: Vector3 = b[1] * cos(a) + b[2] * sin(a)
+		enemy_fired.emit(origin + radial * 1.2, b[0] * speed + radial * spread, dmg, 1.6, false)
+
+
+## 3.0: one step of a spiral hose — `arms` emitters wheel around the source and
+## each fires straight at the ship's current position, so standing still gets
+## you hit and moving keeps you clear (the opposite lesson to the rings).
+func _spiral_shot(origin: Vector3, a: float, arms: int, speed: float) -> void:
+	var b := _aim_basis(origin)
+	for i in arms:
+		var aa := a + TAU * i / float(arms)
+		var from: Vector3 = origin + (b[1] * cos(aa) + b[2] * sin(aa)) * 7.0
+		enemy_fired.emit(from, (player.position - from).normalized() * speed, SHOT_DMG, 1.7,
+			false)
 
 
 ## Phase J boss brain: three HP-gated phases — aimed heavy shots, then +spread
@@ -263,33 +547,102 @@ func _update_boss(e: Dictionary, delta: float) -> void:
 	var dir := target - node.position
 	if dir.length() > 0.5:
 		node.position += dir.normalized() * (e.speed * speed_mul * delta)
+	# 3.0: keep its face on the player, swinging a little with the strafe
+	_turn(e, to_player + dir * 0.35, 1.8, delta)
 	node.position.y += sin(e.bob_p) * delta * 1.2
 	e.ring = maxi(path.nearest_ring(node.position, e.ring), e.home_ring - 8)
 	node.position = path.clamp_to_ring(node.position, e.ring, e.size * 0.5)
-	# --- aimed heavy shots (all phases; slower once volleys start) ---
-	e.fire_t -= delta
-	if e.fire_t <= 0.0 and dist < BOSS_FIRE_RANGE:
-		e.fire_t = e.fire * 0.9 * (1.4 if phase >= 2 else 1.0)
-		var aim: Vector3 = player.position \
-			+ player.forward() * (player.speed * dist / 32.0 * 0.4) - node.position
-		enemy_fired.emit(node.position, aim.normalized() * 32.0, BOSS_SHOT_DMG, 2.4, false)
-	# --- spread volleys (phase 2+) ---
-	if phase >= 2:
-		e.volley_t -= delta
-		if e.volley_t <= 0.0 and dist < BOSS_FIRE_RANGE:
-			e.volley_t = 3.2 if phase == 2 else 2.2
-			_boss_volley(node.position, 5 if phase == 2 else 7)
-	# --- drone summons (phase 3) ---
-	if phase == 3:
-		e.summon_t -= delta
-		if e.summon_t <= 0.0:
-			e.summon_t = 6.0
-			_boss_summon(e)
+	# --- attacks: 3.0 gives every boss its own pattern (LevelDef.boss_model) ---
+	match e.get("model", "sentinel"):
+		"brood":
+			_brood_attacks(e, phase, dist, delta)
+		"maw":
+			_maw_attacks(e, phase, dist, delta)
+		_:
+			_sentinel_attacks(e, phase, dist, delta)
 	# --- ram ---
 	if dist < e.size * 0.5 + 2.0 and player.wall_hurt_t <= 0.0:
 		player.wall_hurt_t = 0.45
 		player.take_damage(BOSS_CONTACT_DMG, "COLLISION")
 		player.bounce += to_player.normalized() * 22.0
+
+
+## Aimed heavy shot with target lead — every boss's bread and butter. `slow`
+## stretches the interval once a pattern has other things to throw.
+func _boss_aimed(e: Dictionary, dist: float, delta: float, slow: float) -> void:
+	e.fire_t -= delta
+	if e.fire_t <= 0.0 and dist < BOSS_FIRE_RANGE:
+		e.fire_t = e.fire * 0.9 * slow
+		var node: Sprite3D = e.node
+		var aim: Vector3 = player.position \
+			+ player.forward() * (player.speed * dist / 32.0 * 0.4) - node.position
+		enemy_fired.emit(node.position, aim.normalized() * 32.0, BOSS_SHOT_DMG, 2.4, false)
+
+
+## DOCK SENTINEL (L3), the gatekeeper — the Phase J pattern: aimed heavy shots,
+## spread volleys from 66%, escort drones from 33%.
+func _sentinel_attacks(e: Dictionary, phase: int, dist: float, delta: float) -> void:
+	_boss_aimed(e, dist, delta, 1.4 if phase >= 2 else 1.0)
+	if phase >= 2:
+		e.volley_t -= delta
+		if e.volley_t <= 0.0 and dist < BOSS_FIRE_RANGE:
+			e.volley_t = 3.2 if phase == 2 else 2.2
+			_boss_volley(e.node.position, 5 if phase == 2 else 7)
+	if phase == 3:
+		e.summon_t -= delta
+		if e.summon_t <= 0.0:
+			e.summon_t = 6.0
+			_boss_summon(e, "drone", 2)
+
+
+## BROOD MOTHER (L6) fights with her young: STINGER hatchlings from the start
+## (more, and sooner, as she weakens), proximity MINES laid across the room from
+## 66%, and a short volley in the last phase. Her own mines hurt her too.
+func _brood_attacks(e: Dictionary, phase: int, dist: float, delta: float) -> void:
+	_boss_aimed(e, dist, delta, 1.5)
+	e.summon_t -= delta
+	if e.summon_t <= 0.0:
+		e.summon_t = 7.0 if phase == 1 else (5.5 if phase == 2 else 4.0)
+		_boss_summon(e, "stinger", 1 if phase == 1 else 2)
+	if phase >= 2:
+		e.lay_t -= delta
+		if e.lay_t <= 0.0:
+			e.lay_t = 4.5 if phase == 2 else 3.5
+			_boss_lay_mine(e)
+	if phase == 3:
+		e.volley_t -= delta
+		if e.volley_t <= 0.0 and dist < BOSS_FIRE_RANGE:
+			e.volley_t = 3.0
+			_boss_volley(e.node.position, 5)
+
+
+## THE RIFT MAW (L9), the finale, is a bullet storm: ring bursts from the start
+## (hold the centre), a wheeling spiral hose from 66% that runs for 2.6 s then
+## rests for 2.2 s (keep moving), and below 33% the spiral doubles and SPINNERS
+## crawl out of the rift.
+func _maw_attacks(e: Dictionary, phase: int, dist: float, delta: float) -> void:
+	var node: Sprite3D = e.node
+	_boss_aimed(e, dist, delta, 1.2 if phase == 1 else 1.8)
+	e.volley_t -= delta
+	if e.volley_t <= 0.0 and dist < BOSS_FIRE_RANGE:
+		e.volley_t = 3.6 if phase == 1 else 4.4
+		_ring_burst(node.position, 10, e.spin_a, 20.0, 5.0, BOSS_SHOT_DMG * 0.8)
+		e.spin_a += PI / 10.0
+	if phase >= 2:
+		e.spiral_t -= delta
+		if e.spiral_t <= -2.2:
+			e.spiral_t = 2.6
+		if e.spiral_t > 0.0 and dist < BOSS_FIRE_RANGE:
+			e.spiral_cd -= delta
+			if e.spiral_cd <= 0.0:
+				e.spiral_cd = 0.11
+				e.spiral_a += 0.55
+				_spiral_shot(node.position, e.spiral_a, 2 if phase == 3 else 1, 24.0)
+	if phase == 3:
+		e.summon_t -= delta
+		if e.summon_t <= 0.0:
+			e.summon_t = 8.0
+			_boss_summon(e, "spinner", 1)
 
 
 ## Horizontal fan of shots centered on the line to the player (±0.35 rad).
@@ -300,25 +653,44 @@ func _boss_volley(origin: Vector3, count: int) -> void:
 		enemy_fired.emit(origin, to_player.rotated(Vector3.UP, ang) * 30.0, SHOT_DMG, 1.7, false)
 
 
-## Phase 3: the boss ejects escort drones — capped so the room never floods.
-## spawn() may refuse (ENEMY_CAP), so tag only entries that actually appeared.
-func _boss_summon(e: Dictionary) -> void:
+## The boss ejects escorts of `type_id` — capped at MAX_SUMMONS live so the room
+## never floods. spawn() may refuse (ENEMY_CAP), so tag only entries that
+## actually appeared.
+func _boss_summon(e: Dictionary, type_id: String, count: int) -> void:
 	var live := 0
 	for en in enemies:
 		if en.get("summoned", false):
 			live += 1
-	var wanted := mini(2, MAX_SUMMONS - live)
+	var wanted := mini(count, MAX_SUMMONS - live)
 	if wanted <= 0:
 		return
 	for i in wanted:
 		var before := enemies.size()
-		spawn(e.ring, -1, "drone")
+		spawn(e.ring, -1, type_id)
 		if enemies.size() > before:
 			var d: Dictionary = enemies[enemies.size() - 1]
 			d["summoned"] = true
 			d.node.position = e.node.position + Vector3(
 				randf_range(-6.0, 6.0), randf_range(-4.0, 4.0), randf_range(-6.0, 6.0))
 	exploded.emit(e.node.position, false)  # ejection puff
+
+
+## Brood mother, phase 2+: drop a mine where she hovers (capped, so the room
+## never turns into a minefield). They creep toward the ship like any mine.
+func _boss_lay_mine(e: Dictionary) -> void:
+	var live := 0
+	for en in enemies:
+		if en.get("laid", false):
+			live += 1
+	if live >= MAX_LAID_MINES:
+		return
+	var before := enemies.size()
+	spawn(e.ring, -1, "mine")
+	if enemies.size() > before:
+		var m: Dictionary = enemies[enemies.size() - 1]
+		m["laid"] = true
+		m.node.position = path.clamp_to_ring(e.node.position + Vector3(
+			randf_range(-5.0, 5.0), randf_range(-3.0, 3.0), randf_range(-5.0, 5.0)), e.ring, 2.0)
 
 
 ## Damage every enemy within radius of pos (MISSILE splash). Returns kills.
@@ -381,7 +753,10 @@ func _kill(index: int, scored: bool) -> void:
 				randf_range(-8.0, 8.0), randf_range(-5.0, 5.0), randf_range(-8.0, 8.0)), false)
 		boss = {}
 	else:
-		exploded.emit(e.node.position, false)
+		var is_mine: bool = e.get("type", "") == "mine"
+		exploded.emit(e.node.position, is_mine)   # 3.0: mines go up with a shock ring
+		if is_mine:
+			_pending_blasts.append(e.node.position)   # chains next frame (see top of update)
 	if e.get("type", "") == "turret":
 		turret_destroyed.emit(e.node.position)   # V2.0: chains nearby fuel cells
 	# V2.2 L1: debris burst — chunk count scales with the kill's heft
@@ -401,19 +776,23 @@ func _kill(index: int, scored: bool) -> void:
 		player.shake = minf(0.6, player.shake + 0.12)
 	if scored:
 		GameState.register_kill(int(e.score))   # streak-multiplied (Phase J)
+		var type_id: String = e.get("type", "")
 		# V2.2 L3b: salvage — guaranteed from heavies, a 30% roll from the rest
+		# (3.0: spinners count as heavies; mines carry nothing but their score)
 		if e.get("is_boss", false):
 			drop_spawned.emit(e.node.position, e.ring, "salvage", 50)
-		elif e.get("type", "") == "hulk":
+		elif type_id == "hulk":
 			drop_spawned.emit(e.node.position, e.ring, "salvage", 15)
-		elif e.get("type", "") == "turret":
+		elif type_id == "turret":
 			drop_spawned.emit(e.node.position, e.ring, "salvage", 10)
-		elif randf() < 0.30:
+		elif type_id == "spinner":
+			drop_spawned.emit(e.node.position, e.ring, "salvage", 8)
+		elif type_id != "mine" and randf() < 0.30:
 			drop_spawned.emit(e.node.position, e.ring, "salvage", 5)
 		# Phase J drop roll — one chance per scored kill (never the boss itself;
 		# its reward is the exit ring). Hulks are tanky, so they drop more often.
-		if not e.get("is_boss", false):
-			var mult: float = 1.6 if e.get("type", "") == "hulk" else 1.0
+		if not e.get("is_boss", false) and type_id != "mine":
+			var mult: float = 1.6 if type_id == "hulk" else 1.0
 			var roll := randf()
 			if roll < 0.12 * mult:
 				drop_spawned.emit(e.node.position, e.ring, "shield", 0)
@@ -423,6 +802,9 @@ func _kill(index: int, scored: bool) -> void:
 				drop_spawned.emit(e.node.position, e.ring, "missile", 0)
 			elif roll < 0.34 * mult:
 				drop_spawned.emit(e.node.position, e.ring, "bomb", 0)   # V2.0: rare
+			# 3.0: timed power-ups ride a separate roll, so they can come as a bonus
+			if randf() < POWER_DROP.get(type_id, POWER_DROP_BASE):
+				drop_spawned.emit(e.node.position + Vector3.UP * 1.5, e.ring, random_power(), 0)
 	enemy_killed.emit(e.arena_id)
 	_release_node(e.node)
 	enemies.remove_at(index)

@@ -230,6 +230,38 @@ func register_kill(base: int) -> void:
 		style_changed.emit(grade_now)
 
 
+# --- 3.0 phase 5: timed power-ups. Each pickup starts (or refills) its own
+# clock; game._process ticks them only while PLAYING, like the combo window.
+signal power_changed(kind: String, t: float)   # t = seconds left (0 = ended)
+
+const POWER_TIME := {"overdrive": 10.0, "phase": 8.0, "powercore": 12.0}
+var power_t := {"overdrive": 0.0, "phase": 0.0, "powercore": 0.0}
+
+
+func power_on(kind: String) -> bool:
+	return power_t.get(kind, 0.0) > 0.0
+
+
+func grant_power(kind: String) -> void:
+	power_t[kind] = POWER_TIME[kind]
+	power_changed.emit(kind, power_t[kind])
+
+
+func tick_powers(delta: float) -> void:
+	for kind in power_t:
+		if power_t[kind] > 0.0:
+			power_t[kind] = maxf(0.0, power_t[kind] - delta)
+			if power_t[kind] <= 0.0:
+				power_changed.emit(kind, 0.0)
+
+
+func clear_powers() -> void:
+	for kind in power_t:
+		if power_t[kind] > 0.0:
+			power_t[kind] = 0.0
+			power_changed.emit(kind, 0.0)
+
+
 ## Called from game._process only while PLAYING, so pausing never eats a streak.
 func tick_combo(delta: float) -> void:
 	if combo_t > 0.0:
@@ -253,6 +285,7 @@ func reset_level_stats() -> void:
 	level_props = 0   # level_props_total is owned by game._place_props at world build
 	level_secrets = 0   # level_secrets_total is owned by game._place_secrets
 	combo_changed.emit(0, 1)
+	clear_powers()   # 3.0: power-ups never carry into the next level
 
 
 func load_records() -> void:
@@ -314,6 +347,7 @@ func record_gauntlet(dist: int) -> bool:
 # --- Phase H: player settings, persisted to user://settings.cfg ---
 signal dither_toggled(on: bool)
 signal amber_toggled(on: bool)   # V2.0: amber "terminal" view mode
+signal crt_changed(mode: int)    # 3.0: CRT filter mode
 
 var master_volume := 0.8
 var mouse_sens_mult := 1.0
@@ -321,6 +355,10 @@ var dither_enabled := true
 var gamepad_enabled := false   # K6: opt-in, never default
 var amber_mode := false        # amber-monochrome terminal look (via the dither shader)
 var screen_shake := true       # V2.2 L1: camera kick/shake master switch (accessibility)
+## 3.0: post filter over the whole window — 0 off, 1 scanlines, 2 full CRT
+## (scanlines + aperture mask + curvature + vignette). Scanlines by default: they
+## read as "a 1995 monitor" without bending anything.
+var crt_mode := 1
 # --- M1/M2 beta-readiness accessibility + comfort settings ---
 ## M1.2: suppresses the plasma-bomb white-out and freezes strobing/flickering
 ## arena lights. The strobe runs at ~1.1 Hz and the flicker is a smooth energy
@@ -355,6 +393,7 @@ func apply_settings() -> void:
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Master"), db)
 	dither_toggled.emit(dither_enabled)
 	amber_toggled.emit(amber_mode)
+	crt_changed.emit(crt_mode)
 	InputSetup.set_gamepad(gamepad_enabled)
 	_save_settings()
 
@@ -375,6 +414,7 @@ func load_settings() -> void:
 		touch_dpad_enabled = cfg.get_value("settings", "dpad", touch_dpad_enabled)
 		gyro_aim_enabled = cfg.get_value("settings", "gyro", gyro_aim_enabled)
 		seen_warning = cfg.get_value("settings", "seen_warning", seen_warning)
+		crt_mode = clampi(int(cfg.get_value("settings", "crt", crt_mode)), 0, 2)
 
 
 func _save_settings() -> void:
@@ -392,6 +432,7 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "dpad", touch_dpad_enabled)
 	cfg.set_value("settings", "gyro", gyro_aim_enabled)
 	cfg.set_value("settings", "seen_warning", seen_warning)
+	cfg.set_value("settings", "crt", crt_mode)
 	cfg.save("user://settings.cfg")
 
 

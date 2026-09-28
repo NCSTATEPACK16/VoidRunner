@@ -30,3 +30,23 @@ directory up**, outside this repo, in the parent `RadixRemix/` folder:
 - Rendering profile (do not break): 320×200 viewport stretch `keep`, GL Compatibility,
   nearest-neighbor default filtering, no AA. Every asset is designed for this, per `../PLAN.md`
   Phase B.
+
+## 3.0 architecture ("Technicolor Void", see `docs/revamp/2026-09-27-v3-technicolor-revamp.md`)
+
+- **Color:** `Palette` (16 hues × 16-shade ramps) and `PaletteLUT` (a GPU-baked 512×512 lookup)
+  quantize the finished frame in `shaders/palette_dither.gdshader`. Pick art colors with
+  `Palette.ramp(hue, shade)` so they survive quantization.
+- **Light:** no `OmniLight3D` anywhere. World meshes use `shaders/sector.gdshader` (baked vertex
+  light ×0.5, 8 dynamic lights in uniform arrays); `LightRig` scores candidates each frame and
+  pushes the best eight to every registered material.
+- **Sprites:** `SpriteModels` builds each enemy, boss and pickup from primitives, and
+  `SpriteForge.bake()` turntable-renders them at boot (8 angles × 2 frames + flash). Headless
+  runs fall back to the `SpriteGen` pixel sprites with the same frame layout.
+- **UI:** `PixelFont.install()` must run first in `game._ready()`. It sets the default theme
+  font, so every Control inherits the bitmap face; size 8 is 1×, 16 is 2×. `HudArt` paints the
+  console once at boot. The CRT pass is a CanvasLayer at layer 100.
+- **Audio:** `MusicGen` renders three sample-aligned stems as a resumable job; `AudioSys` feeds
+  it 5 ms per frame and starts the players once it's done and `unlock()` has run.
+- **Tooling gotchas:** new `class_name` scripts need `godot --headless --import` before tests
+  can see them. GDScript's `:=` can't infer from Dictionary or Variant access, so type those
+  explicitly. Headless `--script` mode has no autoloads.

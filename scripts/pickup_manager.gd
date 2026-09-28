@@ -4,6 +4,8 @@ extends Node3D
 ## Billboarded sprites that bob in place, magnet toward the player when close,
 ## and expire (blinking) if ignored — fly through to collect. Distance checks,
 ## no physics bodies, same as every other system in this game.
+## 3.0 phase 5 adds the timed power-ups (OVERDRIVE / PHASE SHIELD / POWER CORE):
+## bigger, longer-lived, and their effect runs on GameState's power clocks.
 
 signal collected(kind: String, value: int)   # value: salvage amount, else 0
 
@@ -11,6 +13,7 @@ const MAGNET_RANGE_SQ := 14.0 * 14.0
 const MAGNET_SPEED := 18.0
 const COLLECT_RANGE_SQ := 9.0
 const LIFETIME := 12.0
+const POWER_LIFETIME := 16.0   # 3.0: power-ups hang around a little longer
 const BLINK_AT := 3.0     # blink for the last N seconds before expiring
 
 const EFFECT := {
@@ -25,12 +28,14 @@ var path: PathGen
 
 var _pickups: Array[Dictionary] = []
 var _stations: Array[Dictionary] = []   # boss resupply: {kind, pos, bob_p, node|null}
-var _textures := {}
+var _frames := {}   # 3.0: kind -> baked spin frames (SpriteForge)
+var _spin_t := 0.0
+const SPIN_FPS := 10.0
 
 
 func _ready() -> void:
-	for kind in ["shield", "energy", "missile", "bomb", "salvage"]:
-		_textures[kind] = SpriteGen.pickup_texture(kind)
+	for kind in SpriteModels.PICKUPS:
+		_frames[kind] = SpriteForge.pickup_frames(kind)
 
 
 func clear_all() -> void:
@@ -44,7 +49,16 @@ func clear_all() -> void:
 
 
 func warmup_textures() -> Array:
-	return _textures.values()
+	var texes: Array = []
+	for kind in _frames:
+		texes.append(_frames[kind][0])
+	return texes
+
+
+## 3.0: every pickup spins on the same clock (one texture swap each).
+func _spin(node: Sprite3D, kind: String, phase: float) -> void:
+	var fr: Array = _frames[kind]
+	node.texture = fr[int(_spin_t * SPIN_FPS + phase) % fr.size()]
 
 
 ## Boss resupply station: a fixed pickup on the boss room's back wall. Never
@@ -63,18 +77,20 @@ func replenish_stations() -> void:
 
 
 func _respawn_station(s: Dictionary) -> void:
-	var sprite := SpriteGen.make_sprite(_textures[s.kind], 3.2)
+	var sprite := SpriteGen.make_sprite(_frames[s.kind][0], 3.4)
 	sprite.position = s.pos
 	add_child(sprite)
 	s.node = sprite
 
 
 func spawn_drop(pos: Vector3, ring: int, kind: String, value := 0) -> void:
-	var sprite := SpriteGen.make_sprite(_textures[kind], 2.2)
+	var power := kind in GameState.POWER_TIME
+	var sprite := SpriteGen.make_sprite(_frames[kind][0], 3.4 if power else 2.6)
 	sprite.position = path.clamp_to_ring(pos, ring, 2.0)
 	add_child(sprite)
 	_pickups.append({
-		"node": sprite, "kind": kind, "bob_p": randf() * TAU, "life": LIFETIME,
+		"node": sprite, "kind": kind, "bob_p": randf() * TAU,
+		"life": POWER_LIFETIME if power else LIFETIME,
 		"value": value,   # V2.2 L3b: salvage amount rides the drop
 	})
 
@@ -83,6 +99,7 @@ func update_pickups(delta: float) -> void:
 	# V2.2 L3c: magnet coil rank widens the pull radius (squared-space compare)
 	var m := GameState.magnet_mult()
 	var magnet_r2 := MAGNET_RANGE_SQ * m * m
+	_spin_t += delta
 	for i in range(_pickups.size() - 1, -1, -1):
 		var p: Dictionary = _pickups[i]
 		var node: Sprite3D = p.node
@@ -93,6 +110,7 @@ func update_pickups(delta: float) -> void:
 			continue
 		p.bob_p += delta * 2.4
 		node.position.y += sin(p.bob_p) * delta * 0.6
+		_spin(node, p.kind, p.bob_p)
 		var to_player: Vector3 = player.position - node.position
 		var d2 := to_player.length_squared()
 		if d2 < COLLECT_RANGE_SQ:
@@ -109,6 +127,7 @@ func update_pickups(delta: float) -> void:
 		var node: Sprite3D = s.node
 		s.bob_p += delta * 2.4
 		node.position = s.pos + Vector3.UP * sin(s.bob_p) * 0.5
+		_spin(node, s.kind, s.bob_p)
 		if player.position.distance_squared_to(node.position) < COLLECT_RANGE_SQ:
 			_collect(s.kind)
 			node.queue_free()
@@ -128,4 +147,6 @@ func _collect(kind: String, value := 0) -> void:
 		"salvage":   # V2.2 L3b: straight into the level's unbanked haul
 			GameState.salvage_run += value
 			GameState.salvage_changed.emit(GameState.salvage_total())
+		"overdrive", "phase", "powercore":   # 3.0: timed — starts/refills its clock
+			GameState.grant_power(kind)
 	collected.emit(kind, value)

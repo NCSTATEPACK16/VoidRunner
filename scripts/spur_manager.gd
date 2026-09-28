@@ -12,7 +12,7 @@ extends Node3D
 ## just pushes the player back. The snap relocates ring_idx at the mouth; hysteresis
 ## (re-arm only after clearing the mouth) stops entry/exit ping-pong.
 ##
-## The hatch reuses the walls' (already-warmed) material and the cache uses the pickup
+## The hatch reuses the walls' (already-warmed) shader and the cache uses the pickup
 ## manager's existing station path, so this phase adds NO new shader/material variant.
 
 signal cache_collected(id: int)
@@ -25,21 +25,21 @@ const HATCH_HIDE_R2 := 81.0  # 9 u — the hatch "opens" (hides) inside this
 var _path = null
 var _player = null
 var _pickups = null
-var _wall_mat: Material = null
+var _hatch_mat: Material = null
 var _spurs: Array = []       # per spur: {def, hatch: MeshInstance3D, armed, collected}
 var caches_found := 0
 
 
 ## Called by game._load_level_world after path.add_spurs(). Builds a hatch per spur and
 ## spills each cache chamber's fly-through pickups. A no-op when the path has no spurs.
-func setup(path, player, pickups, wall_mat: Material, tint: Color) -> void:
+func setup(path, player, pickups, hatch_mat: Material) -> void:
 	_clear()
 	_path = path
 	_player = player
 	_pickups = pickups
-	_wall_mat = wall_mat
+	_hatch_mat = hatch_mat
 	for sp in path.spurs:
-		var hatch := _build_hatch(sp, tint)
+		var hatch := _build_hatch(sp)
 		_spurs.append({"def": sp, "hatch": hatch, "armed": true, "collected": false})
 		_spill_cache(sp)
 
@@ -52,15 +52,13 @@ func _clear() -> void:
 	caches_found = 0
 
 
-func _build_hatch(sp: Dictionary, tint: Color) -> MeshInstance3D:
+func _build_hatch(sp: Dictionary) -> MeshInstance3D:
 	var er: Dictionary = _path.rings[sp.entry]
 	var mi := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = Vector3(2.0, maxf((er.hh - er.fo - er.co) * 1.6, 3.0), PathGen.SEG * 2.2)
 	mi.mesh = box
-	var mat: StandardMaterial3D = _wall_mat.duplicate()   # same warmed shader as the walls
-	mat.albedo_color = tint
-	mi.material_override = mat
+	mi.material_override = _hatch_mat   # 3.0: a sector prop material (warmed shader)
 	mi.transform = Transform3D(Basis(er.r, er.u, -er.d),
 		er.p + er.r * (sp.side * (er.hw - 1.0)))
 	add_child(mi)

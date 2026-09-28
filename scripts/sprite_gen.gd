@@ -382,6 +382,9 @@ static func make_sprite(tex: Texture2D, world_size: float) -> Sprite3D:
 	s.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	s.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	s.shaded = false
+	# 3.0: hard-edged sprites depth-test like solid geometry instead of alpha-sorting
+	# (overlapping enemies/pickups no longer pop in front of each other)
+	s.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
 	s.pixel_size = world_size / float(tex.get_width())
 	return s
 

@@ -1,23 +1,34 @@
 class_name Hud
 extends CanvasLayer
-## In-flight HUD (PLAN.md D4, grown through E4/H, restyled in G4): the cockpit —
-## canopy struts with a THREAT panel, and a sculpted bottom console holding the
-## weapon selector, MISL ammo counter, TIME clock, kill counter over the radar,
-## and SHLD/ENRG/HEAT bars. Built entirely in code at the 320x200 design
-## resolution with flat 90s greys and blocky 3x5 bitmap digits (PROJECT.md §11.2).
+## In-flight HUD (PLAN.md D4, grown through E4/H, restyled in G4, rebuilt for
+## 3.0 phase 4): the cockpit — brushed-steel canopy struts with a THREAT panel,
+## and a painted console plate (HudArt) whose recessed wells hold the weapon
+## selector and MSL counter, the TIME clock, the radar scope, the evade lamp and
+## the SHLD/ENRG/HEAT LED gauges. Built entirely in code at the 320x200 design
+## resolution with blocky 3x5 bitmap digits (PROJECT.md §11.2).
 
 const W := 320
 const H := 200
 const CONSOLE_H := 36
 const CONSOLE_Y := H - CONSOLE_H
 
-const BAR_W := 40.0
+## LED gauges: LED_N segments of LED_W px (1 px gaps) starting at LED_X
+const LED_N := 12
+const LED_W := 3
+const LED_X := 244
 
-const PANEL := Color(0.145, 0.155, 0.175)
-const PANEL_DARK := Color(0.075, 0.082, 0.10)
-const PANEL_EDGE := Color(0.30, 0.32, 0.36)
+const PANEL_DARK := Color(0.10, 0.12, 0.16)
+const PANEL_EDGE := Color(0.46, 0.52, 0.64)
 const DIGIT_COL := Color("ff9a30")
 const DIGIT_DIM := Color(0.35, 0.22, 0.10)
+const LABEL_DIM := Color(0.50, 0.56, 0.66)
+
+# 3.0 phase 5: live power-up timers stack down the right side of the view
+const POWER_ORDER := ["overdrive", "powercore", "phase"]
+const POWER_NAMES := {"overdrive": "OVERDRIVE", "powercore": "POWER CORE", "phase": "PHASE SHIELD"}
+const POWER_RAMPS := {"overdrive": Palette.GOLD, "powercore": Palette.MAGENTA, "phase": Palette.CYAN}
+const POWER_Y := 46
+const POWER_ROW := 14
 
 ## 3x5 bitmap glyphs, one int per row, 3 bits per row (MSB = left pixel).
 const GLYPHS := {
@@ -35,20 +46,25 @@ var weapon_names: Array[String] = []
 
 var _flash: ColorRect
 var _bomb_flash: ColorRect   # V2.0 plasma bomb white-out, decays in _process
+var _phase_tint: ColorRect   # 3.0: faint cyan glaze while PHASE SHIELD runs
+var _power_draw: Control
+var _power_labels := {}      # kind -> Label
+var _c_power_live := false
+var _c_xmode := -1           # crosshair colour state (overheat / power-ups)
 var _msg: Label
 var _msg_t := 0.0
 var _level_speed: Label
 var _score: Label
 var _wpn_name: Label
-var _shield_bar: ColorRect
-var _energy_bar: ColorRect
-var _heat_bar: ColorRect
 var _shield_num: Label
 var _crosshair: Control
 var _canopy: Control
 var _canopy_static: Control    # V2.1: struts/plates draw once, never per frame
 var _console_draw: Control
-var _console_static: Control
+# 3.0 phase 4: lit LED counts (shield, energy, heat) and the low-shield blink
+# phase (-1 = steady) — the console redraws only when one of them changes
+var _led := Vector3i(-1, -1, -1)
+var _led_blink := -1
 var _kills := 0
 var _kill_target := 0
 var _threat := false
@@ -97,6 +113,11 @@ func _ready() -> void:
 	_bomb_flash.color = Color(0.95, 0.98, 1.0, 0.0)
 	_bomb_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_bomb_flash)
+	_phase_tint = ColorRect.new()
+	_phase_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_phase_tint.color = Color(0.3, 0.9, 1.0, 0.0)
+	_phase_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_phase_tint)
 	# canopy frame under everything else so readouts stay on top; the static
 	# frame draws once at boot, the dynamic layer sits directly on top of it
 	_canopy_static = Control.new()
@@ -113,7 +134,7 @@ func _ready() -> void:
 	_crosshair.position = Vector2(W / 2.0, H / 2.0)
 	_crosshair.draw.connect(_draw_crosshair)
 	root.add_child(_crosshair)
-	_msg = _label(root, Vector2(0, 30), "", Color("ff7b5a"), 8)
+	_msg = _label(root, Vector2(0, 33), "", Color("ff7b5a"), 8)
 	_msg.size = Vector2(W, 10)
 	_msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	# Phase J: boss name over the boss health bar (the 3x5 font is digits-only)
@@ -137,31 +158,44 @@ func _ready() -> void:
 	root.add_child(_style_draw)
 	GameState.style_changed.connect(_on_style_changed)
 	_combo.visible = false
-	# ---- bottom console ----
-	_console_static = Control.new()
-	_console_static.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_console_static.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_console_static.draw.connect(_draw_console_static)
-	root.add_child(_console_static)
+	# 3.0 phase 5: power-up timers — a name and a draining bar per live one
+	_power_draw = Control.new()
+	_power_draw.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_power_draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_power_draw.draw.connect(_draw_power)
+	root.add_child(_power_draw)
+	for kind: String in POWER_ORDER:
+		var pl := _label(root, Vector2(214, POWER_Y), POWER_NAMES[kind],
+			Palette.ramp(POWER_RAMPS[kind], 13), 8)
+		pl.size = Vector2(80, 10)
+		pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		pl.visible = false
+		_power_labels[kind] = pl
+	# ---- bottom console: the painted plate (drawn once, at boot), then the
+	# dynamic layer and labels in its wells (HudArt.WELLS) ----
+	var plate := TextureRect.new()
+	plate.texture = HudArt.console(W, CONSOLE_H)
+	plate.position = Vector2(0, CONSOLE_Y)
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(plate)
 	_console_draw = Control.new()
 	_console_draw.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_console_draw.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_console_draw.draw.connect(_draw_console)
 	root.add_child(_console_draw)
 	radar = RadarDisplay.new()
-	radar.position = Vector2(W / 2.0 - 13, CONSOLE_Y + 7)
-	radar.size = Vector2(26, 26)
+	radar.position = Vector2(146, CONSOLE_Y + 4)
+	radar.size = Vector2(28, 28)
 	radar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(radar)
-	_label(root, Vector2(214, CONSOLE_Y + 2), "SHLD", Color("62ffae"), 8)
-	_shield_bar = _bar(root, Vector2(242, CONSOLE_Y + 4), Color("37ff9a"))
-	_shield_num = _label(root, Vector2(290, CONSOLE_Y + 2), "100", Color("62ffae"), 8)
-	_label(root, Vector2(214, CONSOLE_Y + 13), "ENRG", Color("7fd8ff"), 8)
-	_energy_bar = _bar(root, Vector2(242, CONSOLE_Y + 15), Color("41c8ff"))
-	_label(root, Vector2(214, CONSOLE_Y + 24), "HEAT", Color("ffab66"), 8)
-	_heat_bar = _bar(root, Vector2(242, CONSOLE_Y + 26), Color("ff9a30"))
-	_wpn_name = _label(root, Vector2(8, CONSOLE_Y + 24), "", Color("9fe8ff"), 8)
-	_label(root, Vector2(84, CONSOLE_Y + 12), "EVD", Color("2f8a82"), 8)  # K4 lamp
+	_label(root, Vector2(218, CONSOLE_Y + 6), "SHLD", Color("62ffae"), 8)
+	_shield_num = _label(root, Vector2(296, CONSOLE_Y + 6), "100", Color("62ffae"), 8)
+	_label(root, Vector2(218, CONSOLE_Y + 14), "ENRG", Color("7fd8ff"), 8)
+	_label(root, Vector2(218, CONSOLE_Y + 22), "HEAT", Color("ffab66"), 8)
+	_wpn_name = _label(root, Vector2(8, CONSOLE_Y + 21), "", Color("9fe8ff"), 8)
+	_label(root, Vector2(82, CONSOLE_Y + 8), "MSL", LABEL_DIM, 8)
+	_label(root, Vector2(111, CONSOLE_Y + 6), "TIME", LABEL_DIM, 8)
+	_label(root, Vector2(186, CONSOLE_Y + 6), "EVD", Color("2f8a82"), 8)  # K4 lamp
 	GameState.shields_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.energy_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.heat_changed.connect(func(_v: float) -> void: _update_bars())
@@ -259,19 +293,25 @@ func _process(delta: float) -> void:
 		_canopy.queue_redraw()
 	var dodge_busy := player != null and player.dodge_cd > 0.0
 	var tsec := int(player.elapsed) if player else 0
+	# 3.0 phase 4: the top lit SHLD segment blinks while shields are critical
+	var led_blink := int(Time.get_ticks_msec() / 200) % 2 \
+		if GameState.shields < GameState.max_shields() * 0.25 and not GameState.is_dead else -1
 	if GameState.weapon_index != _c_wpn or GameState.missiles != _c_missiles \
 			or tsec != _c_tsec or _kills != _c_kills or _kill_target != _c_ktarget \
-			or dodge_busy or dodge_busy != _c_dodge:
+			or dodge_busy or dodge_busy != _c_dodge or led_blink != _led_blink:
 		_c_wpn = GameState.weapon_index
 		_c_missiles = GameState.missiles
 		_c_tsec = tsec
 		_c_kills = _kills
 		_c_ktarget = _kill_target
 		_c_dodge = dodge_busy
+		_led_blink = led_blink
 		_console_draw.queue_redraw()
 	if GameState.is_overheated != _c_hot:
 		_c_hot = GameState.is_overheated
 		_crosshair.queue_redraw()
+		_console_draw.queue_redraw()   # HEAT LEDs go all-red on overheat
+	_update_powers()
 	# V2.2 L1e: tick down transient feedback; keep redrawing while live (the
 	# final redraw after a timer expires is what clears it from the layer)
 	if _kill_tick_t > 0.0:
@@ -298,6 +338,51 @@ func _process(delta: float) -> void:
 	_c_style_live = style_live
 
 
+## 3.0 phase 5: re-pack the power-up stack as clocks start and run out, blink a
+## name through its last two seconds, glaze the view during PHASE SHIELD, and
+## tint the crosshair for the live power.
+func _update_powers() -> void:
+	var live := false
+	var row := 0
+	for kind: String in POWER_ORDER:
+		var t: float = GameState.power_t[kind]
+		var pl: Label = _power_labels[kind]
+		if t > 0.0:
+			live = true
+			pl.position.y = POWER_Y + row * POWER_ROW
+			pl.visible = t > 2.0 or int(t * 6.0) % 2 == 0
+			row += 1
+		else:
+			pl.visible = false
+	if live or _c_power_live:
+		_power_draw.queue_redraw()   # the extra redraw after the last one ends clears it
+	_c_power_live = live
+	if GameState.power_on("phase"):
+		_phase_tint.color.a = 0.07 if GameState.reduce_flashing \
+			else 0.05 + 0.03 * sin(Time.get_ticks_msec() / 150.0)
+	else:
+		_phase_tint.color.a = 0.0
+	var xmode := 3 if GameState.is_overheated else (2 if GameState.power_on("powercore") \
+		else (1 if GameState.power_on("overdrive") else 0))
+	if xmode != _c_xmode:
+		_c_xmode = xmode
+		_crosshair.queue_redraw()
+
+
+## One draining bar under each live power-up's name, right-aligned with it.
+func _draw_power() -> void:
+	var row := 0
+	for kind: String in POWER_ORDER:
+		var t: float = GameState.power_t[kind]
+		if t <= 0.0:
+			continue
+		var y := POWER_Y + row * POWER_ROW + 9
+		var frac := clampf(t / float(GameState.POWER_TIME[kind]), 0.0, 1.0)
+		_power_draw.draw_rect(Rect2(254, y, 40, 3), PANEL_DARK)
+		_power_draw.draw_rect(Rect2(254, y, 40.0 * frac, 3), Palette.ramp(POWER_RAMPS[kind], 11))
+		row += 1
+
+
 ## V2.2 L2c: signal-driven pop so the name scales up for a beat on every grade-up.
 func _on_style_changed(grade: int) -> void:
 	if grade > 0:
@@ -321,8 +406,15 @@ func _draw_style() -> void:
 
 
 func _draw_crosshair() -> void:
-	var hot := GameState.is_overheated
-	var col := Color("ff5030") if hot else Color("62ffd0")
+	# overheat red wins; otherwise a live power-up tints it (3.0)
+	var col := Color("62ffd0")
+	match _c_xmode:
+		3:
+			col = Color("ff5030")
+		2:
+			col = Palette.ramp(Palette.MAGENTA, 13)
+		1:
+			col = Palette.ramp(Palette.GOLD, 14)
 	for arm in [Vector2(0, -1), Vector2(0, 1), Vector2(-1, 0), Vector2(1, 0)]:
 		_crosshair.draw_line(arm * 3.0, arm * 8.0, col, 1.0)
 	# V2.2 L1e: kill tick — short diagonals off the crosshair corners
@@ -338,36 +430,43 @@ func _draw_crosshair() -> void:
 
 
 ## G4: canopy frame — angled side struts with brace lines and the THREAT panel
-## plate, all flat fills per the reference-screenshot anatomy. Drawn ONCE at
-## boot (V2.1) — only the lamps/pips/boss bar live on the dynamic layer above.
+## plate. 3.0 phase 4 skins them in brushed steel (HudArt.steel_tile, repeated),
+## a shade darker than the console plate so the frame recedes.
+## Drawn ONCE at boot (V2.1) — only the lamps/pips/boss bar live on the dynamic
+## layer above.
 func _draw_canopy_static() -> void:
 	var c := _canopy_static
+	c.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+	var tile := HudArt.steel_tile()
 	var floor_y := float(CONSOLE_Y)
-	# left strut: wide at the top corner, tapering toward the console
-	c.draw_colored_polygon(PackedVector2Array([
-		Vector2(0, 0), Vector2(24, 0), Vector2(9, 46), Vector2(0, 62),
-	]), PANEL_DARK)
-	c.draw_colored_polygon(PackedVector2Array([
-		Vector2(0, floor_y), Vector2(0, floor_y - 34), Vector2(12, floor_y),
-	]), PANEL_DARK)
-	c.draw_line(Vector2(24, 0), Vector2(9, 46), PANEL_EDGE)
-	c.draw_line(Vector2(9, 46), Vector2(0, 62), PANEL_EDGE)
-	c.draw_line(Vector2(0, floor_y - 34), Vector2(12, floor_y), PANEL_EDGE)
-	c.draw_line(Vector2(14, 8), Vector2(6, 30), Color(0.20, 0.21, 0.24))
-	# right strut, mirrored
-	c.draw_colored_polygon(PackedVector2Array([
-		Vector2(W, 0), Vector2(W - 24, 0), Vector2(W - 9, 46), Vector2(W, 62),
-	]), PANEL_DARK)
-	c.draw_colored_polygon(PackedVector2Array([
-		Vector2(W, floor_y), Vector2(W, floor_y - 34), Vector2(W - 12, floor_y),
-	]), PANEL_DARK)
-	c.draw_line(Vector2(W - 24, 0), Vector2(W - 9, 46), PANEL_EDGE)
-	c.draw_line(Vector2(W - 9, 46), Vector2(W, 62), PANEL_EDGE)
-	c.draw_line(Vector2(W, floor_y - 34), Vector2(W - 12, floor_y), PANEL_EDGE)
-	c.draw_line(Vector2(W - 14, 8), Vector2(W - 6, 30), Color(0.20, 0.21, 0.24))
+	var groove := Palette.ramp(Palette.STEEL, 2)
+	for side in [1.0, -1.0]:
+		# side = 1 draws the left strut; -1 mirrors every x onto the right one
+		var ox := 0.0 if side > 0.0 else float(W)
+		var upper := PackedVector2Array([
+			Vector2(ox, 0), Vector2(ox + 24 * side, 0), Vector2(ox + 9 * side, 46), Vector2(ox, 62),
+		])
+		var lower := PackedVector2Array([
+			Vector2(ox, floor_y), Vector2(ox, floor_y - 34), Vector2(ox + 12 * side, floor_y),
+		])
+		for poly in [upper, lower]:
+			var uvs := PackedVector2Array()
+			for p in poly:
+				uvs.append(p / float(HudArt.TILE))
+			c.draw_colored_polygon(poly, Color.WHITE, uvs, tile)
+		c.draw_line(Vector2(ox + 24 * side, 0), Vector2(ox + 9 * side, 46), PANEL_EDGE)
+		c.draw_line(Vector2(ox + 9 * side, 46), Vector2(ox, 62), PANEL_EDGE)
+		c.draw_line(Vector2(ox, floor_y - 34), Vector2(ox + 12 * side, floor_y), PANEL_EDGE)
+		c.draw_line(Vector2(ox + 14 * side, 8), Vector2(ox + 6 * side, 30), groove)
+		# two rivets down each strut
+		for rp in [Vector2(5, 6), Vector2(4, 40)]:
+			var rx: float = ox + rp.x * side - (1.0 if side < 0.0 else 0.0)
+			c.draw_rect(Rect2(rx, rp.y, 1, 1), Palette.ramp(Palette.STEEL, 12))
+			c.draw_rect(Rect2(rx + 1, rp.y + 1, 1, 1), Palette.ramp(Palette.STEEL, 2))
 	# THREAT panel plate top-center
-	c.draw_rect(Rect2(W / 2.0 - 20, 0, 40, 11), PANEL_DARK)
+	c.draw_texture_rect(tile, Rect2(W / 2.0 - 20, 0, 40, 11), true)
 	c.draw_rect(Rect2(W / 2.0 - 20, 10, 40, 1), PANEL_EDGE)
+	c.draw_rect(Rect2(W / 2.0 - 16, 2, 36, 7), PANEL_DARK)
 	_draw_text3x5(c, Vector2(W / 2.0 - 6, 3), "-", 1, DIGIT_DIM)  # spacer tick
 
 
@@ -400,48 +499,60 @@ func _draw_canopy() -> void:
 			c.draw_rect(Rect2(102 + int(116 * gate), 14, 1, 6), PANEL_EDGE)
 
 
-## G4: sculpted console plate — bevels and recessed wells. Drawn ONCE at boot.
-func _draw_console_static() -> void:
-	var c := _console_static
-	c.draw_rect(Rect2(0, CONSOLE_Y, W, CONSOLE_H), PANEL)
-	c.draw_rect(Rect2(0, CONSOLE_Y, W, 1), PANEL_EDGE)
-	c.draw_rect(Rect2(0, CONSOLE_Y + 1, W, 1), PANEL_DARK)
-	# recessed wells: weapons / time / radar / bars
-	c.draw_rect(Rect2(4, CONSOLE_Y + 4, 100, CONSOLE_H - 8), PANEL_DARK)
-	c.draw_rect(Rect2(110, CONSOLE_Y + 4, 40, CONSOLE_H - 8), PANEL_DARK)
-	c.draw_rect(Rect2(W / 2.0 - 16, CONSOLE_Y + 4, 32, CONSOLE_H - 8), PANEL_DARK)
-	c.draw_rect(Rect2(210, CONSOLE_Y + 4, 106, CONSOLE_H - 8), PANEL_DARK)
-	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 20), "-", 1, DIGIT_DIM)
-
-
-## Dynamic console layer: weapon slots, MISL digits, EVD lamp, TIME clock and
-## the kill counter — redrawn only when one of those changes.
+## Dynamic console layer: weapon slots, MSL digits, EVD lamp, TIME clock, the
+## LED gauges and the kill counter — redrawn only when one of those changes.
 func _draw_console() -> void:
 	var c := _console_draw
-	# weapon slots 1-4
+	# weapon slots 1-4: the armed one glows amber, the rest are dark keycaps
 	for i in 4:
 		var r := Rect2(8 + i * 13, CONSOLE_Y + 6, 11, 11)
 		var on := i == GameState.weapon_index
-		c.draw_rect(r, Color(0.24, 0.17, 0.08) if on else Color(0.10, 0.11, 0.13))
-		c.draw_rect(r, DIGIT_COL if on else Color(0.24, 0.26, 0.30), false)
+		c.draw_rect(r, Palette.ramp(Palette.ORANGE, 3) if on else Palette.ramp(Palette.STEEL, 2))
+		c.draw_rect(r, DIGIT_COL if on else Palette.ramp(Palette.STEEL, 6), false)
 		_draw_text3x5(c, r.position + Vector2(4, 3), str(i + 1), 1,
-			DIGIT_COL if on else Color(0.40, 0.43, 0.48))
-	# MISL ammo (live with Phase I2)
+			DIGIT_COL if on else Palette.ramp(Palette.STEEL, 8))
+	# MSL ammo (live with Phase I2)
 	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 7), "%02d" % GameState.missiles, 2,
 		DIGIT_COL if GameState.missiles > 0 else Color("ff3018"))
-	_draw_text3x5(c, Vector2(64, CONSOLE_Y + 20), "-", 1, DIGIT_DIM)
 	# K4: evade lamp — refills through the cooldown, bright cyan when ready
 	if player:
 		var frac := 1.0 - clampf(player.dodge_cd / PlayerShip.DODGE_CD, 0.0, 1.0)
-		c.draw_rect(Rect2(86, CONSOLE_Y + 22, 14, 5), Color(0.10, 0.11, 0.13))
-		c.draw_rect(Rect2(87, CONSOLE_Y + 23, 12.0 * frac, 3),
-			Color("55ffee") if frac >= 1.0 else Color(0.13, 0.38, 0.36))
-	# TIME clock
-	_draw_text3x5(c, Vector2(114, CONSOLE_Y + 7), _time_string(), 2, DIGIT_COL)
+		c.draw_rect(Rect2(184, CONSOLE_Y + 16, 22, 7), Palette.ramp(Palette.STEEL, 1))
+		c.draw_rect(Rect2(185, CONSOLE_Y + 17, 20.0 * frac, 5),
+			Palette.ramp(Palette.CYAN, 14) if frac >= 1.0 else Palette.ramp(Palette.CYAN, 6))
+	# TIME clock, centred in its well (long runs drop to the small digits)
+	var ts := _time_string()
+	var px := 2 if ts.length() <= 4 else 1
+	var tw := (ts.length() * 4 - 1) * px
+	_draw_text3x5(c, Vector2(floorf(123.0 - tw / 2.0), CONSOLE_Y + (16 if px == 2 else 19)),
+		ts, px, DIGIT_COL)
+	# LED gauges — SHLD shifts green -> gold -> red as it drains (its top lit
+	# segment blinks when critical); HEAT runs gold -> orange -> red along its
+	# length and goes all-red on overheat
+	var sf := GameState.shields / GameState.max_shields()
+	var s_ramp := Palette.GREEN if sf > 0.5 else (Palette.GOLD if sf > 0.25 else Palette.RED)
+	var s_lit := _led.x - (1 if _led_blink == 1 else 0)
+	for i in LED_N:
+		_draw_led(c, i, CONSOLE_Y + 7, i < s_lit, s_ramp)
+		_draw_led(c, i, CONSOLE_Y + 15, i < _led.y, Palette.CYAN)
+		var h_ramp := Palette.RED if GameState.is_overheated or i >= 9 \
+			else (Palette.ORANGE if i >= 6 else Palette.GOLD)
+		_draw_led(c, i, CONSOLE_Y + 23, i < _led.z, h_ramp)
 	# kill counter over the radar (only while an arena lock is active)
 	if _kill_target > 0:
 		var s := "%03d/%03d" % [_kills, _kill_target]
 		_draw_text3x5(c, Vector2(W / 2.0 - s.length() * 2.0, CONSOLE_Y - 8), s, 1, DIGIT_COL)
+
+
+## One LED segment: lit ones glow with a hot highlight row, dark ones still show
+## their socket in a deep shade of the same hue.
+func _draw_led(c: CanvasItem, i: int, y: float, lit: bool, ramp: int) -> void:
+	var r := Rect2(LED_X + i * (LED_W + 1), y, LED_W, 5)
+	if lit:
+		c.draw_rect(r, Palette.ramp(ramp, 11))
+		c.draw_rect(Rect2(r.position, Vector2(LED_W, 1)), Palette.ramp(ramp, 15))
+	else:
+		c.draw_rect(r, Palette.ramp(ramp, 2))
 
 
 func _time_string() -> String:
@@ -464,12 +575,20 @@ func _draw_text3x5(ci: CanvasItem, pos: Vector2, text: String, px: int, color: C
 	# colons render narrow; acceptable at this scale
 
 
+## Signal-driven: recount the lit LEDs and redraw the console only when a count
+## moves (a partial segment still lights, so 1 shield point shows one LED).
 func _update_bars() -> void:
-	_shield_bar.size.x = BAR_W * GameState.shields / GameState.max_shields()
-	_energy_bar.size.x = BAR_W * GameState.energy / GameState.max_energy()
-	_heat_bar.size.x = BAR_W * GameState.heat / GameState.MAX_HEAT
+	var led := Vector3i(
+		ceili(clampf(GameState.shields / GameState.max_shields(), 0.0, 1.0) * LED_N),
+		ceili(clampf(GameState.energy / GameState.max_energy(), 0.0, 1.0) * LED_N),
+		ceili(clampf(GameState.heat / GameState.MAX_HEAT, 0.0, 1.0) * LED_N))
 	_shield_num.text = str(int(GameState.shields))
-	_heat_bar.color = Color("ff3010") if GameState.is_overheated else Color("ff9a30")
+	var sf := GameState.shields / GameState.max_shields()
+	var ramp := Palette.GREEN if sf > 0.5 else (Palette.GOLD if sf > 0.25 else Palette.RED)
+	_shield_num.add_theme_color_override("font_color", Palette.ramp(ramp, 13))
+	if led != _led:
+		_led = led
+		_console_draw.queue_redraw()
 
 
 func _update_weapons() -> void:
@@ -486,19 +605,3 @@ func _label(parent: Control, pos: Vector2, text: String, color: Color, font_size
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(l)
 	return l
-
-
-func _bar(parent: Control, pos: Vector2, color: Color) -> ColorRect:
-	var back := ColorRect.new()
-	back.position = pos
-	back.size = Vector2(BAR_W + 2, 7)
-	back.color = Color(0.03, 0.04, 0.06)
-	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(back)
-	var fill := ColorRect.new()
-	fill.position = Vector2(1, 1)
-	fill.size = Vector2(BAR_W, 5)
-	fill.color = color
-	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	back.add_child(fill)
-	return fill

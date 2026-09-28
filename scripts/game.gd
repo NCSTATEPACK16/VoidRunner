@@ -8,6 +8,9 @@ enum State { MENU, BRIEFING, PLAYING, PAUSED, GAME_OVER, LEVEL_CLEAR, VICTORY }
 const HEAT_COOL := 26.0
 const OVERHEAT_LOCK := 3.0
 const PORTAL_TRIGGER_SQ := 49.0
+const OVERDRIVE_RATE := 0.5   # 3.0: fire-interval multiplier while OVERDRIVE runs
+## 3.0: odds that clearing a locked arena leaves a power-up for the player
+const ARENA_POWER_CHANCE := 0.5
 
 var state := State.MENU
 var weapons: Array[WeaponDef] = []
@@ -29,6 +32,10 @@ var view: SubViewport
 var automap: Automap             # V2.2 L4a: Tab automap, inside the 320x200 SubViewport
 var dither_layer: CanvasLayer   # Phase H: toggled by the settings menu
 var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipped
+var palette_lut: PaletteLUT     # 3.0: 256-color palette + GPU-baked lookup table
+var light_rig: LightRig         # 3.0: every dynamic light (no OmniLight3D anywhere)
+var crt_layer: CanvasLayer      # 3.0: scanline / CRT monitor pass over the whole window
+var _crt_mat: ShaderMaterial
 var env: Environment            # K1: per-level fog/ambient moods retune this
 
 var _fire_cd := 0.0
@@ -73,8 +80,13 @@ func _ready() -> void:
 	# engine started but the game did not.
 	if OS.has_feature("web"):
 		JavaScriptBridge.eval("window.vrDiag && window.vrDiag('GAME BOOTING');", true)
+	PixelFont.install()   # 3.0: the game's own bitmap font for every Control, from the start
 	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
 	GameState.load_records()    # Phase J: high score / best ranks / unlocked sector
+	# 3.0: turntable-render every enemy/boss/pickup sprite from its code-built model
+	# (one synchronous GPU pass; headless falls back to the pixel sprites). Before
+	# any manager exists — they pick their sprite sets up in _ready.
+	SpriteForge.bake(self)
 	for w in ["neutron", "scatter", "bolt", "missile"]:
 		weapons.append(load("res://resources/weapons/%s.tres" % w))
 	# Phase J: probe rather than hardcode the count — adding level_N.tres extends
@@ -94,7 +106,10 @@ func _ready() -> void:
 	_gauntlet_def.rings = 200   # initial batch; extend_to() grows it in flight
 	_build_game_view()
 	_build_environment()
+	light_rig = LightRig.new()
+	add_child(light_rig)
 	world = WorldBuilder.new()
+	world.light_rig = light_rig
 	view.add_child(world)
 	player = PlayerShip.new()
 	view.add_child(player)
@@ -126,6 +141,7 @@ func _ready() -> void:
 	overlays = Overlays.new()
 	overlays.layer = 10
 	add_child(overlays)
+	_build_crt_layer()
 	# M4a: touch mode is opt-in via ?touch=1 while the spike is being measured, so
 	# the default desktop build is byte-identical to before.
 	if OS.has_feature("web"):
@@ -150,6 +166,7 @@ func _ready() -> void:
 	shot_mgr.enemy_mgr = enemy_mgr
 	shot_mgr.weapons = weapons   # V2.2 L3c: pellet_count seam
 	enemy_mgr.player = player
+	enemy_mgr.world = world
 	world.tunnel_spawn_requested.connect(_on_tunnel_spawn)
 	enemy_mgr.enemy_fired.connect(shot_mgr.fire_enemy)
 	enemy_mgr.exploded.connect(shot_mgr.spawn_explosion)
@@ -208,6 +225,7 @@ func _ready() -> void:
 	# terminal mode; either being on keeps the layer visible.
 	GameState.dither_toggled.connect(func(_on: bool) -> void: _refresh_view_fx())
 	GameState.amber_toggled.connect(func(_on: bool) -> void: _refresh_view_fx())
+	GameState.crt_changed.connect(_apply_crt)
 	GameState.apply_settings()
 	# idle backdrop behind the start screen (v2.2 does the same)
 	_load_level_world(0)
@@ -259,8 +277,8 @@ func _build_environment() -> void:
 	env.fog_enabled = true
 	env.fog_mode = Environment.FOG_MODE_DEPTH
 	env.fog_light_color = Color.BLACK
-	env.fog_depth_begin = 10.0
-	env.fog_depth_end = 100.0
+	env.fog_depth_begin = 18.0   # 3.0: the lit near field reads before the dark eats it
+	env.fog_depth_end = 110.0
 	var we := WorldEnvironment.new()
 	we.environment = env
 	view.add_child(we)
@@ -285,9 +303,35 @@ func _refresh_view_fx() -> void:
 	_dither_mat.set_shader_parameter("amber", 1.0 if GameState.amber_mode else 0.0)
 
 
+## 3.0: the monitor — a full-window pass (above the menus and touch controls too)
+## that draws scanlines, or a curved RGB-masked CRT. Off costs nothing: the layer
+## is hidden.
+func _build_crt_layer() -> void:
+	crt_layer = CanvasLayer.new()
+	crt_layer.layer = 100
+	var rect := ColorRect.new()
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_crt_mat = ShaderMaterial.new()
+	_crt_mat.shader = load("res://shaders/crt.gdshader")
+	rect.material = _crt_mat
+	crt_layer.add_child(rect)
+	add_child(crt_layer)
+	_apply_crt(GameState.crt_mode)
+
+
+func _apply_crt(mode: int) -> void:
+	crt_layer.visible = mode > 0
+	_crt_mat.set_shader_parameter("mode", float(mode))
+
+
 ## Phase G2: palette-quantize + Bayer-dither the finished frame (3D + HUD, not the
 ## menu overlays). Sits on CanvasLayer 5, between the HUD (1) and overlays (10).
+## 3.0: 256 colors via a GPU-baked lookup table (PaletteLUT) instead of a
+## per-pixel palette loop.
 func _build_dither_layer() -> void:
+	palette_lut = PaletteLUT.new()
+	add_child(palette_lut)
 	var layer := CanvasLayer.new()
 	layer.layer = 5
 	var rect := ColorRect.new()
@@ -295,13 +339,7 @@ func _build_dither_layer() -> void:
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/palette_dither.gdshader")
-	var colors := PackedVector3Array()
-	for c in Palette.ALL:
-		colors.append(Vector3(c.r, c.g, c.b))
-	while colors.size() < 64:  # pad to the shader's fixed uniform array size
-		colors.append(colors[colors.size() - 1])
-	mat.set_shader_parameter("palette", colors)
-	mat.set_shader_parameter("palette_size", Palette.ALL.size())
+	mat.set_shader_parameter("lut_tex", palette_lut.lut_texture)
 	rect.material = mat
 	layer.add_child(rect)
 	view.add_child(layer)
@@ -332,8 +370,7 @@ func _load_level_world(index: int) -> void:
 	automap.setup(path, player)   # V2.2 L4a: explored map resets to the new level
 	var theme: Dictionary = TextureGen.THEMES[level.theme_id]
 	_apply_theme_mood(theme, level)
-	world.rebuild(path, TextureGen.theme_set(level.theme_id, level.level_seed),
-		theme.accent, theme.accent2)
+	world.rebuild(path, level.theme_id)
 	player.world = world
 	enemy_mgr.clear_all()
 	shot_mgr.clear_all()
@@ -342,11 +379,12 @@ func _load_level_world(index: int) -> void:
 	hazard_mgr.clear_all()
 	gib_mgr.clear_all()
 	hazard_mgr.path = path
-	hazard_mgr.setup(world.mats.wall, theme.accent2)
+	hazard_mgr.setup(world.prop_material("wall_d", 0.95, Color.WHITE, theme.accent2 * 0.3))
 	_place_props(level)
 	_place_hazards(level)
 	_place_secrets(level)
-	spur_mgr.setup(path, player, pickup_mgr, world.mats.wall, theme.accent2)   # V2.2 L5
+	spur_mgr.setup(path, player, pickup_mgr,   # V2.2 L5
+		world.prop_material("wall_c", 1.0, Color(1.0, 0.9, 0.7), theme.accent2 * 0.2))
 	_arena_spawned.clear()
 	_arena_kills.clear()
 	_door_queue.clear()
@@ -507,11 +545,13 @@ func _build_secret(ri: int, side: float) -> Dictionary:
 	var ring: Dictionary = path.rings[ri]
 	var mi := MeshInstance3D.new()
 	var box := BoxMesh.new()
-	box.size = Vector3(2.4, (ring.hh - ring.fo - ring.co) * 2.0 - 0.6, PathGen.SEG * 1.6)
+	# 3.0: sized to the wall face between the corner chamfers, not the full height
+	var face_h: float = (ring.hh - ring.fo - ring.co - ring.ch) * 2.0
+	box.size = Vector3(2.4, face_h - 0.6, PathGen.SEG * 1.6)
 	mi.mesh = box
-	var mat: StandardMaterial3D = world.mats.wall.duplicate()
-	mat.albedo_color = Color(0.86, 0.86, 0.97)   # cooler than true wall — the tell
-	mi.material_override = mat
+	# lit to match the wall it hides in, a shade cooler — the manual's "tell"
+	mi.material_override = world.prop_material("wall_a", 1.0,
+		world.ring_light(ri) * Color(0.9, 0.93, 1.12))
 	mi.transform = Transform3D(Basis(ring.r, ring.u, -ring.d),
 		ring.p + ring.r * (side * (ring.hw - 1.2)) + ring.u * ((ring.fo - ring.co) * 0.5))
 	world.add_child(mi)
@@ -592,14 +632,21 @@ func _apply_gauntlet_tier(tier: int) -> void:
 	var pool := PackedStringArray(["drone", "drone"])
 	if tier >= 1:
 		pool.append("weaver")
+		pool.append("mine")      # 3.0
 	if tier >= 2:
 		pool.append("hulk")
 		pool.append("turret")
+		pool.append("stinger")   # 3.0
 	if tier >= 3:
 		pool.append("weaver")
+		pool.append("spinner")   # 3.0
+	if tier >= 4:
+		pool.append("stinger")
+		pool.append("mine")
 	if tier >= 5:
 		pool.append("hulk")
 		pool.append("turret")   # tier 5+ turrets fire seekers (enemy_speed >= 9)
+		pool.append("spinner")
 	_gauntlet_def.enemy_types = pool
 	AudioSys.set_music_intensity(tier / 8.0)
 
@@ -835,7 +882,7 @@ func _start_warmup() -> void:
 			+ Vector3.UP * (float(i / 6) - 1.0) * 1.1
 		_warmup_rig.add_child(s)
 	world.warmup_meshes(_warmup_rig, base + Vector3.UP * 2.4)
-	player.muzzle_light.light_energy = 0.6
+	player.muzzle_energy = 0.6
 	shot_mgr.warmup_boom_light(base, true)
 	# teardown is owned by the caller: the desktop path arms a 0.5s timer, the web
 	# path frees the rig after WARM_FRAMES rendered frames (see _web_load_and_warm)
@@ -844,7 +891,7 @@ func _start_warmup() -> void:
 func _end_warmup() -> void:
 	if _warmup_rig and is_instance_valid(_warmup_rig):
 		_warmup_rig.queue_free()
-		player.muzzle_light.light_energy = 0.0
+		player.muzzle_energy = 0.0
 		shot_mgr.warmup_boom_light(Vector3.ZERO, false)
 	_warmup_rig = null
 
@@ -868,6 +915,10 @@ func _on_new_campaign() -> void:
 
 func _process(delta: float) -> void:
 	world.animate(delta)
+	# 3.0: the title screen is translucent over the attract flythrough — no cockpit
+	hud.visible = state != State.MENU
+	if state == State.MENU:
+		_attract(delta)
 	# M4b: touch_ui's own active/visible state used to be set once by enable() and
 	# never revisited, so it kept drawing (and accepting input) over the pause menu,
 	# game-over screen, and every other non-flight state. This line is the fix — it
@@ -879,6 +930,7 @@ func _process(delta: float) -> void:
 		# geometry + buffer uploads land here so flight never builds a chunk
 		world.prebuild_step(4000)
 	if state != State.PLAYING:
+		_update_lights(delta)
 		return
 	player.update_flight(delta)
 	automap.note_ring(player.ring_idx)   # V2.2 L4a: track the high-water explored ring
@@ -892,6 +944,7 @@ func _process(delta: float) -> void:
 	_drain_stream_queues()
 	world.update_streaming(player.ring_idx)
 	GameState.tick_combo(delta)
+	GameState.tick_powers(delta)   # 3.0: power-up clocks run only while flying
 	_update_heat(delta)
 	_update_firing(delta)
 	enemy_mgr.update_enemies(delta)
@@ -916,9 +969,48 @@ func _process(delta: float) -> void:
 		AudioSys.play_hit()
 	elif GameState.shields > 30.0:
 		_low_shield_warned = false
+	_update_lights(delta)
 	if world.portal_active \
 			and player.position.distance_squared_to(world.portal_position) < PORTAL_TRIGGER_SQ:
 		_level_complete()
+
+
+## 3.0 attract mode: behind the title screen the camera flies the sector-1 tunnel on
+## autopilot (the way mid-90s DOS games demoed themselves) — steering for a point a
+## few rings ahead, banking into the bends, looping back to the start at the end.
+## No input, no enemies (tunnel spawns are ignored in MENU), just the world.
+func _attract(delta: float) -> void:
+	if path == null or path.rings.size() < 8:
+		return
+	var last: int = (path.main_ring_count if path.main_ring_count > 0 else path.rings.size()) - 1
+	var ahead: Vector3 = path.rings[mini(player.ring_idx + 3, last)].p
+	var to := (ahead - player.position).normalized()
+	var want_yaw := atan2(-to.x, -to.z)
+	var turn := wrapf(want_yaw - player.yaw, -PI, PI)
+	player.yaw += turn * minf(1.0, delta * 1.6)
+	player.pitch = lerpf(player.pitch, clampf(asin(clampf(to.y, -1.0, 1.0)), -0.45, 0.45),
+		minf(1.0, delta * 1.6))
+	player.roll = lerpf(player.roll, clampf(turn * 1.4, -0.3, 0.3), minf(1.0, delta * 2.0))
+	player.rotation = Vector3(player.pitch, player.yaw, player.roll)
+	player.position += player.forward() * (PlayerShip.BASE_SPEED * delta)
+	player.ring_idx = path.nearest_ring(player.position, player.ring_idx)
+	player.position = path.clamp_to_ring(player.position, player.ring_idx, 2.5)
+	world.update_streaming(player.ring_idx)
+	if player.ring_idx >= last - 10:
+		player.reset_to_start()
+
+
+## 3.0: this frame's dynamic light — headlight, muzzle flash, explosion flashes,
+## glowing shots — then LightRig folds in the level's animated lamps and pushes
+## the best eight into every sector material.
+func _update_lights(delta: float) -> void:
+	light_rig.begin(player.position)
+	light_rig.add(player.headlight_position(), PlayerShip.HEADLIGHT_COLOR,
+		PlayerShip.HEADLIGHT_ENERGY, PlayerShip.HEADLIGHT_RANGE)
+	if player.muzzle_energy > 0.02:
+		light_rig.add(player.muzzle_position(), player.muzzle_color, player.muzzle_energy, 26.0)
+	shot_mgr.feed_lights(light_rig)
+	light_rig.commit(delta)
 
 
 func _update_heat(delta: float) -> void:
@@ -948,15 +1040,19 @@ func _update_firing(delta: float) -> void:
 	if w.energy_cost > 0.0 and GameState.energy < w.energy_cost:
 		_notify_cant_fire("LOW ENERGY")
 		return
-	# V2.2 L3c: NEUTRON marks shorten the interval; heat sinks cool every weapon
-	_fire_cd = w.cooldown * GameState.weapon_mult(GameState.weapon_index, "interval")
+	# V2.2 L3c: NEUTRON marks shorten the interval; heat sinks cool every weapon.
+	# 3.0: OVERDRIVE doubles the fire rate and the guns stop heating at all.
+	var overdrive := GameState.power_on("overdrive")
+	_fire_cd = w.cooldown * GameState.weapon_mult(GameState.weapon_index, "interval") \
+		* (OVERDRIVE_RATE if overdrive else 1.0)
 	shot_mgr.fire_player(w)
 	player.add_kick(GameState.weapon_index)   # V2.2 L1: per-weapon muzzle kick
 	if w.uses_ammo:
 		GameState.missiles -= 1
 	if w.energy_cost > 0.0:
 		GameState.energy -= w.energy_cost   # shared afterburner pool; regens in player.gd
-	GameState.heat += w.heat * GameState.heat_mult()
+	if not overdrive:
+		GameState.heat += w.heat * GameState.heat_mult()
 	if GameState.heat >= 100.0:
 		GameState.is_overheated = true
 		_overheat_t = OVERHEAT_LOCK
@@ -1015,7 +1111,19 @@ func _on_pickup_collected(kind: String, value := 0) -> void:
 			hud.show_message("PLASMA BOMB +1")
 		"salvage":   # V2.2 L3b
 			hud.show_message("SALVAGE +%d" % value)
-	AudioSys.play_select()
+		"overdrive":   # 3.0 timed power-ups
+			GameState.heat = 0.0   # the rush vents the guns, even mid-overheat
+			GameState.is_overheated = false
+			_overheat_t = 0.0
+			hud.show_message("OVERDRIVE — RAPID FIRE!", 2.0)
+		"phase":
+			hud.show_message("PHASE SHIELD — INVULNERABLE!", 2.0)
+		"powercore":
+			hud.show_message("POWER CORE — DOUBLE DAMAGE!", 2.0)
+	if kind in GameState.POWER_TIME:
+		AudioSys.play_powerup()
+	else:
+		AudioSys.play_select()
 
 
 func _on_boss_killed() -> void:
@@ -1029,10 +1137,15 @@ func _on_boss_killed() -> void:
 
 func _on_boss_phase(phase: int) -> void:
 	gib_mgr.hit_stop(90)   # V2.2 L1: phase transitions land with a beat
-	if phase == 2:
-		hud.show_message("SIGNATURE SHIFTING — VOLLEY PATTERN", 2.5)
-	elif phase == 3:
-		hud.show_message("SIGNATURE CRITICAL — STAY MOBILE", 2.5)
+	# 3.0: each boss announces its own new trick, so the player knows what's coming
+	var msgs := {
+		"sentinel": ["SIGNATURE SHIFTING — VOLLEY PATTERN", "SIGNATURE CRITICAL — STAY MOBILE"],
+		"brood": ["SHE IS LAYING MINES — SHOOT THEM EARLY", "THE BROOD SWARMS — STAY MOBILE"],
+		"maw": ["SPIRAL STORM — KEEP MOVING", "THE MAW RAGES — STAY MOBILE"],
+	}
+	var lines: Array = msgs.get(_current_level().boss_model, msgs.sentinel)
+	if phase >= 2:
+		hud.show_message(lines[mini(phase, 3) - 2], 2.5)
 	AudioSys.play_overheat()
 	pickup_mgr.replenish_stations()   # back-wall resupply respawns each phase
 
@@ -1047,6 +1160,10 @@ func _on_enemy_killed(arena_id: int) -> void:
 		world.open_door(arena_id)
 		hud.show_message("BULKHEAD OPEN")
 		AudioSys.play_select()
+		# 3.0: a cleared room often leaves a power-up floating in the flight line
+		if randf() < ARENA_POWER_CHANCE:
+			var ring := mini(player.ring_idx + 2, path.rings.size() - 1)
+			pickup_mgr.spawn_drop(path.rings[ring].p, ring, EnemyManager.random_power())
 
 
 func _on_tunnel_spawn(ring_idx: int) -> void:

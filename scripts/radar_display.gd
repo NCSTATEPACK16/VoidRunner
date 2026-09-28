@@ -28,6 +28,9 @@ func _draw() -> void:
 	draw_arc(c, radius * 0.33, 0, TAU, 16, ring_col)
 	draw_line(c - Vector2(0, radius), c + Vector2(0, radius), ring_col)
 	draw_line(c - Vector2(radius, 0), c + Vector2(radius, 0), ring_col)
+	# 3.0 phase 4: raised steel bezel, lit from the top-left like the console
+	draw_arc(c, radius + 0.5, PI * 0.75, PI * 1.75, 12, Palette.ramp(Palette.STEEL, 11), 1.0)
+	draw_arc(c, radius + 0.5, -PI * 0.25, PI * 0.75, 12, Palette.ramp(Palette.STEEL, 3), 1.0)
 	# rotating sweep
 	var sweep_dir := Vector2(cos(_sweep), sin(_sweep))
 	draw_line(c, c + sweep_dir * radius, Color(0.24, 1.0, 0.63, 0.45))
@@ -56,7 +59,10 @@ func _draw() -> void:
 			if int(Time.get_ticks_msec() / 250) % 2 == 0:
 				draw_rect(Rect2(p - Vector2(2, 2), Vector2(4, 4)), Color("ff9a30"))
 		else:
-			draw_rect(Rect2(p - Vector2(1, 1), Vector2(2, 2)), Color("ff3838"))
+			# 3.0: mines read as hazards (amber), not targets
+			var mine: bool = e.get("type", "") == "mine"
+			draw_rect(Rect2(p - Vector2(1, 1), Vector2(2, 2)),
+				Color("ffc030") if mine else Color("ff3838"))
 	for shot_pos in shot_mgr.eshot_cache:  # V2.1: shared per-frame cache (no realloc)
 		var ex: float = shot_pos.x - player.position.x
 		var ez: float = shot_pos.z - player.position.z

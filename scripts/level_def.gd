@@ -27,6 +27,8 @@ extends Resource
 @export var boss_hp := 0              # absolute HP — bosses skip the mul/add formula
 @export var boss_size := 16.0         # billboard world-size (drones are 4.2)
 @export var boss_tint := Color(1, 1, 1)
+## 3.0: which baked boss model (SpriteModels.BOSSES) — sentinel | brood | maw.
+@export var boss_model := "sentinel"
 ## Par time in seconds for the end-of-level rank; 0 derives it from ring count.
 @export var par_time := 0.0
 ## Resupply stations on the boss room's back wall (behind the boss). They appear
