@@ -1,5 +1,9 @@
 # M5: Difficulty, Checkpoints, Onboarding Implementation Plan
 
+> **Revised 2026-09-28 (post-3.0):** this plan predates the 3.0 revamp and its file references are
+> stale. The rework is in `docs/revamp/2026-09-28-m5-m9-reaudit.md` §3.1 (findings) and §4
+> Steps 2–5 (pause menu, difficulty + assist, checkpoints, first 90 seconds). Follow that.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give cold players (Reddit traffic, not John) three difficulty presets that scale fairly, a checkpoint system that survives a closed browser tab, and a first-90-seconds onboarding pass — closing M11 kill criterion #6 ("the first sixty seconds are not defensible to a cold player").

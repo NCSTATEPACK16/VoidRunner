@@ -1,5 +1,9 @@
 # M6: Feel Pass Completion Implementation Plan
 
+> **Revised 2026-09-28 (post-3.0):** the goals stand but the infighting design here is wrong for
+> the current code (damage scale, shooter tracking, hit radius, scoring). See
+> `docs/revamp/2026-09-28-m5-m9-reaudit.md` §3.2 and §4 Step 6.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the real gap in `PLAN.md`'s M6 "Feel pass" — which, on inspection of the current codebase, turns out to be **already shipped** for four of its five listed items back in V2.2's L1 ("gibs/hit-stop/kick+shake/hit-flash/damage arcs," `CLAUDE.md` §6, 2026-07-18). Only two genuine gaps remain: **enemy infighting** (stray enemy fire damaging other enemies) and **boost feedback** (an FOV kick + audio swell on the boost transition, distinct from the existing continuous engine-pitch feedback).
