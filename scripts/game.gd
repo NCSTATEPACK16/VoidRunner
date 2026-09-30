@@ -52,6 +52,9 @@ var _warmup_rig: Node3D
 var touch_ui: TouchControls   # M4a spike: null unless the build is in touch mode
 var _page_hidden_cb: JavaScriptObject   # re-audit Step 2 (web): keeps the listener alive
 var _touch_mode := false
+## Step 3: deaths in the current sector, for game over's "try RECRUIT" hint
+var _deaths_here := 0
+var _deaths_level := -1
 # V2.1 web loading: on single-threaded WebGL, first-use shader/pipeline compiles
 # block the main thread for seconds. On web we build + warm the level across this
 # many rendered frames under an HTML loading overlay, so the freeze is an honest
@@ -691,12 +694,15 @@ func _launch_level() -> void:
 	player.active = true
 	GameState.is_dead = false
 	state = State.PLAYING
+	_set_flight_time(true)   # Step 3: GAME SPEED assist
 	overlays.hide_all()
 	hud.show_message(_current_level().display_name)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _level_complete() -> void:
+	_set_flight_time(false)
+	_deaths_here = 0
 	world.portal_active = false
 	player.active = false
 	AudioSys.play_portal()
@@ -762,6 +768,7 @@ func _compute_rank(acc: int, time: float, par: float) -> String:
 
 func _on_player_died() -> void:
 	state = State.GAME_OVER
+	_set_flight_time(false)
 	player.active = false
 	shot_mgr.spawn_explosion(player.position, true)
 	AudioSys.stop_engine()
@@ -775,6 +782,14 @@ func _on_player_died() -> void:
 	else:
 		var new_record := GameState.record_progress()
 		overlays.set_final_score("game_over", GameState.score, new_record)
+		# Step 3: a second death in the same sector on RUNNER or harder offers
+		# RECRUIT (a new record still takes the line — that news wins)
+		if _deaths_level != GameState.level_index:
+			_deaths_level = GameState.level_index
+			_deaths_here = 0
+		_deaths_here += 1
+		if _deaths_here >= 2 and GameState.difficulty > 0 and not new_record:
+			overlays.suggest_recruit()
 	overlays.show_only("game_over")
 
 
@@ -1252,6 +1267,14 @@ func _select_weapon(i: int) -> void:
 	hud.show_message(weapons[i].display_name + " SELECTED")
 
 
+## Re-audit Step 3: the GAME SPEED assist is a base time scale that only applies in
+## flight. Hit-stop (GibManager) and the automap restore to GameState.time_scale_base,
+## so they never knock the assist back to full speed.
+func _set_flight_time(flying: bool) -> void:
+	GameState.time_scale_base = GameState.flight_time_scale() if flying else 1.0
+	Engine.time_scale = GameState.time_scale_base
+
+
 ## Re-audit Step 2: leaving the window or tab mid-flight pauses the run instead of
 ## letting the ship fly on unattended (web game portals expect this too). It only
 ## ever pauses; coming back waits for the player to press RESUME.
@@ -1295,11 +1318,13 @@ func _on_quit_to_title() -> void:
 func _toggle_pause() -> void:
 	if state == State.PLAYING:
 		state = State.PAUSED
+		_set_flight_time(false)   # menus run at real speed
 		player.active = false
 		AudioSys.stop_engine()
 		overlays.show_only("pause")
 	elif state == State.PAUSED:
 		state = State.PLAYING
+		_set_flight_time(true)   # picks up an assist changed from the pause menu
 		player.active = true
 		overlays.hide_all()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

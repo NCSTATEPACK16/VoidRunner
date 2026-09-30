@@ -179,6 +179,62 @@ func weapon_add(widx: int, field: String) -> int:
 	return 0
 
 
+# --- Re-audit Step 3 (M5b): difficulty presets + assists. Presets change how hard
+# the void pushes (enemy clocks, shot speed, damage taken, warning time, pickup
+# value) and never enemy count, HP, layout or seed, so scores stay comparable.
+# Every value is read where it's used, so a change from pause lands at once.
+const DIFFICULTY_NAMES := ["RECRUIT", "RUNNER", "VOIDBORNE"]
+const DIFFICULTY_BLURBS := [
+	"Softer hits and slower fire. Learn the void.",
+	"The intended ride.",
+	"Faster fire, harder hits. The era's way.",
+]
+const DIFF_TEMPO := [0.74, 1.0, 1.25]       # enemy fire/pattern clocks run this fast
+const DIFF_SHOT_SPEED := [0.8, 1.0, 1.15]
+const DIFF_DAMAGE := [0.6, 1.0, 1.3]
+const DIFF_WARN := [1.4, 1.0, 0.8]          # stinger wind-up, mine fuse
+const DIFF_PICKUP := [1.5, 1.0, 0.75]       # shield + energy pickups
+## Assists (Celeste-style, independent of the preset): steps of damage taken and
+## game speed. Both are plain accessibility aids and never touch scoring.
+const ASSIST_DAMAGE := [1.0, 0.75, 0.5]
+const ASSIST_SPEED := [1.0, 0.85, 0.7]
+
+var difficulty := 1        # RUNNER: the tuning every level was built around
+var assist_damage := 0
+var assist_speed := 0
+## What Engine.time_scale returns to after a hit-stop or the automap. game.gd sets it
+## to flight_time_scale() while flying and back to 1.0 everywhere else.
+var time_scale_base := 1.0
+
+
+func difficulty_name() -> String:
+	return DIFFICULTY_NAMES[difficulty]
+
+
+func enemy_tempo() -> float:
+	return DIFF_TEMPO[difficulty]
+
+
+func enemy_shot_speed() -> float:
+	return DIFF_SHOT_SPEED[difficulty]
+
+
+func warn_mult() -> float:
+	return DIFF_WARN[difficulty]
+
+
+func pickup_mult() -> float:
+	return DIFF_PICKUP[difficulty]
+
+
+func damage_taken_mult() -> float:
+	return DIFF_DAMAGE[difficulty] * ASSIST_DAMAGE[assist_damage]
+
+
+func flight_time_scale() -> float:
+	return ASSIST_SPEED[assist_speed]
+
+
 func max_shields() -> float:
 	return SHIP_CAPS[ship_ranks.shield]
 
@@ -415,6 +471,12 @@ func load_settings() -> void:
 		gyro_aim_enabled = cfg.get_value("settings", "gyro", gyro_aim_enabled)
 		seen_warning = cfg.get_value("settings", "seen_warning", seen_warning)
 		crt_mode = clampi(int(cfg.get_value("settings", "crt", crt_mode)), 0, 2)
+		difficulty = clampi(int(cfg.get_value("settings", "difficulty", difficulty)),
+			0, DIFFICULTY_NAMES.size() - 1)
+		assist_damage = clampi(int(cfg.get_value("settings", "assist_dmg", assist_damage)),
+			0, ASSIST_DAMAGE.size() - 1)
+		assist_speed = clampi(int(cfg.get_value("settings", "assist_spd", assist_speed)),
+			0, ASSIST_SPEED.size() - 1)
 
 
 func _save_settings() -> void:
@@ -433,6 +495,9 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "gyro", gyro_aim_enabled)
 	cfg.set_value("settings", "seen_warning", seen_warning)
 	cfg.set_value("settings", "crt", crt_mode)
+	cfg.set_value("settings", "difficulty", difficulty)
+	cfg.set_value("settings", "assist_dmg", assist_damage)
+	cfg.set_value("settings", "assist_spd", assist_speed)
 	cfg.save("user://settings.cfg")
 
 

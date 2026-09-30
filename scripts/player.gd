@@ -333,6 +333,7 @@ func take_damage(amount: float, message: String, pierce_evade := false) -> void:
 		return
 	if GameState.power_on("phase"):
 		return   # 3.0: PHASE SHIELD — nothing touches the ship, walls included
+	amount *= GameState.damage_taken_mult()   # Step 3: preset × DAMAGE TAKEN assist
 	GameState.shields -= amount
 	last_damage = elapsed
 	shake = minf(0.6, shake + 0.35)

@@ -65,6 +65,8 @@ var _sector := 0
 var _sector_names: Array[String] = []
 var _sector_label: Label
 var _high_label: Label
+var _difficulty_btn: Button   # Step 3: main-menu row, shows the current preset
+var _difficulty_return := "start"   # where the difficulty panel's BACK returns to
 var _help_pad: Label   # K6: gamepad line on the controls screen, shown only when enabled
 
 # D11: install-nudge buttons (start/game_over/victory), built once at boot but
@@ -81,6 +83,7 @@ func _ready() -> void:
 	_build_level_clear()
 	_build_victory()
 	_build_settings()
+	_build_difficulty()
 	_build_bay()
 	_build_warning()
 	show_only("warning" if not GameState.seen_warning else "start")
@@ -138,6 +141,8 @@ func _refresh_start() -> void:
 	var max_sector: int = mini(GameState.unlocked_level, _sector_names.size() - 1)
 	_sector = clampi(_sector, 0, max_sector)
 	_sector_label.text = "SECTOR: %s" % _sector_names[_sector]
+	if _difficulty_btn:
+		_difficulty_btn.text = "DIFFICULTY: %s" % GameState.difficulty_name()
 	var records := ""
 	if GameState.high_score > 0:
 		records = "HIGH SCORE %d" % GameState.high_score
@@ -171,7 +176,8 @@ func set_level_clear(level_name: String, bonus: int, score: int, next_name: Stri
 		secrets := 0, secrets_total := 0, style_peak := 0, salvage := 0,
 		caches := 0, caches_total := 0) -> void:
 	var p: Control = _panels.level_clear
-	(p.get_node("Title") as Label).text = level_name + " CLEAR"
+	(p.get_node("Title") as Label).text = "%s CLEAR · %s" % [level_name,
+		GameState.difficulty_name()]   # Step 3: the tally names the preset
 	var extras: Array[String] = []
 	if secondary:
 		extras.append("SECONDARY COMPLETE +400")
@@ -200,7 +206,7 @@ func set_level_clear(level_name: String, bonus: int, score: int, next_name: Stri
 ## against the gauntlet bests instead of the campaign high score.
 func set_final_score(panel_name: String, score: int, new_record := false,
 		dist := -1) -> void:
-	var score_line := "SCORE %d" % score
+	var score_line := "SCORE %d · %s" % [score, GameState.difficulty_name()]   # Step 3
 	if dist >= 0:
 		score_line = "DIST %dm  ·  SCORE %d" % [dist, score]
 	(_panels[panel_name].get_node("Score") as Label).text = score_line
@@ -266,14 +272,17 @@ func _build_start() -> void:
 	_sector_label = _center(p, 86, "", KEY_COL)
 	_menu_button(p, Rect2(260, 84, 12, 11), ">", func() -> void: _adjust_sector(1),
 		KEY_COL, true)
+	# Step 3: the preset rides on its own row; manual + settings share the last one
+	_difficulty_btn = _menu_button(p, Rect2(58, 96, 204, 11), "", func() -> void:
+		open_difficulty("start"), KEY_COL)
 	# K5: endless survival mode — the button doubles as the audio-unlock gesture
-	_menu_button(p, Rect2(58, 97, 204, 11), "VOID GAUNTLET", func() -> void:
+	_menu_button(p, Rect2(58, 108, 204, 11), "VOID GAUNTLET", func() -> void:
 		AudioSys.unlock()
 		gauntlet_requested.emit())
-	_menu_button(p, Rect2(58, 109, 204, 11), "FLIGHT MANUAL", func() -> void:
+	_menu_button(p, Rect2(58, 120, 100, 11), "FLIGHT MANUAL", func() -> void:
 		_help_return = "start"
 		show_only("help"))
-	_menu_button(p, Rect2(58, 121, 204, 11), "SETTINGS", func() -> void:
+	_menu_button(p, Rect2(162, 120, 100, 11), "SETTINGS", func() -> void:
 		_settings_return = "start"
 		show_only("settings"), ORANGE_COL)
 	_high_label = _center(p, 141, "", KEY_COL)
@@ -350,20 +359,22 @@ func _build_briefing() -> void:
 ## ESC or the pad's START do. Touch players reach it from the on-screen II tab.
 func _build_pause() -> void:
 	var p := _panel("pause", Color(0.0, 0.0, 0.02, 0.55))
-	_window(p, Rect2(84, 44, 152, 104), "PAUSED")
-	var resume := _menu_button(p, Rect2(96, 58, 128, 11), "> RESUME", func() -> void:
+	_window(p, Rect2(84, 40, 152, 112), "PAUSED")
+	var resume := _menu_button(p, Rect2(96, 54, 128, 11), "> RESUME", func() -> void:
 		resume_requested.emit(), TITLE_COL, true)
 	_focus["pause"] = resume
-	_menu_button(p, Rect2(96, 71, 128, 11), "FLIGHT MANUAL", func() -> void:
+	_menu_button(p, Rect2(96, 66, 128, 11), "DIFFICULTY", func() -> void:
+		open_difficulty("pause"), KEY_COL, true)   # Step 3: change it mid-run
+	_menu_button(p, Rect2(96, 78, 128, 11), "FLIGHT MANUAL", func() -> void:
 		_help_return = "pause"
 		show_only("help"), TEXT_COL, true)
-	_menu_button(p, Rect2(96, 84, 128, 11), "SETTINGS", func() -> void:
+	_menu_button(p, Rect2(96, 90, 128, 11), "SETTINGS", func() -> void:
 		_settings_return = "pause"
 		show_only("settings"), ORANGE_COL, true)
-	_feedback_button(p, Rect2(96, 97, 128, 11))   # M3: touch has no F key
-	_quit_btn = _menu_button(p, Rect2(96, 110, 128, 11), "QUIT TO TITLE", _on_quit_pressed,
+	_feedback_button(p, Rect2(96, 102, 128, 11))   # M3: touch has no F key
+	_quit_btn = _menu_button(p, Rect2(96, 114, 128, 11), "QUIT TO TITLE", _on_quit_pressed,
 		RED_COL, true)
-	_center(p, 131, "ENTER / ESC  RESUME", DIM_COL)
+	_center(p, 136, "ENTER / ESC  RESUME", DIM_COL)
 	_text(p, Vector2(3, 190), BuildInfo.label(), Color("3d4a63"))   # M1.4
 
 
@@ -392,10 +403,12 @@ func _build_game_over() -> void:
 	s.name = "Score"
 	var rec := _center(p, 98, "", Color("5fb6d8"))
 	rec.name = "Record"
-	var retry := _menu_button(p, Rect2(100, 118, 120, 11), "@ RETRY LEVEL", func() -> void:
+	var retry := _menu_button(p, Rect2(100, 112, 120, 11), "@ RETRY LEVEL", func() -> void:
 		retry_requested.emit(), TITLE_COL, true)
 	_focus["game_over"] = retry
-	_feedback_button(p, Rect2(100, 132, 120, 11))   # M3
+	_menu_button(p, Rect2(100, 124, 120, 11), "DIFFICULTY", func() -> void:
+		open_difficulty("game_over"), KEY_COL, true)   # Step 3
+	_feedback_button(p, Rect2(100, 136, 120, 11))   # M3
 	_install_button(p, Vector2(136, 152))   # D11
 
 
@@ -430,6 +443,38 @@ func _build_victory() -> void:
 	_focus["victory"] = again
 	_feedback_button(p, Rect2(100, 136, 120, 11))   # M3
 	_install_button(p, Vector2(136, 156))   # D11
+
+
+## Step 3 (M5b): preset + assists in one DOS window, reachable from the main menu,
+## the pause menu and game over. Values live on GameState, which applies + saves.
+func _build_difficulty() -> void:
+	var p := _panel("difficulty")
+	_window(p, Rect2(6, 6, 308, 188), "DIFFICULTY")
+	_setting_row(p, 24, "PRESET", "difficulty")
+	var blurb := _wrap(p, Rect2(20, 40, 280, 22), "", Color("5fb6d8"))
+	_settings_labels["difficulty_blurb"] = blurb
+	_center(p, 64, "Enemy numbers and levels never change.", DIM_COL)
+	_window(p, Rect2(12, 82, 296, 48), "ASSIST", WIN_EDGE_DIM)
+	_setting_row(p, 96, "DAMAGE TAKEN", "assist_dmg")
+	_setting_row(p, 110, "GAME SPEED", "assist_spd")
+	_center(p, 140, "Change these any time. Progress is kept.", TEXT_COL)
+	var back := _menu_button(p, Rect2(130, 170, 60, 11), "< BACK", func() -> void:
+		show_only(_difficulty_return), TEXT_COL, true)
+	_focus["difficulty"] = back
+	_refresh_settings()
+
+
+func open_difficulty(from: String) -> void:
+	_difficulty_return = from
+	_refresh_settings()
+	show_only("difficulty")
+
+
+## Step 3: after repeated deaths in one sector, game over points at RECRUIT.
+func suggest_recruit() -> void:
+	var rec := _panels.game_over.get_node_or_null("Record") as Label
+	if rec:
+		rec.text = "TOUGH SECTOR? TRY RECRUIT"   # the panel says progress is kept
 
 
 ## H + M2 + 3.0: four stepper rows (volume, mouse, field of view, CRT filter),
@@ -508,6 +553,15 @@ func _adjust_setting(key: String, dir: int) -> void:
 		GameState.view_fov = clampf(GameState.view_fov + dir * 4.0, 60.0, 100.0)
 	elif key == "crt":
 		GameState.crt_mode = clampi(GameState.crt_mode + dir, 0, CRT_NAMES.size() - 1)
+	elif key == "difficulty":   # Step 3
+		GameState.difficulty = clampi(GameState.difficulty + dir, 0,
+			GameState.DIFFICULTY_NAMES.size() - 1)
+	elif key == "assist_dmg":
+		GameState.assist_damage = clampi(GameState.assist_damage + dir, 0,
+			GameState.ASSIST_DAMAGE.size() - 1)
+	elif key == "assist_spd":
+		GameState.assist_speed = clampi(GameState.assist_speed + dir, 0,
+			GameState.ASSIST_SPEED.size() - 1)
 	GameState.apply_settings()
 	_refresh_settings()
 
@@ -525,6 +579,10 @@ func _refresh_settings() -> void:
 	_set_toggle("reduce_roll", GameState.reduce_roll)
 	_set_toggle("invert_y", GameState.invert_y)
 	_set_toggle("dpad", GameState.touch_dpad_enabled)
+	_set_label("difficulty", GameState.difficulty_name())   # Step 3
+	_set_label("difficulty_blurb", GameState.DIFFICULTY_BLURBS[GameState.difficulty])
+	_set_label("assist_dmg", "%d%%" % roundi(GameState.ASSIST_DAMAGE[GameState.assist_damage] * 100.0))
+	_set_label("assist_spd", "%d%%" % roundi(GameState.ASSIST_SPEED[GameState.assist_speed] * 100.0))
 
 
 func _set_label(key: String, text: String) -> void:

@@ -236,7 +236,9 @@ func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
 	if sprite == null:
 		return
 	sprite.position = origin
-	_eshots.append({"node": sprite, "vel": velocity, "life": 5.0, "dmg": dmg,
+	# Step 3: every enemy and boss bolt passes here, so difficulty scales it once
+	_eshots.append({"node": sprite, "vel": velocity * GameState.enemy_shot_speed(),
+		"life": 5.0, "dmg": dmg,
 		"seeker": seeker})
 
 

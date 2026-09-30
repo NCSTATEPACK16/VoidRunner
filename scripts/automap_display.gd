@@ -92,7 +92,7 @@ func open() -> void:
 	_blink = 0.0
 	_blink_on = true
 	_rebuild()                     # build _pts now — headless has no _draw to trigger it
-	Engine.time_scale = 1.0        # cancel any active hit-stop crush before the freeze
+	Engine.time_scale = GameState.time_scale_base   # cancel a hit-stop crush (Step 3: to the assist speed)
 	get_tree().paused = true
 	queue_redraw()
 

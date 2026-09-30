@@ -1538,6 +1538,113 @@ func _run() -> void:
 	await get_tree().process_frame
 	assert(game.state == game.State.PLAYING)
 	print("PAUSE ok — menu rows, focus-loss pause, touch II tab, armed quit to a clean title")
+	# --- re-audit Step 3 (M5b): difficulty presets + assists reach their sinks ---
+	GameState.difficulty = 1
+	GameState.assist_damage = 0
+	GameState.assist_speed = 0
+	for v in [GameState.enemy_tempo(), GameState.enemy_shot_speed(), GameState.warn_mult(),
+			GameState.pickup_mult(), GameState.damage_taken_mult(), GameState.flight_time_scale()]:
+		assert(is_equal_approx(v, 1.0))
+	GameState.clear_powers()
+	for d in GameState.DIFFICULTY_NAMES.size():
+		GameState.difficulty = d
+		# damage taken: every hit funnels through take_damage
+		game.player.iframes_t = 0.0
+		GameState.shields = GameState.max_shields()
+		game.player.take_damage(10.0, "TEST")
+		assert(is_equal_approx(GameState.shields,
+			GameState.max_shields() - 10.0 * GameState.DIFF_DAMAGE[d]))
+		# enemy shot speed: every enemy/boss bolt funnels through fire_enemy
+		game.shot_mgr.clear_all()
+		game.shot_mgr.fire_enemy(game.player.position + Vector3(0, 0, -30), Vector3(0, 0, 10))
+		var bolt: Dictionary = game.shot_mgr._eshots.back()
+		assert(is_equal_approx((bolt.vel as Vector3).length(), 10.0 * GameState.DIFF_SHOT_SPEED[d]))
+		game.shot_mgr.clear_all()
+		# pickup value: shield cells restore more on RECRUIT, less on VOIDBORNE
+		GameState.shields = 40.0
+		game.pickup_mgr._collect("shield")
+		assert(is_equal_approx(GameState.shields, 40.0 + 20.0 * GameState.DIFF_PICKUP[d]))
+	# warning time: a mine's fuse on VOIDBORNE is shorter than on RUNNER
+	GameState.difficulty = 2
+	var mine_ring := mini(game.player.ring_idx + 3, game.path.rings.size() - 1)
+	var before_mines: int = game.enemy_mgr.enemies.size()
+	game.enemy_mgr.spawn(mine_ring, -1, "mine")
+	assert(game.enemy_mgr.enemies.size() == before_mines + 1)
+	var dmine: Dictionary = game.enemy_mgr.enemies.back()
+	(dmine.node as Node3D).position = game.player.position + game.player.forward() * 4.0
+	game.enemy_mgr.update_enemies(0.0)
+	assert(dmine.mode == "armed")
+	assert(is_equal_approx(dmine.mode_t, EnemyManager.MINE_FUSE * 0.8))
+	game.enemy_mgr.clear_all()
+	# the damage assist stacks with the preset
+	GameState.difficulty = 0
+	GameState.assist_damage = 2
+	assert(is_equal_approx(GameState.damage_taken_mult(), 0.6 * 0.5))
+	# game speed: a base time scale in flight that hit-stop and pause respect
+	GameState.assist_damage = 0
+	GameState.assist_speed = 1
+	game._set_flight_time(true)
+	assert(is_equal_approx(Engine.time_scale, 0.85))
+	game.gib_mgr.hit_stop(1, 0.1, true)
+	assert(is_equal_approx(Engine.time_scale, 0.1))
+	game.gib_mgr._stop_restore_ms = 1   # due now
+	game.gib_mgr._process(0.0)
+	assert(is_equal_approx(Engine.time_scale, 0.85))   # back to the assist, not 1.0
+	game._toggle_pause()
+	assert(is_equal_approx(Engine.time_scale, 1.0))    # menus at real speed
+	game._toggle_pause()
+	assert(is_equal_approx(Engine.time_scale, 0.85))
+	# settings round trip + clamping
+	GameState.difficulty = 2
+	GameState.assist_damage = 1
+	GameState.assist_speed = 2
+	GameState._save_settings()
+	GameState.difficulty = 1
+	GameState.assist_damage = 0
+	GameState.assist_speed = 0
+	GameState.load_settings()
+	assert(GameState.difficulty == 2 and GameState.assist_damage == 1 and GameState.assist_speed == 2)
+	var bad := ConfigFile.new()
+	bad.load("user://settings.cfg")
+	bad.set_value("settings", "difficulty", 9)
+	bad.set_value("settings", "assist_dmg", -4)
+	bad.save("user://settings.cfg")
+	GameState.load_settings()
+	assert(GameState.difficulty == 2 and GameState.assist_damage == 0)
+	# UI: the panel opens from pause, steps presets, and BACK returns to pause
+	game._toggle_pause()
+	var prow := {}
+	for child in (game.overlays._panels["pause"] as Control).get_children():
+		if child is Button:
+			prow[(child as Button).text] = child
+	assert(prow.has("DIFFICULTY"))
+	(prow["DIFFICULTY"] as Button).pressed.emit()
+	assert((game.overlays._panels["difficulty"] as Control).visible)
+	game.overlays._adjust_setting("difficulty", -1)
+	assert((game.overlays._settings_labels["difficulty"] as Label).text == "RUNNER")
+	game.overlays._adjust_setting("difficulty", -5)
+	assert(GameState.difficulty == 0)
+	assert((game.overlays._settings_labels["difficulty"] as Label).text == "RECRUIT")
+	(game.overlays._focus["difficulty"] as Button).pressed.emit()
+	assert((game.overlays._panels["pause"] as Control).visible)
+	var go_rows := []
+	for child in (game.overlays._panels["game_over"] as Control).get_children():
+		if child is Button:
+			go_rows.append((child as Button).text)
+	assert("DIFFICULTY" in go_rows)
+	game.overlays._refresh_start()
+	assert(game.overlays._difficulty_btn.text == "DIFFICULTY: RECRUIT")
+	game.overlays.set_final_score("game_over", 1234)
+	assert(((game.overlays._panels["game_over"] as Control).get_node("Score") as Label).text \
+		== "SCORE 1234 · RECRUIT")
+	# back to the defaults for everything after this
+	GameState.difficulty = 1
+	GameState.assist_damage = 0
+	GameState.assist_speed = 0
+	GameState.apply_settings()
+	game._toggle_pause()
+	assert(game.state == game.State.PLAYING and is_equal_approx(Engine.time_scale, 1.0))
+	print("DIFFICULTY ok — presets + assists reach damage/shots/pickups/fuse/time scale, saved, UI rows")
 	# --- re-audit Step 1: the app icons and link-preview card are painted by code
 	# (hard rule 1). Sizes are what the web export and the PWA manifest expect, and
 	# every pixel is a palette entry, read back through the same 8-bit Image path.
