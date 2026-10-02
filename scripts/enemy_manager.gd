@@ -283,7 +283,7 @@ func update_enemies(delta: float) -> void:
 			var turret_to_player: Vector3 = player.position - node.position
 			var turret_dist := turret_to_player.length()
 			if turret_dist < 110.0:
-				e.fire_t -= delta
+				e.fire_t -= delta * GameState.enemy_tempo()   # Step 3: difficulty clock
 				if e.fire_t <= 0.0:
 					e.fire_t = e.fire * 0.9 + randf() * e.fire * 0.5
 					var taim: Vector3 = player.position \
@@ -328,7 +328,7 @@ func update_enemies(delta: float) -> void:
 			node.position.y += sin(e.bob_p) * delta * 1.5
 			e.ring = path.nearest_ring(node.position, e.ring)
 			node.position = path.clamp_to_ring(node.position, e.ring, 2.2)
-			e.fire_t -= delta
+			e.fire_t -= delta * GameState.enemy_tempo()
 			if e.fire_t <= 0.0 and dist < 95.0:
 				e.fire_t = e.fire * 0.8 + randf() * e.fire * 0.6
 				# lead the target the way v2.2 does
@@ -367,7 +367,9 @@ func _update_stinger(k: int, e: Dictionary, delta: float) -> bool:
 	if dist > 130.0 and e.mode == "stalk":
 		return false   # dormant until the ship is near
 	var dir := to_player / maxf(dist, 0.001)
-	e.mode_t -= delta
+	# Step 3: the idle gap between dives runs on the difficulty clock; the wind-up
+	# and the dive itself keep real time (the wind-up is scaled by warn_mult below)
+	e.mode_t -= delta * (GameState.enemy_tempo() if e.mode == "stalk" else 1.0)
 	match e.mode:
 		"stalk":
 			if dist > STINGER_STANDOFF + 6.0:
@@ -382,7 +384,7 @@ func _update_stinger(k: int, e: Dictionary, delta: float) -> bool:
 			if e.mode_t <= 0.0 and dist < STINGER_STANDOFF + 20.0 \
 					and player.forward().dot(-dir) > 0.45:
 				e.mode = "wind"
-				e.mode_t = STINGER_WIND
+				e.mode_t = STINGER_WIND * GameState.warn_mult()
 				AudioSys.play_warn()
 		"wind":
 			_turn(e, to_player, 10.0, delta)
@@ -435,7 +437,7 @@ func _update_spinner(k: int, e: Dictionary, delta: float) -> bool:
 	node.position.y += sin(e.bob_p) * delta * 1.2
 	e.ring = path.nearest_ring(node.position, e.ring)
 	node.position = path.clamp_to_ring(node.position, e.ring, 2.6)
-	e.fire_t -= delta
+	e.fire_t -= delta * GameState.enemy_tempo()
 	if e.fire_t <= 0.0 and dist < 90.0:
 		e.fire_t = e.fire * randf_range(0.9, 1.25)
 		_ring_burst(node.position, SPINNER_SPOKES, e.spin_a, 17.0, 4.5)
@@ -461,7 +463,7 @@ func _update_mine(k: int, e: Dictionary, delta: float) -> bool:
 	if e.mode != "armed":
 		if dist < MINE_ARM_R:
 			e.mode = "armed"
-			e.mode_t = MINE_FUSE
+			e.mode_t = MINE_FUSE * GameState.warn_mult()
 			AudioSys.play_warn()
 		elif dist < 45.0:
 			node.position += to_player / maxf(dist, 0.001) * (e.speed * delta)
@@ -553,13 +555,16 @@ func _update_boss(e: Dictionary, delta: float) -> void:
 	e.ring = maxi(path.nearest_ring(node.position, e.ring), e.home_ring - 8)
 	node.position = path.clamp_to_ring(node.position, e.ring, e.size * 0.5)
 	# --- attacks: 3.0 gives every boss its own pattern (LevelDef.boss_model) ---
+	# Step 3: every pattern clock (aimed shots, volleys, summons, mines, spiral)
+	# runs on the difficulty tempo; movement above stays on real time
+	var clock := delta * GameState.enemy_tempo()
 	match e.get("model", "sentinel"):
 		"brood":
-			_brood_attacks(e, phase, dist, delta)
+			_brood_attacks(e, phase, dist, clock)
 		"maw":
-			_maw_attacks(e, phase, dist, delta)
+			_maw_attacks(e, phase, dist, clock)
 		_:
-			_sentinel_attacks(e, phase, dist, delta)
+			_sentinel_attacks(e, phase, dist, clock)
 	# --- ram ---
 	if dist < e.size * 0.5 + 2.0 and player.wall_hurt_t <= 0.0:
 		player.wall_hurt_t = 0.45

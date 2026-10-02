@@ -137,9 +137,9 @@ func update_pickups(delta: float) -> void:
 func _collect(kind: String, value := 0) -> void:
 	match kind:
 		"shield":
-			GameState.shields += EFFECT.shield
+			GameState.shields += EFFECT.shield * GameState.pickup_mult()   # Step 3
 		"energy":
-			GameState.energy += EFFECT.energy
+			GameState.energy += EFFECT.energy * GameState.pickup_mult()
 		"missile":
 			GameState.missiles += int(EFFECT.missile)
 		"bomb":

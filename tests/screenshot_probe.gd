@@ -10,6 +10,7 @@ extends Node
 ##   3. L3 boss room, boss in view    -> shot_boss.png
 ##   4. game-over / victory panels    -> shot_game_over.png / shot_victory.png
 ##   5. touch II tab over flight, then the pause menu -> shot_touch.png / shot_pause.png
+##   6. difficulty panel (Step 3)      -> shot_difficulty.png
 ## Output dir: VR_SHOT_DIR env var, else user://shots. Restores records/settings.
 
 
@@ -78,6 +79,8 @@ func _run() -> void:
 	await _capture_root("shot_settings.png", dir)
 	game.overlays.show_only("help")
 	await _capture_root("shot_help.png", dir)   # M3 privacy + feedback lines
+	game.overlays.open_difficulty("start")   # re-audit Step 3: preset + assists
+	await _capture_root("shot_difficulty.png", dir)
 	game.overlays.show_only("start")
 	await get_tree().process_frame
 	game._show_briefing()
@@ -173,6 +176,7 @@ func _run() -> void:
 	# 4) game-over and victory — Task 4's install-nudge button lands on both; these
 	# overlays render outside the 320x200 SubViewport, hence _capture_root.
 	game.overlays.set_final_score("game_over", 4200, false)
+	game.overlays.suggest_recruit()   # Step 3: the repeat-death hint line
 	game.overlays.show_only("game_over")
 	await _capture_root("shot_game_over.png", dir)
 	game.overlays.set_final_score("victory", 15800, true)

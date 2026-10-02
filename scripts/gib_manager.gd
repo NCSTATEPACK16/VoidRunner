@@ -71,7 +71,7 @@ func hit_stop(ms: int, scale := 0.08, force := false) -> void:
 func _process(_delta: float) -> void:
 	if _stop_restore_ms > 0 and Time.get_ticks_msec() >= _stop_restore_ms:
 		_stop_restore_ms = 0
-		Engine.time_scale = 1.0
+		Engine.time_scale = GameState.time_scale_base   # Step 3: GAME SPEED assist
 
 
 ## Matches EnemyManager.gibs_requested, so game.gd connects it directly.
