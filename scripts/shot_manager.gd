@@ -20,6 +20,20 @@ const POOL_PREWARM := 128
 const POOL_HARD_CAP := 256        # > every per-class cap below combined
 const PSHOT_CAP := 48             # overflow: skip (fire rates can't reach this)
 const ESHOT_CAP := 64             # overflow: reuse-oldest (oldest bolt vanishes)
+## Re-audit Step 6: infighting. A stray enemy bolt that reaches another enemy (never
+## its own shooter, never a boss) does this much, in enemy HP — a NEUTRON hit — and
+## only after it has cleared its shooter's hull.
+const INFIGHT_DMG := 1
+const INFIGHT_GRACE := 0.15
+# The check runs on packed copies of the enemies' positions and hit radii (built
+# once per frame, on demand), and each bolt is tested on alternate frames: a bolt
+# moves under 1 u a frame against a ~7 u hit circle, so nothing slips through, and
+# the worst case (64 bolts x 42 enemies) stays a fraction of a millisecond.
+var _inf_pos := PackedVector3Array()
+var _inf_r2 := PackedFloat32Array()
+var _inf_nodes: Array[Node3D] = []
+var _inf_valid := false
+var _inf_parity := 0
 const EXPLOSION_CAP := 12         # overflow: reuse-oldest (finishes an old one)
 const SPARK_CAP := 60             # overflow: skip (pure garnish)
 const SHOCK_CAP := 6              # 3.0 big-blast shock rings; overflow: skip
@@ -228,7 +242,7 @@ func fire_player(w: WeaponDef) -> void:
 
 
 func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
-		shot_size := 1.7, seeker := false) -> void:
+		shot_size := 1.7, seeker := false, src: Node3D = null) -> void:
 	if _eshots.size() >= ESHOT_CAP:
 		_release(_eshots[0].node)   # reuse-oldest: the stalest bolt vanishes
 		_eshots.remove_at(0)
@@ -238,8 +252,38 @@ func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
 	sprite.position = origin
 	# Step 3: every enemy and boss bolt passes here, so difficulty scales it once
 	_eshots.append({"node": sprite, "vel": velocity * GameState.enemy_shot_speed(),
-		"life": 5.0, "dmg": dmg,
+		"life": 5.0, "dmg": dmg, "src": src, "age": 0.0,
 		"seeker": seeker})
+
+
+## Re-audit Step 6: a stray bolt against every enemy but its shooter and bosses.
+## Kills score like the chain kills mines and fuel cells already make.
+func _infight(es: Dictionary) -> bool:
+	if not _inf_valid:
+		_build_infight_cache()
+	var pos: Vector3 = es.node.position
+	for j in range(_inf_pos.size() - 1, -1, -1):
+		if pos.distance_squared_to(_inf_pos[j]) < _inf_r2[j] and _inf_nodes[j] != es.src:
+			enemy_mgr.hit_enemy(j, INFIGHT_DMG)
+			_inf_valid = false   # that hit may have removed an enemy
+			for i in 2:
+				_spawn_spark(_spark_tex, pos, 8.0)
+			return true
+	return false
+
+
+## Bosses get a negative radius, so they can never be hit by stray fire.
+func _build_infight_cache() -> void:
+	var n := enemy_mgr.enemies.size()
+	_inf_pos.resize(n)
+	_inf_r2.resize(n)
+	_inf_nodes.resize(n)
+	for j in n:
+		var ene: Dictionary = enemy_mgr.enemies[j]
+		_inf_pos[j] = (ene.node as Node3D).position
+		_inf_r2[j] = -1.0 if ene.get("is_boss", false) else float(ene.get("hit_r2", 13.0))
+		_inf_nodes[j] = ene.node
+	_inf_valid = true
 
 
 func detonate(pos: Vector3, radius: float, dmg: int) -> void:
@@ -393,6 +437,8 @@ func update_shots(delta: float) -> void:
 			_pshots.remove_at(i)
 		i -= 1
 	# --- enemy shots ---
+	_inf_valid = false   # re-audit Step 6: enemies moved since the last frame
+	_inf_parity ^= 1
 	eshot_cache.resize(0)
 	threat_near = false
 	var q := _eshots.size() - 1
@@ -417,6 +463,10 @@ func update_shots(delta: float) -> void:
 		if not kill and es.node.position.distance_squared_to(player.position) < PLAYER_HIT_RANGE_SQ:
 			player_hit.emit(es.get("dmg", ENEMY_SHOT_DMG), es.node.position)
 			kill = true
+		if not kill and es.src != null:
+			es.age += delta
+			if es.age > INFIGHT_GRACE and (q & 1) == _inf_parity and _infight(es):
+				kill = true
 		if kill:
 			_release(es.node)
 			_eshots.remove_at(q)

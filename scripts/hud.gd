@@ -263,7 +263,9 @@ func _process(delta: float) -> void:
 		var a := minf(1.0, player.shake * 1.6) * 0.3
 		# Phase J: low-shield warning pulse under everything else
 		if GameState.shields < 25.0 and not GameState.is_dead:
-			a = maxf(a, (sin(Time.get_ticks_msec() / 160.0) * 0.5 + 0.5) * 0.14)
+			# re-audit Step 6: under REDUCE FLASH the warning is a steady tint, not a pulse
+			a = maxf(a, 0.07 if GameState.reduce_flashing \
+				else (sin(Time.get_ticks_msec() / 160.0) * 0.5 + 0.5) * 0.14)
 		_flash.color.a = a
 		# only rebuild the readout string when the shown integers change
 		var vel := int(player.speed)
@@ -280,7 +282,9 @@ func _process(delta: float) -> void:
 	var boss_live := enemy_mgr != null and not enemy_mgr.boss.is_empty()
 	_boss_name.visible = boss_live
 	# V2.1: each dynamic layer redraws only on state change
-	var blink := int(Time.get_ticks_msec() / 180) % 2 if _threat else -1
+	# re-audit Step 6: REDUCE FLASH holds the lamp lit instead of blinking it
+	var blink := (1 if GameState.reduce_flashing else int(Time.get_ticks_msec() / 180) % 2) \
+		if _threat else -1
 	var boss_hp := int(enemy_mgr.boss.hp) if boss_live else -1
 	var boss_flash: bool = boss_live and enemy_mgr.boss.flash_t > 0.0
 	if _threat != _c_threat or blink != _c_blink or GameState.plasma_bombs != _c_pips \
@@ -294,7 +298,7 @@ func _process(delta: float) -> void:
 	var dodge_busy := player != null and player.dodge_cd > 0.0
 	var tsec := int(player.elapsed) if player else 0
 	# 3.0 phase 4: the top lit SHLD segment blinks while shields are critical
-	var led_blink := int(Time.get_ticks_msec() / 200) % 2 \
+	var led_blink := (0 if GameState.reduce_flashing else int(Time.get_ticks_msec() / 200) % 2) \
 		if GameState.shields < GameState.max_shields() * 0.25 and not GameState.is_dead else -1
 	if GameState.weapon_index != _c_wpn or GameState.missiles != _c_missiles \
 			or tsec != _c_tsec or _kills != _c_kills or _kill_target != _c_ktarget \
@@ -474,7 +478,7 @@ func _draw_canopy_static() -> void:
 ## when one of those inputs changes (see the dirty caches in _process).
 func _draw_canopy() -> void:
 	var c := _canopy
-	var lit := _threat and int(Time.get_ticks_msec() / 180) % 2 == 0
+	var lit := _threat and (GameState.reduce_flashing or int(Time.get_ticks_msec() / 180) % 2 == 0)
 	c.draw_rect(Rect2(W / 2.0 - 14, 3, 5, 5), Color("ff3018") if lit else Color(0.22, 0.09, 0.07))
 	var threat_col := Color("ff5030") if _threat else Color(0.36, 0.20, 0.16)
 	c.draw_rect(Rect2(W / 2.0 - 4, 4, 22, 3), threat_col)

@@ -426,7 +426,7 @@ func _run() -> void:
 	spn.node.position = game.player.position + pfwd * 45.0
 	spn.fire_t = 0.0
 	var ring_vels: Array[Vector3] = []
-	var grab := func(_o: Vector3, v: Vector3, _d: float, _s: float, _k: bool) -> void:
+	var grab := func(_o: Vector3, v: Vector3, _d: float, _s: float, _k: bool, _src: Node3D) -> void:
 		ring_vels.append(v)
 	em.enemy_fired.connect(grab)
 	em.update_enemies(dt)
@@ -472,7 +472,7 @@ func _run() -> void:
 	mb.summon_t = 99.0
 	mb.spiral_t = 1.0
 	var spiral := [0]
-	var tally := func(_o: Vector3, _v: Vector3, _d: float, _s: float, _k: bool) -> void:
+	var tally := func(_o: Vector3, _v: Vector3, _d: float, _s: float, _k: bool, _src: Node3D) -> void:
 		spiral[0] += 1
 	em.enemy_fired.connect(tally)
 	for f in 30:
@@ -1816,6 +1816,100 @@ func _run() -> void:
 	assert(game.overlays._help_keys.visible and not game.overlays._help_touch.visible)
 	game.overlays.hide_all()
 	print("FIRST-RUN ok — sector-1 drone, STEER/FIRE/BOOST/EVADE callouts, saved, give-up, touch manual + roll")
+	# --- re-audit Step 6 (M6): feel — infighting, the boost pulse, steady warnings ---
+	var fem: EnemyManager = game.enemy_mgr
+	var fsm: ShotManager = game.shot_mgr
+	fem.clear_all()
+	fsm.clear_all()
+	var fring := mini(game.player.ring_idx + 6, game.path.main_ring_count - 2)
+	fem.spawn(fring, -1, "drone")
+	fem.spawn(fring, -1, "hulk")
+	assert(fem.enemies.size() == 2)
+	var shooter: Dictionary = fem.enemies[0]
+	var victim: Dictionary = fem.enemies[1]
+	(victim.node as Node3D).position = (shooter.node as Node3D).position + Vector3(0, 0, -6)
+	var vhp: int = victim.hp
+	var shp: int = shooter.hp
+	# each bolt is tested on alternate frames, so every check below steps two
+	var two_frames := func(dt: float) -> void:
+		fsm.update_shots(dt)
+		fsm.update_shots(dt)
+	# a stray bolt resting on a neighbour hurts it by INFIGHT_DMG and is spent
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	fsm._eshots.back().age = 1.0
+	two_frames.call(1.0 / 60.0)
+	assert(int(victim.hp) == vhp - ShotManager.INFIGHT_DMG)
+	assert(fsm._eshots.is_empty())
+	# ...never its own shooter, never inside the grace time, never a boss, and boss
+	# patterns (no source) never infight at all
+	fsm.fire_enemy(shooter.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	fsm._eshots.back().age = 1.0
+	two_frames.call(1.0 / 60.0)
+	assert(int(shooter.hp) == shp)
+	fsm.clear_all()
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	two_frames.call(1.0 / 60.0)   # age 2/60 < INFIGHT_GRACE
+	assert(int(victim.hp) == vhp - ShotManager.INFIGHT_DMG)
+	fsm.clear_all()
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, null)
+	two_frames.call(1.0)
+	assert(int(victim.hp) == vhp - ShotManager.INFIGHT_DMG)
+	fsm.clear_all()
+	victim.is_boss = true
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	fsm._eshots.back().age = 1.0
+	two_frames.call(1.0 / 60.0)
+	assert(int(victim.hp) == vhp - ShotManager.INFIGHT_DMG)
+	victim.erase("is_boss")
+	fsm.clear_all()
+	# a kill made by infighting scores like a chain kill
+	victim.hp = 1
+	var fscore := GameState.score
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	fsm._eshots.back().age = 1.0
+	two_frames.call(1.0 / 60.0)
+	assert(fem.enemies.size() == 1 and GameState.score > fscore)
+	fem.clear_all()
+	fsm.clear_all()
+	# boost: the press (not the hold) pulses the FOV up and back; SCREEN SHAKE gates it
+	GameState.screen_shake = true
+	GameState.energy = GameState.max_energy()
+	game.player._boost_pulse_t = -1.0
+	Input.action_press("boost")
+	game.player.update_flight(1.0 / 60.0)
+	assert(game.player._boost_pulse_t >= 0.0)
+	await get_tree().process_frame   # next frame: still held, no longer "just pressed"
+	var pulse_t: float = game.player._boost_pulse_t
+	game.player.update_flight(0.05)
+	assert(game.player._boost_pulse_t > pulse_t)   # the same pulse, not a restart
+	assert(game.player.camera.fov > GameState.view_fov + 1.0)
+	Input.action_release("boost")
+	for f in 45:
+		game.player.update_flight(1.0 / 60.0)
+	assert(game.player._boost_pulse_t < 0.0)
+	assert(is_equal_approx(game.player.camera.fov, GameState.view_fov))
+	GameState.screen_shake = false
+	await get_tree().process_frame
+	Input.action_press("boost")
+	game.player.update_flight(1.0 / 60.0)
+	Input.action_release("boost")
+	assert(game.player._boost_pulse_t < 0.0)
+	GameState.screen_shake = true
+	# REDUCE FLASH: the THREAT lamp and the low-shield LED hold steady
+	GameState.reduce_flashing = true
+	game.shot_mgr.threat_near = true
+	GameState.shields = GameState.max_shields() * 0.1
+	game.hud._process(1.0 / 60.0)
+	var steady_threat: int = game.hud._c_blink
+	var steady_led: int = game.hud._led_blink
+	OS.delay_msec(230)   # past both blink half-periods
+	game.shot_mgr.threat_near = true
+	game.hud._process(1.0 / 60.0)
+	assert(game.hud._c_blink == steady_threat and game.hud._led_blink == steady_led)
+	assert(steady_led == 0)   # 0 = the segment lit
+	GameState.reduce_flashing = false
+	GameState.shields = GameState.max_shields()
+	print("FEEL ok — infighting (not self/grace/boss/sourceless, scores), boost FOV pulse + gate, steady warnings")
 	# --- re-audit Step 1: the app icons and link-preview card are painted by code
 	# (hard rule 1). Sizes are what the web export and the PWA manifest expect, and
 	# every pixel is a palette entry, read back through the same 8-bit Image path.
