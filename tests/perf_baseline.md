@@ -95,3 +95,17 @@ That's within 1 ms of the phase-7 numbers (3.0 / 1.7 / 3.1 ms) on L8 and
 the gauntlet. The L9 boss is ~2 ms higher, but still far under the 8 ms spike
 bar. Watch the single gauntlet outlier in the in-browser test: if the gauntlet
 stutters on iPad, start here.
+
+## Time to first flight (re-audit Step 5, 2026-10-02)
+
+The web build now records `window.vrBoot.firstFlightMs` (ms from page load to the first
+controllable frame) and logs it once to the console as `[vr] first flight at N ms`, so a
+device test can read it straight off the remote console.
+
+| Where | Title usable | First flight | Notes |
+|---|---|---|---|
+| Headless Chromium, SwiftShader (software GL), local server | 9.5 s | 14.1 s | inputs pressed as soon as each screen allowed: notice → NEW CAMPAIGN → briefing warm-up → LAUNCH |
+
+Software rendering is the slow end. Most of the 9.5 s is the boot-time sprite bake and the
+title's first shader compiles, both GPU work that SwiftShader runs on the CPU. Real-device
+figures come from the Step 7 device pass.

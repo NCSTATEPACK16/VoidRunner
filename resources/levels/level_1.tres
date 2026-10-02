@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L1 · STARLIGHT APPROACH"
-briefing = "Clear a path through the supply tunnels. Locked bulkheads will not open until every hostile in the chamber is down."
+briefing = "Clear the supply tunnels. Bulkheads stay sealed until every hostile in the room is down. Drones spit fireballs: roll clear!"
 objective = "REACH THE EXIT GATE"
 rings = 110
 spawn_tunnel = 0.06

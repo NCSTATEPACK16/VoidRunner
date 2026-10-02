@@ -1082,7 +1082,8 @@ func _run() -> void:
 	var help_p: Control = game.overlays._panels.help
 	var pad_y: float = game.overlays._help_pad.position.y
 	var rows: Array[float] = []
-	for child in help_p.get_children():
+	# re-audit Step 5: the key rows live on the manual's keys page
+	for child in help_p.get_children() + game.overlays._help_keys.get_children():
 		if child is Label or child is Button:
 			var c := child as Control
 			assert(c.position.y + 20.0 <= 200.0)          # nothing runs off the panel
@@ -1095,7 +1096,8 @@ func _run() -> void:
 	help_p.queue_free()               # _build_help() makes a fresh panel each call
 	game.overlays._build_help()
 	await get_tree().process_frame
-	for child in (game.overlays._panels.help as Control).get_children():
+	for child in (game.overlays._panels.help as Control).get_children() \
+			+ game.overlays._help_keys.get_children():
 		if child is Label and (child as Label).text.begins_with("F  send"):
 			fb_seen += 1
 	assert(fb_seen == 0)                                  # and vanishes again when unset
@@ -1741,6 +1743,79 @@ func _run() -> void:
 	assert(GameState.load_checkpoint(lc).is_empty())
 	assert(game.overlays._continue_btn.disabled)
 	print("CHECKPOINT ok — round trip, corrupt/oor ignored, newer wins, bulkhead saves, resume, UI")
+	# --- re-audit Step 5 (M5d): the first 90 seconds — callouts, first contact, manual ---
+	GameState.seen_flight_tips = false
+	GameState.reset_run()
+	game._gauntlet = false
+	GameState.gauntlet_mode = false
+	game._resume = {}
+	game._built_level = -1
+	game._launch_level()   # sector 1 straight from code: builds the world, starts the tips
+	assert(game.state == game.State.PLAYING)
+	var first_contact := false
+	for e in game.enemy_mgr.enemies:
+		if int(e.arena_id) == -1 and e.type == "drone" and int(e.ring) == 12:
+			first_contact = true
+	assert(first_contact)   # the guaranteed sector-1 drone
+	assert(game._tips_on and game._tip_stage == game.TIP_STEER)
+	game._update_tips(1.6)
+	assert(game.hud._msg.text == game.tip_text(game.TIP_STEER))
+	game.player.yaw += 0.3                     # steering answers STEER
+	game._update_tips(0.1)
+	assert(game._tip_stage == game.TIP_FIRE)
+	game._update_tips(0.1)
+	assert(game.hud._msg.text == game.tip_text(game.TIP_FIRE))
+	GameState.level_shots += 1                 # a shot answers FIRE
+	game._update_tips(0.1)
+	assert(game._tip_stage == game.TIP_BOOST)
+	GameState.level_kills += 1                 # BOOST waits for a kill (or 8 s)
+	Input.action_press("boost")
+	game._update_tips(0.1)
+	Input.action_release("boost")
+	assert(game._tip_stage == game.TIP_EVADE)
+	game._update_tips(0.1)
+	assert(game.hud._msg.text != game.tip_text(game.TIP_EVADE))   # waits for a bolt
+	game.shot_mgr.threat_near = true
+	game._update_tips(4.0)
+	assert(game.hud._msg.text == game.tip_text(game.TIP_EVADE))
+	game.player.dodged.emit(Vector3.RIGHT)     # a roll answers EVADE
+	game._update_tips(0.1)
+	assert(not game._tips_on and GameState.seen_flight_tips)
+	GameState.seen_flight_tips = false
+	GameState.load_settings()
+	assert(GameState.seen_flight_tips)         # saved for good
+	game._start_tips(true)
+	assert(not game._tips_on)                  # never repeats
+	# a line nobody answers moves on instead of nagging
+	GameState.seen_flight_tips = false
+	game._start_tips(true)
+	game._update_tips(game.TIP_GIVE_UP + 0.1)
+	assert(game._tip_stage == game.TIP_FIRE)
+	game._tips_on = false
+	GameState.mark_flight_tips_seen()
+	# touch wording, and the stick's double flick reaches the double-tap roll
+	game._touch_mode = true
+	assert(game.tip_text(game.TIP_STEER) == "DRAG LEFT THUMB TO STEER")
+	game._touch_mode = false
+	GameState.energy = GameState.max_energy()
+	game.player.dodge_cd = 0.0
+	Input.action_press("steer_left", 0.8)
+	game.player.update_flight(1.0 / 60.0)
+	Input.action_release("steer_left")
+	game.player.update_flight(1.0 / 60.0)
+	Input.action_press("steer_left", 0.8)
+	game.player.update_flight(1.0 / 60.0)
+	Input.action_release("steer_left")
+	assert(game.player.dodge_cd > 0.0)
+	# the FLIGHT MANUAL shows the touch page in touch mode
+	game.overlays.touch_mode = true
+	game.overlays.show_only("help")
+	assert(game.overlays._help_touch.visible and not game.overlays._help_keys.visible)
+	game.overlays.touch_mode = false
+	game.overlays.show_only("help")
+	assert(game.overlays._help_keys.visible and not game.overlays._help_touch.visible)
+	game.overlays.hide_all()
+	print("FIRST-RUN ok — sector-1 drone, STEER/FIRE/BOOST/EVADE callouts, saved, give-up, touch manual + roll")
 	# --- re-audit Step 1: the app icons and link-preview card are painted by code
 	# (hard rule 1). Sizes are what the web export and the PWA manifest expect, and
 	# every pixel is a palette entry, read back through the same 8-bit Image path.

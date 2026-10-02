@@ -371,7 +371,14 @@ body {
 		// The earlier version put the watchdog inside the bootstrap, so the one case
 		// it most needed to catch was the one case it could not.
 		(function () {
-			window.vrBoot = { pct: -1, downloaded: false, started: false, booted: false, err: null };
+			// re-audit Step 5: firstFlightMs is set by the game at the first launch
+			window.vrBoot = { pct: -1, downloaded: false, started: false, booted: false, err: null,
+				firstFlightMs: 0 };
+			// re-audit Step 5: on iOS (Safari 16.4+) the ring/silent switch mutes Web Audio
+			// unless the page asks for media playback; elsewhere this does nothing.
+			try {
+				if (navigator.audioSession) { navigator.audioSession.type = 'playback'; }
+			} catch (e) { /* older browsers: nothing to set */ }
 			function report(msg) {
 				window.vrBoot.err = msg;
 				if (window.vrDiag) { window.vrDiag('ERROR\n' + msg, true); }

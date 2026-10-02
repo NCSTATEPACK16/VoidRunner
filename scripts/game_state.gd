@@ -589,6 +589,9 @@ var touch_dpad_enabled := false
 var gyro_aim_enabled := false
 ## M1.2: set once the photosensitivity warning has been acknowledged.
 var seen_warning := false
+## Re-audit Step 5: set once the first-run flight callouts have all been done (or
+## sector 1 cleared), so they never nag a returning player.
+var seen_flight_tips := false
 # V2.2 L2b: combat-state flags game.gd maintains for the music intensity engine
 var arena_locked := false
 var boss_active := false
@@ -621,6 +624,7 @@ func load_settings() -> void:
 		touch_dpad_enabled = cfg.get_value("settings", "dpad", touch_dpad_enabled)
 		gyro_aim_enabled = cfg.get_value("settings", "gyro", gyro_aim_enabled)
 		seen_warning = cfg.get_value("settings", "seen_warning", seen_warning)
+		seen_flight_tips = cfg.get_value("settings", "flight_tips", seen_flight_tips)
 		crt_mode = clampi(int(cfg.get_value("settings", "crt", crt_mode)), 0, 2)
 		difficulty = clampi(int(cfg.get_value("settings", "difficulty", difficulty)),
 			0, DIFFICULTY_NAMES.size() - 1)
@@ -645,11 +649,19 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "dpad", touch_dpad_enabled)
 	cfg.set_value("settings", "gyro", gyro_aim_enabled)
 	cfg.set_value("settings", "seen_warning", seen_warning)
+	cfg.set_value("settings", "flight_tips", seen_flight_tips)
 	cfg.set_value("settings", "crt", crt_mode)
 	cfg.set_value("settings", "difficulty", difficulty)
 	cfg.set_value("settings", "assist_dmg", assist_damage)
 	cfg.set_value("settings", "assist_spd", assist_speed)
 	cfg.save("user://settings.cfg")
+
+
+## Re-audit Step 5: the first-run callouts are done for good.
+func mark_flight_tips_seen() -> void:
+	if not seen_flight_tips:
+		seen_flight_tips = true
+		_save_settings()
 
 
 func reset_level() -> void:

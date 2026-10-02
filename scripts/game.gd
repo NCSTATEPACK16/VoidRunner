@@ -56,6 +56,23 @@ var _touch_mode := false
 ## pending CONTINUE / RETRY FROM CHECKPOINT will resume at the next launch
 var _checkpoint := {}
 var _resume := {}
+## Re-audit Step 5: first-run cockpit callouts on sector 1 — one line at a time,
+## each retired once you've done it (see _update_tips)
+const TIP_STEER := 0
+const TIP_FIRE := 1
+const TIP_BOOST := 2
+const TIP_EVADE := 3
+const TIP_DONE := 4
+const TIP_REPEAT := 3.2      # re-show a pending callout this often
+const TIP_GIVE_UP := 14.0    # never nag: an undone callout moves on after this long
+var _tips_on := false
+var _tip_stage := TIP_DONE
+var _tip_t := 0.0            # time in the current stage
+var _tip_shown_t := 99.0     # time since the current line was last shown
+var _tip_aim := Vector2.ZERO # yaw/pitch when STEER started
+var _tip_shots := 0
+var _tip_dodged := false
+var _first_flight_reported := false
 ## Step 3: deaths in the current sector, for game over's "try RECRUIT" hint
 var _deaths_here := 0
 var _deaths_level := -1
@@ -155,6 +172,7 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		_touch_mode = str(JavaScriptBridge.eval(
 			"window.vrTouchMode ? '1' : '0'", true)) == "1"
+	overlays.touch_mode = _touch_mode   # re-audit Step 5: the manual's touch page
 	if _touch_mode:
 		touch_ui = TouchControls.new()
 		add_child(touch_ui)
@@ -218,7 +236,8 @@ func _ready() -> void:
 	player.notified.connect(func(msg: String) -> void: hud.show_message(msg))
 	player.dodged.connect(func(dir: Vector3) -> void:
 		shot_mgr.spawn_dodge_burst(player.position + dir * 2.0 + Vector3.UP * -0.4)
-		AudioSys.play_dodge())
+		AudioSys.play_dodge()
+		_tip_dodged = true)   # re-audit Step 5: the EVADE callout's answer
 	GameState.player_died.connect(_on_player_died)
 	overlays.launch_requested.connect(_on_launch)
 	overlays.gauntlet_requested.connect(_on_gauntlet)
@@ -708,6 +727,11 @@ func _launch_level() -> void:
 		_apply_resume(resume)
 	elif not _gauntlet:
 		_save_checkpoint(1, [])   # re-audit Step 4: every sector start is a checkpoint
+		if GameState.level_index == 0:
+			# re-audit Step 5: a guaranteed first contact a few seconds in, in plain
+			# tunnel well before the first arena, so FIRE is taught on something real
+			enemy_mgr.spawn(mini(12, path.main_ring_count - 2), -1, "drone")
+	_start_tips(resume.is_empty() and not _gauntlet and GameState.level_index == 0)
 	overlays.set_launch_label("> LAUNCH")
 	player.active = true
 	GameState.is_dead = false
@@ -716,6 +740,81 @@ func _launch_level() -> void:
 	overlays.hide_all()
 	hud.show_message(_current_level().display_name)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_report_first_flight()
+
+
+## Re-audit Step 5: on web, note how long the page took to reach the first
+## controllable frame (window.vrBoot.firstFlightMs, logged once).
+func _report_first_flight() -> void:
+	if _first_flight_reported or not OS.has_feature("web"):
+		return
+	_first_flight_reported = true
+	JavaScriptBridge.eval("if (window.vrBoot && !window.vrBoot.firstFlightMs) {"
+		+ " window.vrBoot.firstFlightMs = Math.round(performance.now());"
+		+ " console.log('[vr] first flight at ' + window.vrBoot.firstFlightMs + ' ms'); }", true)
+
+
+## Re-audit Step 5: the first-run callouts only run on a fresh sector-1 launch, and
+## only until they've all been done once.
+func _start_tips(eligible: bool) -> void:
+	_tips_on = eligible and not GameState.seen_flight_tips
+	_tip_stage = TIP_STEER if _tips_on else TIP_DONE
+	_tip_t = 0.0
+	_tip_shown_t = 99.0
+	_tip_aim = Vector2(player.yaw, player.pitch)
+	_tip_shots = GameState.level_shots
+	_tip_dodged = false
+
+
+## One line at a time: STEER -> FIRE -> BOOST -> EVADE. A line re-shows until you do
+## it (or after TIP_GIVE_UP it moves on, so it never nags); EVADE waits for the first
+## bolt to come close. Finishing them all marks the callouts seen for good.
+func _update_tips(delta: float) -> void:
+	if not _tips_on:
+		return
+	_tip_t += delta
+	_tip_shown_t += delta
+	var done := false
+	var can_show := true
+	match _tip_stage:
+		TIP_STEER:
+			can_show = _tip_t >= 1.5
+			done = absf(player.yaw - _tip_aim.x) + absf(player.pitch - _tip_aim.y) > 0.15
+		TIP_FIRE:
+			done = GameState.level_shots > _tip_shots
+		TIP_BOOST:
+			can_show = GameState.level_kills > 0 or _tip_t >= 8.0
+			done = can_show and Input.is_action_pressed("boost")
+		TIP_EVADE:
+			can_show = shot_mgr.threat_near
+			done = _tip_dodged
+	if done or _tip_t >= TIP_GIVE_UP + (25.0 if _tip_stage == TIP_EVADE else 0.0):
+		_tip_stage += 1
+		_tip_t = 0.0
+		_tip_shown_t = 99.0
+		_tip_dodged = false
+		if _tip_stage >= TIP_DONE:
+			_tips_on = false
+			GameState.mark_flight_tips_seen()
+		return
+	if can_show and _tip_shown_t >= TIP_REPEAT:
+		_tip_shown_t = 0.0
+		hud.show_message(tip_text(_tip_stage), TIP_REPEAT - 0.4)
+
+
+## The callout for a stage, worded for the controls in use.
+func tip_text(stage: int) -> String:
+	var lines: Array
+	if _touch_mode:
+		lines = ["DRAG LEFT THUMB TO STEER", "HOLD FIRE TO SHOOT",
+			"DOUBLE-TAP LEFT SIDE TO BOOST", "INCOMING! FLICK STICK TWICE TO ROLL"]
+	elif GameState.gamepad_enabled and not Input.get_connected_joypads().is_empty():
+		lines = ["LEFT STICK TO STEER", "A OR RT TO FIRE",
+			"HOLD RB OR LT TO BOOST", "INCOMING! X OR B TO ROLL CLEAR"]
+	else:
+		lines = ["MOUSE OR ARROWS TO STEER", "CLICK OR SPACE TO FIRE",
+			"HOLD W OR RIGHT-CLICK TO BOOST", "INCOMING! A OR D TO ROLL CLEAR"]
+	return lines[clampi(stage, 0, lines.size() - 1)]
 
 
 func _level_complete() -> void:
@@ -727,6 +826,9 @@ func _level_complete() -> void:
 	AudioSys.stop_engine()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	var idx := GameState.level_index
+	if idx == 0 and not _gauntlet:
+		GameState.mark_flight_tips_seen()   # re-audit Step 5: sector 1 is behind you
+	_tips_on = false
 	var earned := GameState.salvage_run   # V2.2 L3: haul this level, captured before banking
 	var bonus := 500 + idx * 250
 	# K3: secondary objective — every fuel cell destroyed
@@ -1092,6 +1194,7 @@ func _process(delta: float) -> void:
 		_update_lights(delta)
 		return
 	player.update_flight(delta)
+	_update_tips(delta)   # re-audit Step 5
 	automap.note_ring(player.ring_idx)   # V2.2 L4a: track the high-water explored ring
 	if _gauntlet:
 		_gauntlet_stream()

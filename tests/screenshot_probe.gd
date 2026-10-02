@@ -11,6 +11,7 @@ extends Node
 ##   4. game-over / victory panels    -> shot_game_over.png / shot_victory.png
 ##   5. touch II tab over flight, then the pause menu -> shot_touch.png / shot_pause.png
 ##   6. difficulty panel (Step 3)      -> shot_difficulty.png
+##   7. touch page of the manual (Step 5) -> shot_help_touch.png
 ## Output dir: VR_SHOT_DIR env var, else user://shots. Restores records/settings.
 
 
@@ -80,6 +81,10 @@ func _run() -> void:
 	await _capture_root("shot_settings.png", dir)
 	game.overlays.show_only("help")
 	await _capture_root("shot_help.png", dir)   # M3 privacy + feedback lines
+	game.overlays.touch_mode = true          # re-audit Step 5: the manual's touch page
+	game.overlays.show_only("help")
+	await _capture_root("shot_help_touch.png", dir)
+	game.overlays.touch_mode = false
 	game.overlays.open_difficulty("start")   # re-audit Step 3: preset + assists
 	await _capture_root("shot_difficulty.png", dir)
 	game.overlays.show_only("start")

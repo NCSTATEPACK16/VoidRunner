@@ -68,6 +68,11 @@ var _sector_names: Array[String] = []
 var _sector_label: Label
 var _high_label: Label
 var _difficulty_btn: Button   # Step 3: main-menu row, shows the current preset
+## Re-audit Step 5: set by game.gd in touch mode; the FLIGHT MANUAL then shows the
+## touch layout instead of keys
+var touch_mode := false
+var _help_keys: Control
+var _help_touch: Control
 # re-audit Step 4: checkpoint rows
 var _continue_btn: Button
 var _new_btn: Button
@@ -111,6 +116,9 @@ func show_only(panel_name: String) -> void:
 	# button becomes visible, instead of baking a one-time answer into construction.
 	if panel_name in ["start", "game_over", "victory"]:
 		_refresh_install_buttons()
+	if panel_name == "help" and _help_keys:
+		_help_keys.visible = not touch_mode   # re-audit Step 5
+		_help_touch.visible = touch_mode
 	if panel_name == "help" and _help_pad:
 		_help_pad.text = "PAD  stick · A/RT fire · X/B roll" \
 			if GameState.gamepad_enabled else ""
@@ -352,6 +360,9 @@ func _build_start() -> void:
 func _build_help() -> void:
 	var p := _panel("help")
 	_window(p, Rect2(6, 6, 308, 188), "FLIGHT MANUAL")
+	# re-audit Step 5: two pages share the window — keys/mouse, and the touch layout
+	_help_keys = _help_page(p)
+	_help_touch = _help_page(p)
 	var left := [
 		"FLIGHT", "MOUSE/ARROWS steer", "W or RMB  afterburn", "S         brake",
 		"A / D     evade roll", "", "SYSTEM", "ENTER/ESC pause", "TAB       automap",
@@ -368,13 +379,15 @@ func _build_help() -> void:
 		"BACKSPACE cycle", "P  plasma bomb", "", "POWER-UPS", "OVERDRIVE  rapid fire",
 		"POWER CORE 2x damage", "PHASE      invulnerable",
 	]
-	for i in left.size():
-		_text(p, Vector2(16, 22 + i * 11), left[i],
-			TITLE_COL if left[i] in ["FLIGHT", "SYSTEM"] else TEXT_COL)
-	_help_pad = _text(p, Vector2(16, 22 + left.size() * 11), "", TEXT_COL)
-	for i in right.size():
-		_text(p, Vector2(166, 22 + i * 11), right[i],
-			TITLE_COL if right[i] in ["WEAPONS", "POWER-UPS"] else TEXT_COL)
+	_help_columns(_help_keys, left, right)
+	_help_pad = _text(_help_keys, Vector2(16, 22 + left.size() * 11), "", TEXT_COL)
+	_help_columns(_help_touch, [
+		"FLIGHT", "LEFT THUMB  steer", "DOUBLE-TAP  afterburn", "  (left side, on/off)",
+		"FLICK TWICE evade roll", "", "SYSTEM", "II (top right) pause",
+	], [
+		"WEAPONS", "HOLD FIRE   shoot", "WPN  next weapon", "BOMB plasma bomb", "",
+		"POWER-UPS", "OVERDRIVE  rapid fire", "POWER CORE 2x damage", "PHASE      invulnerable",
+	])
 	# M3: the short version. The full privacy note lives in the README and on the
 	# form itself — anything longer than one line here and nobody reads any of it.
 	_center(p, 154, "No cookies, no accounts, no personal data.", DIM_COL)
@@ -384,6 +397,23 @@ func _build_help() -> void:
 	_help_back = _menu_button(p, Rect2(166, 170, 70, 11), "< BACK", func() -> void:
 		show_only(_help_return), TEXT_COL, true)
 	_focus["help"] = _help_start
+
+
+func _help_page(p: Control) -> Control:
+	var page := Control.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(page)
+	return page
+
+
+func _help_columns(page: Control, left: Array, right: Array) -> void:
+	for i in left.size():
+		_text(page, Vector2(16, 22 + i * 11), left[i],
+			TITLE_COL if left[i] in ["FLIGHT", "SYSTEM"] else TEXT_COL)
+	for i in right.size():
+		_text(page, Vector2(166, 22 + i * 11), right[i],
+			TITLE_COL if right[i] in ["WEAPONS", "POWER-UPS"] else TEXT_COL)
 
 
 func _build_briefing() -> void:
