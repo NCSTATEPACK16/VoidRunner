@@ -15,7 +15,7 @@ func _run() -> void:
 	print("smoke: _run entered")
 	# the test completes levels — snapshot and restore the player's real records
 	var saved := {}
-	for f in ["user://records.cfg", "user://settings.cfg"]:
+	for f in ["user://records.cfg", "user://settings.cfg", "user://checkpoint.cfg"]:
 		saved[f] = FileAccess.get_file_as_bytes(f) if FileAccess.file_exists(f) else null
 	# PathGen unit pass over every campaign level (probe loop = level count check)
 	var count := 0
@@ -1645,6 +1645,102 @@ func _run() -> void:
 	game._toggle_pause()
 	assert(game.state == game.State.PLAYING and is_equal_approx(Engine.time_scale, 1.0))
 	print("DIFFICULTY ok — presets + assists reach damage/shots/pickups/fuse/time scale, saved, UI rows")
+	# --- re-audit Step 4 (M5c): checkpoints — storage, save points, resume, UI ---
+	var lc: int = game.levels.size()
+	GameState.clear_checkpoint()
+	assert(GameState.load_checkpoint(lc).is_empty())
+	var stamped := GameState.save_checkpoint(game._checkpoint_data(5, [0]))
+	var cp_back := GameState.load_checkpoint(lc)
+	assert(not cp_back.is_empty() and int(cp_back.ring) == 5 and cp_back.cleared_arenas == [0])
+	assert(int(cp_back.level_index) == GameState.level_index)
+	assert(int(cp_back.score) == GameState.score)
+	# a corrupt file and an out-of-range sector are ignored, never fatal
+	var corrupt := FileAccess.open(GameState.CHECKPOINT_PATH, FileAccess.WRITE)
+	corrupt.store_string("this is [not a config")
+	corrupt.close()
+	assert(GameState.load_checkpoint(lc).is_empty())
+	var oor: Dictionary = stamped.duplicate(true)
+	oor.level_index = 99
+	assert(GameState.normalize_checkpoint(oor, lc).is_empty())
+	# the newer of the two copies wins; the localStorage copy round-trips JSON floats
+	var older := GameState.normalize_checkpoint(stamped, lc)
+	var newer: Dictionary = older.duplicate(true)
+	newer.saved_at = float(older.saved_at) + 10.0
+	newer.ring = 9
+	assert(int(GameState.pick_checkpoint(older, newer).ring) == 9)
+	assert(int(GameState.pick_checkpoint(newer, older).ring) == 9)
+	assert(int(GameState.pick_checkpoint({}, older).ring) == 5)
+	var via_json: Dictionary = JSON.parse_string(JSON.stringify(stamped))
+	var nj := GameState.normalize_checkpoint(via_json, lc)
+	assert(typeof(nj.level_index) == TYPE_INT and int(nj.ring) == 5)
+	# save points: a cleared bulkhead saves on RUNNER, not on VOIDBORNE
+	GameState.clear_checkpoint()
+	game._checkpoint = {}
+	var doors: Array = []
+	for a in game.path.arenas:
+		if a.door_ring >= 0 and not game.world.is_door_open(a.id) \
+				and int(game._arena_spawned.get(a.id, 0)) > 0:
+			doors.append(a)
+	assert(doors.size() >= 2)
+	GameState.difficulty = 1
+	var arena0: Dictionary = doors[0]
+	for k in int(game._arena_spawned[arena0.id]) - int(game._arena_kills.get(arena0.id, 0)):
+		game._on_enemy_killed(arena0.id)
+	assert(game.world.is_door_open(arena0.id))
+	var mid := GameState.load_checkpoint(lc)
+	assert(int(mid.ring) == int(arena0.door_ring) + 2 and int(arena0.id) in mid.cleared_arenas)
+	assert(game._has_mid_checkpoint())
+	GameState.difficulty = 2
+	var arena1: Dictionary = doors[1]
+	for k in int(game._arena_spawned[arena1.id]) - int(game._arena_kills.get(arena1.id, 0)):
+		game._on_enemy_killed(arena1.id)
+	assert(game.world.is_door_open(arena1.id))
+	assert(int(GameState.load_checkpoint(lc).ring) == int(arena0.door_ring) + 2)   # untouched
+	GameState.difficulty = 1
+	# resume: the ship on the checkpoint ring, cleared doors open and their guards gone,
+	# nothing spawned behind, the run's numbers back
+	GameState.score = 4321
+	GameState.level_kills = 17
+	var saved_cp := GameState.save_checkpoint(game._checkpoint_data(int(mid.ring), [arena0.id]))
+	GameState.score = 0
+	GameState.level_kills = 0
+	game._begin_resume(GameState.load_checkpoint(lc))
+	assert(game.state == game.State.BRIEFING)
+	assert(game.overlays._briefing_launch.text == "> RESUME")
+	game._on_launch()
+	await get_tree().process_frame
+	assert(game.state == game.State.PLAYING)
+	var rr: int = int(saved_cp.ring)
+	assert(game.player.ring_idx == rr)
+	var rring: Dictionary = game.path.rings[rr]
+	assert(game.player.position.distance_to(rring.p) < 1.5)   # one frame of flight since the launch
+	assert(game.player.forward().dot(rring.d) > 0.97)
+	assert(game.world.is_door_open(arena0.id))
+	for e in game.enemy_mgr.enemies:
+		assert(int(e.arena_id) != int(arena0.id))
+		assert(not (int(e.arena_id) == -1 and int(e.ring) < rr))
+	assert(GameState.score == 4321 and GameState.level_kills == 17)
+	assert(int(GameState.load_checkpoint(lc).ring) == rr)   # a resume doesn't re-save ring 1
+	assert(game.overlays._briefing_launch.text == "> LAUNCH")
+	# game over offers the checkpoint first, then a full restart
+	game.overlays.set_retry_options(true)
+	assert(game.overlays._go_retry.text == "@ RETRY FROM CHECKPOINT" and game.overlays._go_restart.visible)
+	game.overlays.set_retry_options(false)
+	assert(game.overlays._go_retry.text == "@ RETRY LEVEL" and not game.overlays._go_restart.visible)
+	# the title's CONTINUE row follows the save
+	game._refresh_continue()
+	assert(not game.overlays._continue_btn.disabled)
+	assert(game.overlays._continue_btn.text.begins_with("CONTINUE · L1"))
+	# a sector clear saves the next sector's start; the campaign's end clears it
+	game._level_complete()
+	var next_cp := GameState.load_checkpoint(lc)
+	assert(int(next_cp.level_index) == 1 and int(next_cp.ring) == 1)
+	assert(int(next_cp.level_start_score) == GameState.score)
+	GameState.level_index = lc - 1
+	game._level_complete()
+	assert(GameState.load_checkpoint(lc).is_empty())
+	assert(game.overlays._continue_btn.disabled)
+	print("CHECKPOINT ok — round trip, corrupt/oor ignored, newer wins, bulkhead saves, resume, UI")
 	# --- re-audit Step 1: the app icons and link-preview card are painted by code
 	# (hard rule 1). Sizes are what the web export and the PWA manifest expect, and
 	# every pixel is a palette entry, read back through the same 8-bit Image path.

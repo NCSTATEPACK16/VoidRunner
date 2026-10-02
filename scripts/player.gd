@@ -118,6 +118,19 @@ func reset_to_start() -> void:
 	_kick_pitch = 0.0
 
 
+## Re-audit Step 4: resume from a checkpoint — the ship sits on the ring's centre,
+## looking along the tunnel there (the inverse of PathGen.forward_from).
+func place_at_ring(idx: int) -> void:
+	var ring: Dictionary = path.rings[idx]
+	var d: Vector3 = ring.d
+	position = ring.p
+	yaw = atan2(-d.x, -d.z)
+	pitch = clampf(asin(clampf(d.y, -1.0, 1.0)), -PITCH_LIMIT, PITCH_LIMIT)
+	roll = 0.0
+	ring_idx = idx
+	rotation = Vector3(pitch, yaw, roll)
+
+
 ## Called by game.gd from root-viewport input — the ship sits inside the 320x200
 ## SubViewport (I4), which unhandled input doesn't reach.
 func apply_mouse_look(relative: Vector2) -> void:

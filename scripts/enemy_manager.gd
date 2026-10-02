@@ -110,6 +110,20 @@ static func random_power() -> String:
 	return "phase"
 
 
+## Re-audit Step 4: drop every enemy the predicate picks (a resumed checkpoint
+## removes cleared arenas' guards and tunnel spawns behind the ship).
+func remove_where(pick: Callable) -> int:
+	var removed := 0
+	for k in range(enemies.size() - 1, -1, -1):
+		var e: Dictionary = enemies[k]
+		if e.get("is_boss", false) or not pick.call(e):
+			continue
+		_release_node(e.node)
+		enemies.remove_at(k)
+		removed += 1
+	return removed
+
+
 func clear_all() -> void:
 	for e in enemies:
 		_release_node(e.node)   # cache keeps up to NODE_CACHE_CAP across levels

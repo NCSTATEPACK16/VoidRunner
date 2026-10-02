@@ -52,6 +52,10 @@ var _warmup_rig: Node3D
 var touch_ui: TouchControls   # M4a spike: null unless the build is in touch mode
 var _page_hidden_cb: JavaScriptObject   # re-audit Step 2 (web): keeps the listener alive
 var _touch_mode := false
+## Re-audit Step 4: the latest checkpoint (as saved or loaded), and the one a
+## pending CONTINUE / RETRY FROM CHECKPOINT will resume at the next launch
+var _checkpoint := {}
+var _resume := {}
 ## Step 3: deaths in the current sector, for game over's "try RECRUIT" hint
 var _deaths_here := 0
 var _deaths_level := -1
@@ -221,6 +225,8 @@ func _ready() -> void:
 	overlays.next_level_requested.connect(_on_next_level)
 	overlays.retry_requested.connect(_on_retry)
 	overlays.new_campaign_requested.connect(_on_new_campaign)
+	overlays.continue_requested.connect(_on_continue)                  # Step 4
+	overlays.retry_checkpoint_requested.connect(_on_retry_checkpoint)
 	overlays.resume_requested.connect(_toggle_pause)                # re-audit Step 2
 	overlays.quit_to_title_requested.connect(_on_quit_to_title)
 	var names: Array[String] = []
@@ -236,6 +242,9 @@ func _ready() -> void:
 	for l in levels:
 		level_names.append(l.display_name)
 	overlays.set_campaign(level_names)   # Phase J sector select
+	# re-audit Step 4: a saved checkpoint lights up CONTINUE on the title
+	_checkpoint = GameState.load_checkpoint(levels.size())
+	_refresh_continue()
 	# Phase H + V2.0: the dither layer hosts both the palette dither and the amber
 	# terminal mode; either being on keeps the layer visible.
 	GameState.dither_toggled.connect(func(_on: bool) -> void: _refresh_view_fx())
@@ -672,6 +681,8 @@ func _launch_level() -> void:
 	Feedback.count_level(Feedback.EV_LEVEL_STARTED, GameState.level_index)   # M3
 	if touch_ui != null:
 		touch_ui.enable(player)   # M4a
+	var resume := _resume   # re-audit Step 4: set by CONTINUE / RETRY FROM CHECKPOINT
+	_resume = {}
 
 	GameState.level_start_score = GameState.score
 	GameState.heat = 0.0
@@ -683,6 +694,8 @@ func _launch_level() -> void:
 	GameState.arena_locked = false   # V2.2 L2b: fresh music state per level
 	GameState.boss_active = false
 	GameState.reset_level_stats()
+	if not resume.is_empty():
+		GameState.apply_checkpoint_level_state(resume)   # undo the level-start resets
 	_end_warmup()
 	# the briefing screen already built this level's world (and warmed its shaders);
 	# only rebuild when launched directly without a briefing (tests, dirty world)
@@ -691,6 +704,11 @@ func _launch_level() -> void:
 	world.prebuild_all()   # no-op unless the launch outran the briefing pump
 	_built_level = -1   # once play starts the world is dirty (doors, kills)
 	player.reset_to_start()
+	if not resume.is_empty():
+		_apply_resume(resume)
+	elif not _gauntlet:
+		_save_checkpoint(1, [])   # re-audit Step 4: every sector start is a checkpoint
+	overlays.set_launch_label("> LAUNCH")
 	player.active = true
 	GameState.is_dead = false
 	state = State.PLAYING
@@ -734,10 +752,23 @@ func _level_complete() -> void:
 	var new_record := GameState.record_progress(rank)
 	GameState.bank_salvage()   # V2.2 L3: this level's salvage haul → persistent bank
 	if idx >= levels.size() - 1:
+		GameState.clear_checkpoint()   # re-audit Step 4: the campaign is done
+		_checkpoint = {}
+		_refresh_continue()
 		state = State.VICTORY
 		overlays.set_final_score("victory", GameState.score, new_record)
 		overlays.show_only("victory")
 	else:
+		# re-audit Step 4: the next sector's start, saved now, so a tab closed on the
+		# tally screen loses nothing
+		var next := _checkpoint_data(1, [])
+		next.level_index = idx + 1
+		next.level_start_score = GameState.score
+		next.weapon_index = 0
+		next.salvage_run = 0
+		next.stats = [0, 0, 0, 0, 0, 0, 0]
+		next.elapsed = 0.0
+		_store_checkpoint(next)
 		state = State.LEVEL_CLEAR
 		overlays.set_level_clear(
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
@@ -790,6 +821,7 @@ func _on_player_died() -> void:
 		_deaths_here += 1
 		if _deaths_here >= 2 and GameState.difficulty > 0 and not new_record:
 			overlays.suggest_recruit()
+	overlays.set_retry_options(_has_mid_checkpoint())   # re-audit Step 4
 	overlays.show_only("game_over")
 
 
@@ -803,6 +835,7 @@ func _on_launch() -> void:
 		GameState.level_index = overlays.selected_sector()
 		GameState.level_start_score = 0
 		GameState.score = 0
+		_resume = {}   # NEW CAMPAIGN never resumes
 		_show_briefing()
 	else:
 		_launch_level()
@@ -811,6 +844,7 @@ func _on_launch() -> void:
 ## K5: Void Gauntlet entry from the start screen.
 func _on_gauntlet() -> void:
 	GameState.reset_run()   # V2.2 L3e: gauntlet always starts at MK I (no bay mid-run)
+	_resume = {}   # re-audit Step 4: the gauntlet never resumes a campaign checkpoint
 	_gauntlet = true
 	GameState.gauntlet_mode = true
 	_built_level = -1
@@ -823,6 +857,7 @@ func _on_gauntlet() -> void:
 func _show_briefing() -> void:
 	state = State.BRIEFING
 	overlays.set_briefing(_current_level())
+	overlays.set_launch_label("> RESUME" if not _resume.is_empty() else "> LAUNCH")
 	overlays.show_only("briefing")
 	if OS.has_feature("web"):
 		# WebGL: build + warm under the HTML loading overlay, spread across rendered
@@ -929,8 +964,105 @@ func _on_next_level() -> void:
 
 
 func _on_retry() -> void:
+	_resume = {}
 	GameState.reset_level()
 	_show_briefing()
+
+
+## Re-audit Step 4: title CONTINUE. Re-reads the save (the newer of user:// and
+## localStorage), restores the run and opens that sector's briefing to resume.
+func _on_continue() -> void:
+	var cp := GameState.load_checkpoint(levels.size())
+	_checkpoint = cp
+	_refresh_continue()
+	if cp.is_empty():
+		return
+	_gauntlet = false
+	GameState.gauntlet_mode = false
+	_begin_resume(cp)
+
+
+## Re-audit Step 4: game over RETRY FROM CHECKPOINT — falls back to a sector
+## restart if the save is gone or belongs to another sector.
+func _on_retry_checkpoint() -> void:
+	var cp := GameState.load_checkpoint(levels.size())
+	if cp.is_empty() or int(cp.level_index) != GameState.level_index:
+		_on_retry()
+		return
+	_begin_resume(cp)
+
+
+func _begin_resume(cp: Dictionary) -> void:
+	GameState.reset_level_stats()   # streaks and power-ups never carry over
+	GameState.apply_checkpoint(cp)
+	_resume = cp
+	_built_level = -1
+	_show_briefing()
+
+
+## Re-audit Step 4: after _launch_level built the sector, put back what the
+## checkpoint had already done — cleared bulkheads open with their guards gone, no
+## tunnel spawns behind the ship, the ship on the checkpoint ring, the clock.
+func _apply_resume(cp: Dictionary) -> void:
+	var ring := clampi(int(cp.ring), 1, maxi(1, path.main_ring_count - 4))
+	var cleared: Array = cp.cleared_arenas
+	for id in cleared:
+		world.open_door(int(id))
+		_arena_kills[int(id)] = _arena_spawned.get(int(id), 0)
+	enemy_mgr.remove_where(func(e: Dictionary) -> bool:
+		return int(e.arena_id) in cleared or (int(e.arena_id) == -1 and int(e.ring) < ring))
+	world.skip_spawns_to(ring)
+	player.place_at_ring(ring)
+	player.elapsed = float(cp.elapsed)
+	var stats: Array = cp.stats
+	spur_mgr.caches_found = int(stats[6])
+
+
+## Re-audit Step 4: the run as it stands, as a checkpoint at `ring`.
+func _checkpoint_data(ring: int, cleared: Array) -> Dictionary:
+	return {
+		"level_index": GameState.level_index,
+		"level_start_score": GameState.level_start_score,
+		"score": GameState.score,
+		"weapon_marks": GameState.weapon_marks.duplicate(),
+		"plasma_bombs": GameState.plasma_bombs,
+		"missiles": GameState.missiles,
+		"weapon_index": GameState.weapon_index,
+		"shields": GameState.shields,
+		"energy": GameState.energy,
+		"salvage_run": GameState.salvage_run,
+		"stats": [GameState.level_kills, GameState.level_shots, GameState.level_hits,
+			GameState.level_props, GameState.level_secrets, GameState.peak_style,
+			spur_mgr.caches_found],
+		"elapsed": player.elapsed,
+		"ring": ring,
+		"cleared_arenas": cleared,
+		"difficulty": GameState.difficulty,
+	}
+
+
+func _save_checkpoint(ring: int, cleared: Array) -> void:
+	_store_checkpoint(_checkpoint_data(ring, cleared))
+
+
+func _store_checkpoint(data: Dictionary) -> void:
+	_checkpoint = GameState.save_checkpoint(data)
+	_refresh_continue()
+
+
+## A checkpoint past this sector's start exists for the sector being played.
+func _has_mid_checkpoint() -> bool:
+	return not _gauntlet and not _checkpoint.is_empty() \
+		and int(_checkpoint.level_index) == GameState.level_index and int(_checkpoint.ring) > 1
+
+
+func _refresh_continue() -> void:
+	var tag := ""
+	if not _checkpoint.is_empty():
+		var li := int(_checkpoint.level_index)
+		if li >= 0 and li < levels.size():
+			tag = levels[li].display_name.split(" · ")[0]
+	overlays.set_continue(tag)
 
 
 func _on_new_campaign() -> void:
@@ -1187,6 +1319,18 @@ func _on_enemy_killed(arena_id: int) -> void:
 		world.open_door(arena_id)
 		hud.show_message("BULKHEAD OPEN")
 		AudioSys.play_select()
+		# re-audit Step 4: a cleared bulkhead is a checkpoint on RECRUIT and RUNNER
+		# (VOIDBORNE saves at sector starts only, the era's way)
+		if state == State.PLAYING and not _gauntlet and GameState.difficulty < 2:
+			var cleared := []
+			var door := -1
+			for a in path.arenas:
+				if a.door_ring >= 0 and world.is_door_open(a.id):
+					cleared.append(a.id)
+				if a.id == arena_id:
+					door = a.door_ring
+			if door >= 0:
+				_save_checkpoint(door + 2, cleared)
 		# 3.0: a cleared room often leaves a power-up floating in the flight line
 		if randf() < ARENA_POWER_CHANCE:
 			var ring := mini(player.ring_idx + 2, path.rings.size() - 1)
@@ -1312,6 +1456,8 @@ func _on_quit_to_title() -> void:
 	player.active = false
 	_load_level_world(0)   # clears every manager and rebuilds the attract tunnel
 	player.reset_to_start()
+	_resume = {}
+	_refresh_continue()   # re-audit Step 4: the checkpoint survives a quit
 	overlays.show_only("start")
 
 

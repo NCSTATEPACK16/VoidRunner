@@ -400,6 +400,157 @@ func record_gauntlet(dist: int) -> bool:
 	return new_best
 
 
+# --- Re-audit Step 4 (M5c): checkpoints. One small snapshot of the run, saved at
+# sector start and at each cleared bulkhead (RECRUIT and RUNNER), to user:// and, on
+# web, to localStorage too: Godot copies user:// into IndexedDB asynchronously, so a
+# tab closed just after a save could lose it, while localStorage writes are
+# synchronous. Loading takes the newer copy, and anything malformed is ignored.
+const CHECKPOINT_PATH := "user://checkpoint.cfg"
+const CHECKPOINT_KEY := "vr_checkpoint"
+const CHECKPOINT_VERSION := 1
+const CHECKPOINT_FIELDS := ["v", "level_index", "level_start_score", "score", "weapon_marks",
+	"plasma_bombs", "missiles", "weapon_index", "shields", "energy", "salvage_run", "stats",
+	"elapsed", "ring", "cleared_arenas", "saved_at"]
+var _asked_persist := false
+
+
+## Stamps and writes a snapshot; returns the stamped copy (what a load gives back).
+func save_checkpoint(data: Dictionary) -> Dictionary:
+	var d := data.duplicate(true)
+	d["v"] = CHECKPOINT_VERSION
+	d["saved_at"] = Time.get_unix_time_from_system()
+	d["build"] = BuildInfo.ID
+	var cfg := ConfigFile.new()
+	cfg.set_value("checkpoint", "data", d)
+	cfg.save(CHECKPOINT_PATH)
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("try { localStorage.setItem(%s, %s); } catch (e) {}" % [
+			JSON.stringify(CHECKPOINT_KEY), JSON.stringify(JSON.stringify(d))], true)
+		if not _asked_persist:
+			# ask the browser to exempt this site's storage from eviction (Safari
+			# otherwise clears it after 7 days of use without a visit)
+			_asked_persist = true
+			JavaScriptBridge.eval("try { if (navigator.storage && navigator.storage.persist)"
+				+ " { navigator.storage.persist(); } } catch (e) {}", true)
+	return d
+
+
+## The newest valid checkpoint for a campaign of `level_count` sectors, or {}.
+func load_checkpoint(level_count: int) -> Dictionary:
+	var from_file := {}
+	var cfg := ConfigFile.new()
+	if cfg.load(CHECKPOINT_PATH) == OK:
+		var v: Variant = cfg.get_value("checkpoint", "data", {})
+		if v is Dictionary:
+			from_file = v
+	var from_web := {}
+	if OS.has_feature("web"):
+		var raw: Variant = JavaScriptBridge.eval("(function () { try { return "
+			+ "localStorage.getItem(%s) || ''; } catch (e) { return ''; } })()"
+			% JSON.stringify(CHECKPOINT_KEY), true)
+		if raw is String and raw != "":
+			var parsed: Variant = JSON.parse_string(raw)
+			if parsed is Dictionary:
+				from_web = parsed
+	return pick_checkpoint(normalize_checkpoint(from_file, level_count),
+		normalize_checkpoint(from_web, level_count))
+
+
+func clear_checkpoint() -> void:
+	if FileAccess.file_exists(CHECKPOINT_PATH):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(CHECKPOINT_PATH))
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("try { localStorage.removeItem(%s); } catch (e) {}"
+			% JSON.stringify(CHECKPOINT_KEY), true)
+
+
+## The newer of two normalized checkpoints ({} when neither is valid).
+static func pick_checkpoint(a: Dictionary, b: Dictionary) -> Dictionary:
+	if a.is_empty():
+		return b
+	if b.is_empty():
+		return a
+	return a if float(a.saved_at) >= float(b.saved_at) else b
+
+
+## Type-checks a raw snapshot and normalizes it (ConfigFile keeps ints, JSON turns
+## them into floats). Returns {} for anything that isn't a sane v1 checkpoint.
+static func normalize_checkpoint(raw: Dictionary, level_count: int) -> Dictionary:
+	if raw.is_empty():
+		return {}
+	for k in CHECKPOINT_FIELDS:
+		if not raw.has(k):
+			return {}
+	if int(raw.v) != CHECKPOINT_VERSION:
+		return {}
+	var li := int(raw.level_index)
+	if li < 0 or li >= level_count:
+		return {}
+	if not (raw.weapon_marks is Array and raw.stats is Array and raw.cleared_arenas is Array):
+		return {}
+	if (raw.weapon_marks as Array).size() != 4 or (raw.stats as Array).size() != 7:
+		return {}
+	var marks := []
+	for m in raw.weapon_marks:
+		marks.append(clampi(int(m), 0, MARK_DAMAGE[0].size() - 1))
+	var stats := []
+	for s in raw.stats:
+		stats.append(maxi(0, int(s)))
+	var cleared := []
+	for c in raw.cleared_arenas:
+		cleared.append(int(c))
+	return {
+		"v": CHECKPOINT_VERSION, "level_index": li,
+		"level_start_score": maxi(0, int(raw.level_start_score)),
+		"score": maxi(0, int(raw.score)),
+		"weapon_marks": marks,
+		"plasma_bombs": clampi(int(raw.plasma_bombs), 0, PLASMA_MAX),
+		"missiles": maxi(0, int(raw.missiles)),
+		"weapon_index": clampi(int(raw.weapon_index), 0, 3),
+		"shields": maxf(0.0, float(raw.shields)),
+		"energy": maxf(0.0, float(raw.energy)),
+		"salvage_run": maxi(0, int(raw.salvage_run)),
+		"stats": stats,
+		"elapsed": maxf(0.0, float(raw.elapsed)),
+		"ring": maxi(1, int(raw.ring)),
+		"cleared_arenas": cleared,
+		"difficulty": clampi(int(raw.get("difficulty", 1)), 0, DIFFICULTY_NAMES.size() - 1),
+		"saved_at": float(raw.saved_at),
+		"build": str(raw.get("build", "")),
+	}
+
+
+## Restores a checkpoint's run state (CONTINUE / RETRY FROM CHECKPOINT). Shields
+## come back to at least half: a checkpoint should never leave you nearly dead.
+func apply_checkpoint(cp: Dictionary) -> void:
+	level_index = cp.level_index
+	weapon_marks = (cp.weapon_marks as Array).duplicate()
+	is_dead = false
+	is_overheated = false
+	heat = 0.0
+	shields = maxf(float(cp.shields), max_shields() * 0.5)
+	energy = cp.energy
+	plasma_bombs = cp.plasma_bombs
+	apply_checkpoint_level_state(cp)
+
+
+## The part of a checkpoint that _launch_level's level-start resets would wipe, so
+## it is applied again after them.
+func apply_checkpoint_level_state(cp: Dictionary) -> void:
+	level_start_score = cp.level_start_score
+	score = cp.score
+	missiles = cp.missiles
+	weapon_index = cp.weapon_index
+	salvage_run = cp.salvage_run
+	var s: Array = cp.stats
+	level_kills = s[0]
+	level_shots = s[1]
+	level_hits = s[2]
+	level_props = s[3]
+	level_secrets = s[4]
+	peak_style = s[5]
+
+
 # --- Phase H: player settings, persisted to user://settings.cfg ---
 signal dither_toggled(on: bool)
 signal amber_toggled(on: bool)   # V2.0: amber "terminal" view mode

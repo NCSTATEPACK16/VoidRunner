@@ -193,6 +193,12 @@ func prebuild_all() -> void:
 		pass
 
 
+## Re-audit Step 4: a resumed checkpoint starts mid-level. Without this the first
+## streaming frame would roll every ring from the start up to the ship at once.
+func skip_spawns_to(ring_idx: int) -> void:
+	_spawn_cursor = maxi(_spawn_cursor, ring_idx)
+
+
 func update_streaming(player_ring: int) -> void:
 	var last := path.rings.size() - 1
 	# endless mode still streams geometry ahead (finite levels are prebuilt) —

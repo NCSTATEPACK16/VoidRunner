@@ -56,7 +56,7 @@ func _fly(game: Node3D, frames: int) -> void:
 
 func _run() -> void:
 	var saved := {}
-	for f in ["user://records.cfg", "user://settings.cfg"]:
+	for f in ["user://records.cfg", "user://settings.cfg", "user://checkpoint.cfg"]:
 		saved[f] = FileAccess.get_file_as_bytes(f) if FileAccess.file_exists(f) else null
 	var dir := _shot_dir()
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()
@@ -70,6 +70,7 @@ func _run() -> void:
 	game.overlays.show_only("start")
 	for i in 150:   # 3.0: let the attract-mode flythrough get going behind the title
 		await get_tree().process_frame
+	game.overlays.set_continue("L4")   # re-audit Step 4: the CONTINUE row lit
 	await _capture_root("shot_start.png", dir)
 	# M1/M2: the two panels this session changed most — the settings grid now packs
 	# ten controls into 320x200, and the photosensitivity notice is brand new.
@@ -177,6 +178,7 @@ func _run() -> void:
 	# overlays render outside the 320x200 SubViewport, hence _capture_root.
 	game.overlays.set_final_score("game_over", 4200, false)
 	game.overlays.suggest_recruit()   # Step 3: the repeat-death hint line
+	game.overlays.set_retry_options(true)   # Step 4: checkpoint first, then restart
 	game.overlays.show_only("game_over")
 	await _capture_root("shot_game_over.png", dir)
 	game.overlays.set_final_score("victory", 15800, true)
