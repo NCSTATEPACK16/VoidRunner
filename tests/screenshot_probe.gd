@@ -99,6 +99,8 @@ func _run() -> void:
 	# 1) corridor in flight — far enough in that fog/strip/lighting all read
 	await _fly(game, 60 * 6)
 	await _capture(game, "shot_corridor.png", dir)
+	await _fly(game, 30)   # v4a: half a second on, the colour cycling has moved
+	await _capture(game, "shot_corridor2.png", dir)
 	# 1b) Tab automap over the explored corridor — must read as a 1995 automap
 	game._open_automap()
 	await _capture(game, "shot_automap.png", dir)

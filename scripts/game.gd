@@ -232,7 +232,10 @@ func _ready() -> void:
 	shot_mgr.player_hit.connect(func(dmg: float, from_pos: Vector3) -> void:
 		player.take_damage(dmg, "SHIELD HIT")
 		hud.show_damage_from(from_pos))
-	player.damaged.connect(func(_a: float, msg: String) -> void: hud.show_message(msg))
+	player.damaged.connect(func(amount: float, msg: String) -> void:
+		hud.show_message(msg)
+		# v4a: a red pop scaled by the hit (capped at 3 a second inside the HUD)
+		hud.flash_tint(Color(1.0, 0.12, 0.06), clampf(amount / 40.0, 0.12, 0.4)))
 	player.notified.connect(func(msg: String) -> void: hud.show_message(msg))
 	player.dodged.connect(func(dir: Vector3) -> void:
 		shot_mgr.spawn_dodge_burst(player.position + dir * 2.0 + Vector3.UP * -0.4)
@@ -336,6 +339,8 @@ func _apply_theme_mood(theme: Dictionary, level: LevelDef) -> void:
 		fog_end = maxf(fog_end, 110.0)
 	env.fog_depth_end = fog_end
 	env.ambient_light_color = theme.get("amb", Color("16181e"))
+	# v4a: the world's banded distance darkness ends where the sprites' fog does
+	light_rig.set_distance(env.fog_depth_begin, fog_end)
 
 
 ## Dither layer visibility + amber uniform follow the two view settings. The amber
@@ -1363,10 +1368,12 @@ func _update_arena_lock() -> void:
 
 func _on_pickup_collected(kind: String, value := 0) -> void:
 	match kind:
-		"shield":
-			hud.show_message("SHIELD CELL +20")
+		"shield":   # the amount follows the difficulty's pickup value (Step 3)
+			hud.show_message("SHIELD CELL +%d" % roundi(PickupManager.EFFECT.shield
+				* GameState.pickup_mult()))
 		"energy":
-			hud.show_message("ENERGY CORE +30")
+			hud.show_message("ENERGY CORE +%d" % roundi(PickupManager.EFFECT.energy
+				* GameState.pickup_mult()))
 		"missile":
 			hud.show_message("MISSILE PACK +3")
 		"bomb":
@@ -1382,6 +1389,10 @@ func _on_pickup_collected(kind: String, value := 0) -> void:
 			hud.show_message("PHASE SHIELD — INVULNERABLE!", 2.0)
 		"powercore":
 			hud.show_message("POWER CORE — DOUBLE DAMAGE!", 2.0)
+	# v4a: a gold pop on every pickup — strongest for power-ups, faint for the
+	# frequent salvage drops (the HUD caps flashes at 3 a second either way)
+	hud.flash_tint(Color(1.0, 0.82, 0.25),
+		0.22 if kind in GameState.POWER_TIME else (0.08 if kind == "salvage" else 0.14))
 	if kind in GameState.POWER_TIME:
 		AudioSys.play_powerup()
 	else:

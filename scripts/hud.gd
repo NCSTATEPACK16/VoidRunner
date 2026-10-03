@@ -47,6 +47,16 @@ var weapon_names: Array[String] = []
 var _flash: ColorRect
 var _bomb_flash: ColorRect   # V2.0 plasma bomb white-out, decays in _process
 var _phase_tint: ColorRect   # 3.0: faint cyan glaze while PHASE SHIELD runs
+## v4a: capped whole-screen flashes — red on a hit, gold on a pickup. At most one
+## new flash every FLASH_GAP_MS (no more than 3 a second, the photosensitivity
+## line); REDUCE FLASH scales them down. They sit under the palette layer, so they
+## come out in palette colours like everything else.
+const FLASH_GAP_MS := 340
+const FLASH_FADE := 0.25
+const FLASH_REDUCED := 0.35
+var _tint_flash: ColorRect
+var _tint_a0 := 0.0
+var _tint_last_ms := -100000
 var _power_draw: Control
 var _power_labels := {}      # kind -> Label
 var _c_power_live := false
@@ -118,6 +128,11 @@ func _ready() -> void:
 	_phase_tint.color = Color(0.3, 0.9, 1.0, 0.0)
 	_phase_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_phase_tint)
+	_tint_flash = ColorRect.new()   # v4a
+	_tint_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_tint_flash.color = Color(1, 1, 1, 0.0)
+	_tint_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_tint_flash)
 	# canopy frame under everything else so readouts stay on top; the static
 	# frame draws once at boot, the dynamic layer sits directly on top of it
 	_canopy_static = Control.new()
@@ -223,6 +238,18 @@ func show_message(text: String, t := 1.2) -> void:
 	_msg_t = t
 
 
+## v4a: a whole-screen tint pop that fades over FLASH_FADE. Returns false (and
+## does nothing) inside FLASH_GAP_MS of the last one — the 3-a-second cap.
+func flash_tint(color: Color, strength: float) -> bool:
+	var now := Time.get_ticks_msec()
+	if now - _tint_last_ms < FLASH_GAP_MS:
+		return false
+	_tint_last_ms = now
+	_tint_a0 = clampf(strength, 0.0, 0.6) * (FLASH_REDUCED if GameState.reduce_flashing else 1.0)
+	_tint_flash.color = Color(color.r, color.g, color.b, _tint_a0)
+	return true
+
+
 ## V2.0 plasma bomb white-out — bright pop that fades over ~0.4 s.
 func flash_white() -> void:
 	# M1.2: the full-screen white-out is the one effect here that plausibly crosses
@@ -259,8 +286,12 @@ func _process(delta: float) -> void:
 	_msg_t -= delta
 	_msg.visible = _msg_t > 0.0
 	_bomb_flash.color.a = maxf(0.0, _bomb_flash.color.a - delta * 1.4)
+	if _tint_flash.color.a > 0.0:
+		_tint_flash.color.a = maxf(0.0, _tint_flash.color.a - delta * _tint_a0 / FLASH_FADE)
 	if player:
-		var a := minf(1.0, player.shake * 1.6) * 0.3
+		# v4a: red now means "you were hit" (flash_tint, capped); shake alone no
+		# longer reddens the screen, so a nearby blast reads as a blast
+		var a := 0.0
 		# Phase J: low-shield warning pulse under everything else
 		if GameState.shields < 25.0 and not GameState.is_dead:
 			# re-audit Step 6: under REDUCE FLASH the warning is a steady tint, not a pulse

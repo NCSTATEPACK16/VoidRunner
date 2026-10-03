@@ -4,11 +4,11 @@ class_name FxGen
 ## color comes from a Palette ramp, so effects palettize cleanly. All sets are
 ## cached; ShotManager and GibManager pull them once.
 ##
-##   fireball_frames()  10-frame explosion: white flash -> fire -> rolling smoke
+##   fireball_frames()  14-frame explosion: white flash -> fire -> rolling smoke
 ##   shockwave_frames() expanding ring for big blasts
 ##   orb_frames(ramp)   2-frame shimmering plasma bolt in a weapon's ramp
 ##   plasma_frames()    2-frame spiky enemy plasma
-##   smoke_frames()     4-frame dissolving puff (missile trails, blast aftermath)
+##   smoke_frames()     6-frame dissolving puff (missile trails, blast aftermath)
 
 static var _cache := {}
 
@@ -23,7 +23,7 @@ static func fireball_frames() -> Array[ImageTexture]:
 	n.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	n.frequency = 0.14
 	n.fractal_octaves = 3
-	var count := 10
+	var count := FIREBALL_FRAMES   # v4a: 14 (was 10), a smoother bloom and break-up
 	for f in count:
 		var t := f / float(count - 1)                 # 0 .. 1 over the blast
 		var radius := size * 0.5 * (0.3 + 0.62 * sqrt(t))
@@ -34,7 +34,9 @@ static func fireball_frames() -> Array[ImageTexture]:
 				var dx := x - size * 0.5 + 0.5
 				var dy := y - size * 0.5 + 0.5
 				var d := sqrt(dx * dx + dy * dy) / radius
-				var nz := n.get_noise_3d(x * 1.0, y * 1.0, f * 7.0) * 0.5 + 0.5
+				# noise steps scale with the frame count, so more frames means a
+				# smoother boil rather than a busier one
+				var nz := n.get_noise_3d(x * 1.0, y * 1.0, t * 63.0) * 0.5 + 0.5
 				var edge := d + (nz - 0.5) * 0.6
 				if edge > 1.0:
 					continue
@@ -142,6 +144,11 @@ static func plasma_frames(size := 16) -> Array[ImageTexture]:
 	return out
 
 
+## v4a: frame counts (the explosion and puff animations read them).
+const FIREBALL_FRAMES := 14
+const SMOKE_FRAMES := 6
+
+
 static func smoke_frames(size := 16) -> Array[ImageTexture]:
 	var key := "smoke%d" % size
 	if _cache.has(key):
@@ -151,18 +158,20 @@ static func smoke_frames(size := 16) -> Array[ImageTexture]:
 	n.seed = 77
 	n.frequency = 0.25
 	var half := size * 0.5
-	for f in 4:
+	for f in SMOKE_FRAMES:   # v4a: 6 (was 4), same growth and thinning, finer steps
+		var t := f / float(SMOKE_FRAMES - 1)
 		var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
-		var r := 0.55 + f * 0.14
+		var r := 0.55 + t * 0.42
 		for y in size:
 			for x in size:
 				var d := Vector2(x - half + 0.5, y - half + 0.5).length() / half
-				var nz := n.get_noise_3d(x * 1.0, y * 1.0, f * 5.0) * 0.5 + 0.5
-				if d + (nz - 0.5) * 0.5 > r or nz < f * 0.16:
+				var nz := n.get_noise_3d(x * 1.0, y * 1.0, t * 15.0) * 0.5 + 0.5
+				if d + (nz - 0.5) * 0.5 > r or nz < t * 0.48:
 					continue
-				if f >= 2 and (x + y) % 2 == 1:
+				if t >= 0.6 and (x + y) % 2 == 1:
 					continue   # stipple: thinning puffs go see-through
-				img.set_pixel(x, y, Palette.ramp(Palette.GREY, clampi(8 - f - roundi(d * 3.0), 2, 9)))
+				img.set_pixel(x, y, Palette.ramp(Palette.GREY,
+					clampi(8 - roundi(t * 3.0) - roundi(d * 3.0), 2, 9)))
 		out.append(ImageTexture.create_from_image(img))
 	_cache[key] = out
 	return out

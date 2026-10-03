@@ -80,6 +80,27 @@ static var _cache := {}
 
 
 ## All of a theme's textures, keyed by KEYS. Painted on first request, cached.
+## v4a: colour-cycling surfaces per motif — texture key -> crest speed. Only the
+## full-bright texels on those faces cycle (consoles, magma, pustules, runes,
+## glowing conduit); ceiling lamps and light boxes stay steady. A theme may add
+## or override keys with its own "cycle" dictionary.
+const CYCLE := {
+	"panel": {"wall_c": 1.6, "trim": 0.8},
+	"rock": {"wall_b": 0.5},
+	"organic": {"wall_b": 0.4, "ceil_lamp": 0.35},
+	"ice": {"wall_b": 0.3, "trim": 0.6},
+	"rune": {"wall_b": 0.7, "trim": 0.9},
+}
+const DOOR_CYCLE := 1.2   # bulkhead force-field accents, every theme
+
+
+static func cycle_keys(theme_id: String) -> Dictionary:
+	var t: Dictionary = THEMES[theme_id]
+	var out: Dictionary = (CYCLE.get(t.motif, CYCLE.panel) as Dictionary).duplicate()
+	out.merge(t.get("cycle", {}), true)
+	return out
+
+
 static func theme_textures(theme_id: String) -> Dictionary:
 	if _cache.has(theme_id):
 		return _cache[theme_id]

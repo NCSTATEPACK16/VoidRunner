@@ -74,7 +74,12 @@ func rebuild(new_path: PathGen, theme_id: String) -> void:
 		mats[key] = _sector_mat(_textures[key])
 	# the floor strip's chevrons march down the corridor (v runs along the tunnel)
 	(mats.strip as ShaderMaterial).set_shader_parameter("uv_scroll", Vector2(0.0, -1.6))
+	# v4a: colour cycling on this theme's glowing surfaces, and on the bulkheads
+	var cyc := TextureGen.cycle_keys(theme_id)
+	for key in cyc:
+		(mats[key] as ShaderMaterial).set_shader_parameter("cycle_speed", cyc[key])
 	_door_mat = prop_material("door", 1.0, Color.WHITE, accent_color * 0.12)
+	_door_mat.set_shader_parameter("cycle_speed", TextureGen.DOOR_CYCLE)
 	# small synchronous head start (covers the deepest fog at the launch ring);
 	# the briefing pump (prebuild_step) builds the rest of a finite level
 	var initial: int = mini(CHUNK * 3, path.rings.size() - 1)

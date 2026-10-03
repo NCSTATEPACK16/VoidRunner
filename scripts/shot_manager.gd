@@ -38,10 +38,14 @@ const EXPLOSION_CAP := 12         # overflow: reuse-oldest (finishes an old one)
 const SPARK_CAP := 60             # overflow: skip (pure garnish)
 const SHOCK_CAP := 6              # 3.0 big-blast shock rings; overflow: skip
 const PUFF_CAP := 48              # 3.0 missile-trail / aftermath smoke; overflow: skip
-## 3.0 FX timing: a 10-frame fireball at this rate lasts ~0.65 s
-const BOOM_FRAME_T := 0.065
+## 3.0 FX timing — v4a: a 14-frame fireball at this rate lasts 0.70 s (was 10 at
+## 0.065 = 0.65 s), so the blast keeps its length and gains smoothness
+const BOOM_FRAME_T := 0.05
 const SHOCK_FRAME_T := 0.05
 const PUFF_LIFE := 0.5
+## v4a: a big blast leaves this many slower, bigger smoke puffs hanging as it ends
+const AFTERMATH_PUFFS := 3
+const AFTERMATH_LIFE := 1.4
 const TRAIL_EVERY := 0.04         # a missile drops a smoke puff this often
 
 var player: PlayerShip
@@ -302,7 +306,7 @@ func spawn_explosion(pos: Vector3, big: bool) -> void:
 	var sprite := _acquire(_explosion_frames[0], 9.0 if big else 6.0)
 	if sprite:
 		sprite.position = pos
-		_explosions.append({"node": sprite, "t": 0.0})
+		_explosions.append({"node": sprite, "t": 0.0, "big": big})
 	if big and _shocks.size() < SHOCK_CAP:   # 3.0: a shock ring races out of big blasts
 		var ring := _acquire(_shock_frames[0], 13.0)
 		if ring:
@@ -320,14 +324,14 @@ func spawn_explosion(pos: Vector3, big: bool) -> void:
 
 
 ## 3.0: one pooled smoke puff (missile trails).
-func _spawn_puff(pos: Vector3, size: float) -> void:
+func _spawn_puff(pos: Vector3, size: float, life := PUFF_LIFE) -> void:
 	if _puffs.size() >= PUFF_CAP:
 		return
 	var p := _acquire(_smoke_frames[0], size)
 	if p == null:
 		return
 	p.position = pos
-	_puffs.append({"node": p, "t": PUFF_LIFE})
+	_puffs.append({"node": p, "t": life, "life": life})
 
 
 ## K4: blue spark puff at the dodge origin — same lifecycle as explosion sparks.
@@ -482,6 +486,11 @@ func update_shots(delta: float) -> void:
 		ex.t += delta
 		var frame := int(ex.t / BOOM_FRAME_T)
 		if frame >= _explosion_frames.size():
+			if ex.get("big", false):   # v4a: aftermath smoke hangs where it burst
+				var at: Vector3 = ex.node.position
+				for k in AFTERMATH_PUFFS:
+					_spawn_puff(at + Vector3(randf_range(-1.5, 1.5), randf_range(-0.5, 1.0),
+						randf_range(-1.5, 1.5)), 4.5, AFTERMATH_LIFE)
 			_release(ex.node)
 			_explosions.remove_at(x)
 		else:
@@ -509,7 +518,7 @@ func update_shots(delta: float) -> void:
 			_puffs.remove_at(u)
 		else:
 			pf.node.position.y += delta * 1.5
-			var k := int((1.0 - pf.t / PUFF_LIFE) * _smoke_frames.size())
+			var k := int((1.0 - pf.t / float(pf.get("life", PUFF_LIFE))) * _smoke_frames.size())
 			pf.node.texture = _smoke_frames[mini(k, _smoke_frames.size() - 1)]
 		u -= 1
 	# --- sparks ---

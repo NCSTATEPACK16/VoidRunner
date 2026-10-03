@@ -114,7 +114,7 @@ func _run() -> void:
 		var yaw := a * TAU / 8.0
 		var facing := Vector3(sin(yaw), 0.0, cos(yaw))   # model front after yaw
 		assert(SpriteForge.angle_index(facing, Vector3.BACK, 8) == a)
-	assert(FxGen.fireball_frames().size() == 10)
+	assert(FxGen.fireball_frames().size() == FxGen.FIREBALL_FRAMES)   # v4a: 14
 	assert(FxGen.orb_frames(Palette.CYAN).size() == 2)
 	print("forge ok — %d enemy + %d boss sets, %d pickups, gpu=%s" % [
 		SpriteModels.ENEMIES.size(), SpriteModels.BOSSES.size(), SpriteModels.PICKUPS.size(),
@@ -1910,6 +1910,66 @@ func _run() -> void:
 	GameState.reduce_flashing = false
 	GameState.shields = GameState.max_shields()
 	print("FEEL ok — infighting (not self/grace/boss/sourceless, scores), boost FOV pulse + gate, steady warnings")
+	# --- v4a: palette tricks — banded distance darkness, colour cycling, capped
+	# flashes, richer blasts ---
+	var vrig: LightRig = game.light_rig
+	var vdist: Vector2 = vrig.distance_range()
+	assert(is_equal_approx(vdist.x, game.env.fog_depth_begin))
+	assert(is_equal_approx(vdist.y, game.env.fog_depth_end))   # the sprites' fog matches
+	for m in vrig._materials:
+		assert(is_equal_approx(float(m.get_shader_parameter("dist_end")), vdist.y))
+	var late := ShaderMaterial.new()
+	late.shader = load("res://shaders/sector.gdshader")
+	vrig.register(late)   # registered after the mood was set: still gets the range
+	assert(is_equal_approx(float(late.get_shader_parameter("dist_begin")), vdist.x))
+	vrig._materials.erase(late)
+	var vtheme: String = game._current_level().theme_id
+	var vcyc := TextureGen.cycle_keys(vtheme)
+	assert(not vcyc.is_empty())
+	for key in vcyc:
+		assert(is_equal_approx(float((game.world.mats[key] as ShaderMaterial)
+			.get_shader_parameter("cycle_speed")), float(vcyc[key])))
+	assert(is_equal_approx(float(game.world._door_mat.get_shader_parameter("cycle_speed")),
+		TextureGen.DOOR_CYCLE))
+	var still: Variant = (game.world.mats["ceil"] as ShaderMaterial).get_shader_parameter("cycle_speed")
+	assert(still == null or float(still) == 0.0)   # lamps and plain ceilings stay steady
+	# capped flashes: one per FLASH_GAP_MS, REDUCE FLASH scales them, they fade out
+	var vhud: Hud = game.hud
+	vhud._tint_last_ms = -100000
+	assert(vhud.flash_tint(Color.RED, 0.3))
+	assert(is_equal_approx(vhud._tint_flash.color.a, 0.3))
+	assert(not vhud.flash_tint(Color.RED, 0.3))   # inside the gap: refused
+	vhud._process(Hud.FLASH_FADE + 0.01)
+	assert(vhud._tint_flash.color.a == 0.0)
+	GameState.reduce_flashing = true
+	vhud._tint_last_ms = -100000
+	assert(vhud.flash_tint(Color.GOLD, 0.3))
+	assert(is_equal_approx(vhud._tint_flash.color.a, 0.3 * Hud.FLASH_REDUCED))
+	GameState.reduce_flashing = false
+	# a hit pops red; a shield pickup's message names the scaled amount
+	vhud._tint_last_ms = -100000
+	vhud._tint_flash.color.a = 0.0
+	game.player.iframes_t = 0.0
+	GameState.shields = GameState.max_shields()
+	game.player.take_damage(10.0, "TEST")
+	assert(vhud._tint_flash.color.a > 0.0 and vhud._tint_flash.color.r > 0.9)
+	GameState.difficulty = 0
+	game._on_pickup_collected("shield")
+	assert(vhud._msg.text == "SHIELD CELL +%d" % roundi(PickupManager.EFFECT.shield * 1.5))
+	GameState.difficulty = 1
+	# richer blasts: more frames, and a big one leaves lingering smoke
+	assert(FxGen.fireball_frames().size() == FxGen.FIREBALL_FRAMES)
+	assert(FxGen.smoke_frames().size() == FxGen.SMOKE_FRAMES)
+	var vsm: ShotManager = game.shot_mgr
+	vsm.clear_all()
+	vsm.spawn_explosion(game.player.position + game.player.forward() * 30.0, true)
+	for f in 48:   # past the 0.70 s fireball
+		vsm.update_shots(1.0 / 60.0)
+	assert(vsm._explosions.is_empty())
+	assert(vsm._puffs.size() == ShotManager.AFTERMATH_PUFFS)
+	assert(is_equal_approx(float(vsm._puffs[0].life), ShotManager.AFTERMATH_LIFE))
+	vsm.clear_all()
+	print("V4A ok — distance bands match the fog, cycling on themed surfaces, capped flashes, 14/6-frame blasts + aftermath smoke")
 	# --- re-audit Step 1: the app icons and link-preview card are painted by code
 	# (hard rule 1). Sizes are what the web export and the PWA manifest expect, and
 	# every pixel is a palette entry, read back through the same 8-bit Image path.
