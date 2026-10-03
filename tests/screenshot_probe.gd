@@ -29,10 +29,16 @@ func _shot_dir() -> String:
 
 func _capture(game: Node3D, file_name: String, dir: String) -> void:
 	await RenderingServer.frame_post_draw
-	var img: Image = (game.view as SubViewport).get_texture().get_image()
+	var view: SubViewport = game.view
+	var img: Image = view.get_texture().get_image()
 	img.save_png(dir + "/" + file_name)
-	# the state rides along so a stray auto-pause (focus loss under xvfb) shows up
-	print("[shot] %s/%s state=%d" % [dir, file_name, game.state])
+	# the state rides along so a stray auto-pause (focus loss under xvfb) shows up,
+	# and so do the 3D view's draw calls and objects for that frame (v4 perf gate)
+	print("[shot] %s/%s state=%d draws=%d objects=%d" % [dir, file_name, game.state,
+		view.get_render_info(Viewport.RENDER_INFO_TYPE_VISIBLE,
+			Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME),
+		view.get_render_info(Viewport.RENDER_INFO_TYPE_VISIBLE,
+			Viewport.RENDER_INFO_OBJECTS_IN_FRAME)])
 
 
 ## Root-window capture — overlays (briefing/menus) render at native res OUTSIDE
