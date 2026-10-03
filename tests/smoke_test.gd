@@ -15,7 +15,7 @@ func _run() -> void:
 	print("smoke: _run entered")
 	# the test completes levels — snapshot and restore the player's real records
 	var saved := {}
-	for f in ["user://records.cfg", "user://settings.cfg"]:
+	for f in ["user://records.cfg", "user://settings.cfg", "user://checkpoint.cfg"]:
 		saved[f] = FileAccess.get_file_as_bytes(f) if FileAccess.file_exists(f) else null
 	# PathGen unit pass over every campaign level (probe loop = level count check)
 	var count := 0
@@ -114,7 +114,7 @@ func _run() -> void:
 		var yaw := a * TAU / 8.0
 		var facing := Vector3(sin(yaw), 0.0, cos(yaw))   # model front after yaw
 		assert(SpriteForge.angle_index(facing, Vector3.BACK, 8) == a)
-	assert(FxGen.fireball_frames().size() == 10)
+	assert(FxGen.fireball_frames().size() == FxGen.FIREBALL_FRAMES)   # v4a: 14
 	assert(FxGen.orb_frames(Palette.CYAN).size() == 2)
 	print("forge ok — %d enemy + %d boss sets, %d pickups, gpu=%s" % [
 		SpriteModels.ENEMIES.size(), SpriteModels.BOSSES.size(), SpriteModels.PICKUPS.size(),
@@ -426,7 +426,7 @@ func _run() -> void:
 	spn.node.position = game.player.position + pfwd * 45.0
 	spn.fire_t = 0.0
 	var ring_vels: Array[Vector3] = []
-	var grab := func(_o: Vector3, v: Vector3, _d: float, _s: float, _k: bool) -> void:
+	var grab := func(_o: Vector3, v: Vector3, _d: float, _s: float, _k: bool, _src: Node3D) -> void:
 		ring_vels.append(v)
 	em.enemy_fired.connect(grab)
 	em.update_enemies(dt)
@@ -472,7 +472,7 @@ func _run() -> void:
 	mb.summon_t = 99.0
 	mb.spiral_t = 1.0
 	var spiral := [0]
-	var tally := func(_o: Vector3, _v: Vector3, _d: float, _s: float, _k: bool) -> void:
+	var tally := func(_o: Vector3, _v: Vector3, _d: float, _s: float, _k: bool, _src: Node3D) -> void:
 		spiral[0] += 1
 	em.enemy_fired.connect(tally)
 	for f in 30:
@@ -1082,7 +1082,8 @@ func _run() -> void:
 	var help_p: Control = game.overlays._panels.help
 	var pad_y: float = game.overlays._help_pad.position.y
 	var rows: Array[float] = []
-	for child in help_p.get_children():
+	# re-audit Step 5: the key rows live on the manual's keys page
+	for child in help_p.get_children() + game.overlays._help_keys.get_children():
 		if child is Label or child is Button:
 			var c := child as Control
 			assert(c.position.y + 20.0 <= 200.0)          # nothing runs off the panel
@@ -1095,7 +1096,8 @@ func _run() -> void:
 	help_p.queue_free()               # _build_help() makes a fresh panel each call
 	game.overlays._build_help()
 	await get_tree().process_frame
-	for child in (game.overlays._panels.help as Control).get_children():
+	for child in (game.overlays._panels.help as Control).get_children() \
+			+ game.overlays._help_keys.get_children():
 		if child is Label and (child as Label).text.begins_with("F  send"):
 			fb_seen += 1
 	assert(fb_seen == 0)                                  # and vanishes again when unset
@@ -1645,6 +1647,329 @@ func _run() -> void:
 	game._toggle_pause()
 	assert(game.state == game.State.PLAYING and is_equal_approx(Engine.time_scale, 1.0))
 	print("DIFFICULTY ok — presets + assists reach damage/shots/pickups/fuse/time scale, saved, UI rows")
+	# --- re-audit Step 4 (M5c): checkpoints — storage, save points, resume, UI ---
+	var lc: int = game.levels.size()
+	GameState.clear_checkpoint()
+	assert(GameState.load_checkpoint(lc).is_empty())
+	var stamped := GameState.save_checkpoint(game._checkpoint_data(5, [0]))
+	var cp_back := GameState.load_checkpoint(lc)
+	assert(not cp_back.is_empty() and int(cp_back.ring) == 5 and cp_back.cleared_arenas == [0])
+	assert(int(cp_back.level_index) == GameState.level_index)
+	assert(int(cp_back.score) == GameState.score)
+	# a corrupt file and an out-of-range sector are ignored, never fatal
+	var corrupt := FileAccess.open(GameState.CHECKPOINT_PATH, FileAccess.WRITE)
+	corrupt.store_string("this is [not a config")
+	corrupt.close()
+	assert(GameState.load_checkpoint(lc).is_empty())
+	var oor: Dictionary = stamped.duplicate(true)
+	oor.level_index = 99
+	assert(GameState.normalize_checkpoint(oor, lc).is_empty())
+	# the newer of the two copies wins; the localStorage copy round-trips JSON floats
+	var older := GameState.normalize_checkpoint(stamped, lc)
+	var newer: Dictionary = older.duplicate(true)
+	newer.saved_at = float(older.saved_at) + 10.0
+	newer.ring = 9
+	assert(int(GameState.pick_checkpoint(older, newer).ring) == 9)
+	assert(int(GameState.pick_checkpoint(newer, older).ring) == 9)
+	assert(int(GameState.pick_checkpoint({}, older).ring) == 5)
+	var via_json: Dictionary = JSON.parse_string(JSON.stringify(stamped))
+	var nj := GameState.normalize_checkpoint(via_json, lc)
+	assert(typeof(nj.level_index) == TYPE_INT and int(nj.ring) == 5)
+	# save points: a cleared bulkhead saves on RUNNER, not on VOIDBORNE
+	GameState.clear_checkpoint()
+	game._checkpoint = {}
+	var doors: Array = []
+	for a in game.path.arenas:
+		if a.door_ring >= 0 and not game.world.is_door_open(a.id) \
+				and int(game._arena_spawned.get(a.id, 0)) > 0:
+			doors.append(a)
+	assert(doors.size() >= 2)
+	GameState.difficulty = 1
+	var arena0: Dictionary = doors[0]
+	for k in int(game._arena_spawned[arena0.id]) - int(game._arena_kills.get(arena0.id, 0)):
+		game._on_enemy_killed(arena0.id)
+	assert(game.world.is_door_open(arena0.id))
+	var mid := GameState.load_checkpoint(lc)
+	assert(int(mid.ring) == int(arena0.door_ring) + 2 and int(arena0.id) in mid.cleared_arenas)
+	assert(game._has_mid_checkpoint())
+	GameState.difficulty = 2
+	var arena1: Dictionary = doors[1]
+	for k in int(game._arena_spawned[arena1.id]) - int(game._arena_kills.get(arena1.id, 0)):
+		game._on_enemy_killed(arena1.id)
+	assert(game.world.is_door_open(arena1.id))
+	assert(int(GameState.load_checkpoint(lc).ring) == int(arena0.door_ring) + 2)   # untouched
+	GameState.difficulty = 1
+	# resume: the ship on the checkpoint ring, cleared doors open and their guards gone,
+	# nothing spawned behind, the run's numbers back
+	GameState.score = 4321
+	GameState.level_kills = 17
+	var saved_cp := GameState.save_checkpoint(game._checkpoint_data(int(mid.ring), [arena0.id]))
+	GameState.score = 0
+	GameState.level_kills = 0
+	game._begin_resume(GameState.load_checkpoint(lc))
+	assert(game.state == game.State.BRIEFING)
+	assert(game.overlays._briefing_launch.text == "> RESUME")
+	game._on_launch()
+	await get_tree().process_frame
+	assert(game.state == game.State.PLAYING)
+	var rr: int = int(saved_cp.ring)
+	assert(game.player.ring_idx == rr)
+	var rring: Dictionary = game.path.rings[rr]
+	assert(game.player.position.distance_to(rring.p) < 1.5)   # one frame of flight since the launch
+	assert(game.player.forward().dot(rring.d) > 0.97)
+	assert(game.world.is_door_open(arena0.id))
+	for e in game.enemy_mgr.enemies:
+		assert(int(e.arena_id) != int(arena0.id))
+		assert(not (int(e.arena_id) == -1 and int(e.ring) < rr))
+	assert(GameState.score == 4321 and GameState.level_kills == 17)
+	assert(int(GameState.load_checkpoint(lc).ring) == rr)   # a resume doesn't re-save ring 1
+	assert(game.overlays._briefing_launch.text == "> LAUNCH")
+	# game over offers the checkpoint first, then a full restart
+	game.overlays.set_retry_options(true)
+	assert(game.overlays._go_retry.text == "@ RETRY FROM CHECKPOINT" and game.overlays._go_restart.visible)
+	game.overlays.set_retry_options(false)
+	assert(game.overlays._go_retry.text == "@ RETRY LEVEL" and not game.overlays._go_restart.visible)
+	# the title's CONTINUE row follows the save
+	game._refresh_continue()
+	assert(not game.overlays._continue_btn.disabled)
+	assert(game.overlays._continue_btn.text.begins_with("CONTINUE · L1"))
+	# a sector clear saves the next sector's start; the campaign's end clears it
+	game._level_complete()
+	var next_cp := GameState.load_checkpoint(lc)
+	assert(int(next_cp.level_index) == 1 and int(next_cp.ring) == 1)
+	assert(int(next_cp.level_start_score) == GameState.score)
+	GameState.level_index = lc - 1
+	game._level_complete()
+	assert(GameState.load_checkpoint(lc).is_empty())
+	assert(game.overlays._continue_btn.disabled)
+	print("CHECKPOINT ok — round trip, corrupt/oor ignored, newer wins, bulkhead saves, resume, UI")
+	# --- re-audit Step 5 (M5d): the first 90 seconds — callouts, first contact, manual ---
+	GameState.seen_flight_tips = false
+	GameState.reset_run()
+	game._gauntlet = false
+	GameState.gauntlet_mode = false
+	game._resume = {}
+	game._built_level = -1
+	game._launch_level()   # sector 1 straight from code: builds the world, starts the tips
+	assert(game.state == game.State.PLAYING)
+	var first_contact := false
+	for e in game.enemy_mgr.enemies:
+		if int(e.arena_id) == -1 and e.type == "drone" and int(e.ring) == 12:
+			first_contact = true
+	assert(first_contact)   # the guaranteed sector-1 drone
+	assert(game._tips_on and game._tip_stage == game.TIP_STEER)
+	game._update_tips(1.6)
+	assert(game.hud._msg.text == game.tip_text(game.TIP_STEER))
+	game.player.yaw += 0.3                     # steering answers STEER
+	game._update_tips(0.1)
+	assert(game._tip_stage == game.TIP_FIRE)
+	game._update_tips(0.1)
+	assert(game.hud._msg.text == game.tip_text(game.TIP_FIRE))
+	GameState.level_shots += 1                 # a shot answers FIRE
+	game._update_tips(0.1)
+	assert(game._tip_stage == game.TIP_BOOST)
+	GameState.level_kills += 1                 # BOOST waits for a kill (or 8 s)
+	Input.action_press("boost")
+	game._update_tips(0.1)
+	Input.action_release("boost")
+	assert(game._tip_stage == game.TIP_EVADE)
+	game._update_tips(0.1)
+	assert(game.hud._msg.text != game.tip_text(game.TIP_EVADE))   # waits for a bolt
+	game.shot_mgr.threat_near = true
+	game._update_tips(4.0)
+	assert(game.hud._msg.text == game.tip_text(game.TIP_EVADE))
+	game.player.dodged.emit(Vector3.RIGHT)     # a roll answers EVADE
+	game._update_tips(0.1)
+	assert(not game._tips_on and GameState.seen_flight_tips)
+	GameState.seen_flight_tips = false
+	GameState.load_settings()
+	assert(GameState.seen_flight_tips)         # saved for good
+	game._start_tips(true)
+	assert(not game._tips_on)                  # never repeats
+	# a line nobody answers moves on instead of nagging
+	GameState.seen_flight_tips = false
+	game._start_tips(true)
+	game._update_tips(game.TIP_GIVE_UP + 0.1)
+	assert(game._tip_stage == game.TIP_FIRE)
+	game._tips_on = false
+	GameState.mark_flight_tips_seen()
+	# touch wording, and the stick's double flick reaches the double-tap roll
+	game._touch_mode = true
+	assert(game.tip_text(game.TIP_STEER) == "DRAG LEFT THUMB TO STEER")
+	game._touch_mode = false
+	GameState.energy = GameState.max_energy()
+	game.player.dodge_cd = 0.0
+	Input.action_press("steer_left", 0.8)
+	game.player.update_flight(1.0 / 60.0)
+	Input.action_release("steer_left")
+	game.player.update_flight(1.0 / 60.0)
+	Input.action_press("steer_left", 0.8)
+	game.player.update_flight(1.0 / 60.0)
+	Input.action_release("steer_left")
+	assert(game.player.dodge_cd > 0.0)
+	# the FLIGHT MANUAL shows the touch page in touch mode
+	game.overlays.touch_mode = true
+	game.overlays.show_only("help")
+	assert(game.overlays._help_touch.visible and not game.overlays._help_keys.visible)
+	game.overlays.touch_mode = false
+	game.overlays.show_only("help")
+	assert(game.overlays._help_keys.visible and not game.overlays._help_touch.visible)
+	game.overlays.hide_all()
+	print("FIRST-RUN ok — sector-1 drone, STEER/FIRE/BOOST/EVADE callouts, saved, give-up, touch manual + roll")
+	# --- re-audit Step 6 (M6): feel — infighting, the boost pulse, steady warnings ---
+	var fem: EnemyManager = game.enemy_mgr
+	var fsm: ShotManager = game.shot_mgr
+	fem.clear_all()
+	fsm.clear_all()
+	var fring := mini(game.player.ring_idx + 6, game.path.main_ring_count - 2)
+	fem.spawn(fring, -1, "drone")
+	fem.spawn(fring, -1, "hulk")
+	assert(fem.enemies.size() == 2)
+	var shooter: Dictionary = fem.enemies[0]
+	var victim: Dictionary = fem.enemies[1]
+	(victim.node as Node3D).position = (shooter.node as Node3D).position + Vector3(0, 0, -6)
+	var vhp: int = victim.hp
+	var shp: int = shooter.hp
+	# each bolt is tested on alternate frames, so every check below steps two
+	var two_frames := func(dt: float) -> void:
+		fsm.update_shots(dt)
+		fsm.update_shots(dt)
+	# a stray bolt resting on a neighbour hurts it by INFIGHT_DMG and is spent
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	fsm._eshots.back().age = 1.0
+	two_frames.call(1.0 / 60.0)
+	assert(int(victim.hp) == vhp - ShotManager.INFIGHT_DMG)
+	assert(fsm._eshots.is_empty())
+	# ...never its own shooter, never inside the grace time, never a boss, and boss
+	# patterns (no source) never infight at all
+	fsm.fire_enemy(shooter.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	fsm._eshots.back().age = 1.0
+	two_frames.call(1.0 / 60.0)
+	assert(int(shooter.hp) == shp)
+	fsm.clear_all()
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	two_frames.call(1.0 / 60.0)   # age 2/60 < INFIGHT_GRACE
+	assert(int(victim.hp) == vhp - ShotManager.INFIGHT_DMG)
+	fsm.clear_all()
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, null)
+	two_frames.call(1.0)
+	assert(int(victim.hp) == vhp - ShotManager.INFIGHT_DMG)
+	fsm.clear_all()
+	victim.is_boss = true
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	fsm._eshots.back().age = 1.0
+	two_frames.call(1.0 / 60.0)
+	assert(int(victim.hp) == vhp - ShotManager.INFIGHT_DMG)
+	victim.erase("is_boss")
+	fsm.clear_all()
+	# a kill made by infighting scores like a chain kill
+	victim.hp = 1
+	var fscore := GameState.score
+	fsm.fire_enemy(victim.node.position, Vector3.ZERO, 9.0, 1.7, false, shooter.node)
+	fsm._eshots.back().age = 1.0
+	two_frames.call(1.0 / 60.0)
+	assert(fem.enemies.size() == 1 and GameState.score > fscore)
+	fem.clear_all()
+	fsm.clear_all()
+	# boost: the press (not the hold) pulses the FOV up and back; SCREEN SHAKE gates it
+	GameState.screen_shake = true
+	GameState.energy = GameState.max_energy()
+	game.player._boost_pulse_t = -1.0
+	Input.action_press("boost")
+	game.player.update_flight(1.0 / 60.0)
+	assert(game.player._boost_pulse_t >= 0.0)
+	await get_tree().process_frame   # next frame: still held, no longer "just pressed"
+	var pulse_t: float = game.player._boost_pulse_t
+	game.player.update_flight(0.05)
+	assert(game.player._boost_pulse_t > pulse_t)   # the same pulse, not a restart
+	assert(game.player.camera.fov > GameState.view_fov + 1.0)
+	Input.action_release("boost")
+	for f in 45:
+		game.player.update_flight(1.0 / 60.0)
+	assert(game.player._boost_pulse_t < 0.0)
+	assert(is_equal_approx(game.player.camera.fov, GameState.view_fov))
+	GameState.screen_shake = false
+	await get_tree().process_frame
+	Input.action_press("boost")
+	game.player.update_flight(1.0 / 60.0)
+	Input.action_release("boost")
+	assert(game.player._boost_pulse_t < 0.0)
+	GameState.screen_shake = true
+	# REDUCE FLASH: the THREAT lamp and the low-shield LED hold steady
+	GameState.reduce_flashing = true
+	game.shot_mgr.threat_near = true
+	GameState.shields = GameState.max_shields() * 0.1
+	game.hud._process(1.0 / 60.0)
+	var steady_threat: int = game.hud._c_blink
+	var steady_led: int = game.hud._led_blink
+	OS.delay_msec(230)   # past both blink half-periods
+	game.shot_mgr.threat_near = true
+	game.hud._process(1.0 / 60.0)
+	assert(game.hud._c_blink == steady_threat and game.hud._led_blink == steady_led)
+	assert(steady_led == 0)   # 0 = the segment lit
+	GameState.reduce_flashing = false
+	GameState.shields = GameState.max_shields()
+	print("FEEL ok — infighting (not self/grace/boss/sourceless, scores), boost FOV pulse + gate, steady warnings")
+	# --- v4a: palette tricks — banded distance darkness, colour cycling, capped
+	# flashes, richer blasts ---
+	var vrig: LightRig = game.light_rig
+	var vdist: Vector2 = vrig.distance_range()
+	assert(is_equal_approx(vdist.x, game.env.fog_depth_begin))
+	assert(is_equal_approx(vdist.y, game.env.fog_depth_end))   # the sprites' fog matches
+	for m in vrig._materials:
+		assert(is_equal_approx(float(m.get_shader_parameter("dist_end")), vdist.y))
+	var late := ShaderMaterial.new()
+	late.shader = load("res://shaders/sector.gdshader")
+	vrig.register(late)   # registered after the mood was set: still gets the range
+	assert(is_equal_approx(float(late.get_shader_parameter("dist_begin")), vdist.x))
+	vrig._materials.erase(late)
+	var vtheme: String = game._current_level().theme_id
+	var vcyc := TextureGen.cycle_keys(vtheme)
+	assert(not vcyc.is_empty())
+	for key in vcyc:
+		assert(is_equal_approx(float((game.world.mats[key] as ShaderMaterial)
+			.get_shader_parameter("cycle_speed")), float(vcyc[key])))
+	assert(is_equal_approx(float(game.world._door_mat.get_shader_parameter("cycle_speed")),
+		TextureGen.DOOR_CYCLE))
+	var still: Variant = (game.world.mats["ceil"] as ShaderMaterial).get_shader_parameter("cycle_speed")
+	assert(still == null or float(still) == 0.0)   # lamps and plain ceilings stay steady
+	# capped flashes: one per FLASH_GAP_MS, REDUCE FLASH scales them, they fade out
+	var vhud: Hud = game.hud
+	vhud._tint_last_ms = -100000
+	assert(vhud.flash_tint(Color.RED, 0.3))
+	assert(is_equal_approx(vhud._tint_flash.color.a, 0.3))
+	assert(not vhud.flash_tint(Color.RED, 0.3))   # inside the gap: refused
+	vhud._process(Hud.FLASH_FADE + 0.01)
+	assert(vhud._tint_flash.color.a == 0.0)
+	GameState.reduce_flashing = true
+	vhud._tint_last_ms = -100000
+	assert(vhud.flash_tint(Color.GOLD, 0.3))
+	assert(is_equal_approx(vhud._tint_flash.color.a, 0.3 * Hud.FLASH_REDUCED))
+	GameState.reduce_flashing = false
+	# a hit pops red; a shield pickup's message names the scaled amount
+	vhud._tint_last_ms = -100000
+	vhud._tint_flash.color.a = 0.0
+	game.player.iframes_t = 0.0
+	GameState.shields = GameState.max_shields()
+	game.player.take_damage(10.0, "TEST")
+	assert(vhud._tint_flash.color.a > 0.0 and vhud._tint_flash.color.r > 0.9)
+	GameState.difficulty = 0
+	game._on_pickup_collected("shield")
+	assert(vhud._msg.text == "SHIELD CELL +%d" % roundi(PickupManager.EFFECT.shield * 1.5))
+	GameState.difficulty = 1
+	# richer blasts: more frames, and a big one leaves lingering smoke
+	assert(FxGen.fireball_frames().size() == FxGen.FIREBALL_FRAMES)
+	assert(FxGen.smoke_frames().size() == FxGen.SMOKE_FRAMES)
+	var vsm: ShotManager = game.shot_mgr
+	vsm.clear_all()
+	vsm.spawn_explosion(game.player.position + game.player.forward() * 30.0, true)
+	for f in 48:   # past the 0.70 s fireball
+		vsm.update_shots(1.0 / 60.0)
+	assert(vsm._explosions.is_empty())
+	assert(vsm._puffs.size() == ShotManager.AFTERMATH_PUFFS)
+	assert(is_equal_approx(float(vsm._puffs[0].life), ShotManager.AFTERMATH_LIFE))
+	vsm.clear_all()
+	print("V4A ok — distance bands match the fog, cycling on themed surfaces, capped flashes, 14/6-frame blasts + aftermath smoke")
 	# --- re-audit Step 1: the app icons and link-preview card are painted by code
 	# (hard rule 1). Sizes are what the web export and the PWA manifest expect, and
 	# every pixel is a palette entry, read back through the same 8-bit Image path.

@@ -18,6 +18,10 @@ const MAX_CANDIDATES := 48
 const STATIC_CULL := 170.0
 
 var _materials: Array[ShaderMaterial] = []
+## v4a: the banded distance-darkness range every sector material shares (the
+## sprites' depth fog uses the same endpoints). Kept here so materials registered
+## after a level's mood is set still pick it up.
+var _dist := Vector2(18.0, 110.0)
 var _statics: Array[Dictionary] = []   # {pos, color, energy, range, mode, phase, on}
 var _t := 0.0
 var _cam := Vector3.ZERO
@@ -48,7 +52,21 @@ func register(mat: ShaderMaterial) -> ShaderMaterial:
 		_materials.append(mat)
 		mat.set_shader_parameter("dyn_pos", _out_p)
 		mat.set_shader_parameter("dyn_col", _out_c)
+		mat.set_shader_parameter("dist_begin", _dist.x)
+		mat.set_shader_parameter("dist_end", _dist.y)
 	return mat
+
+
+## v4a: set the distance-darkness range (once per level, from the theme mood).
+func set_distance(begin: float, end: float) -> void:
+	_dist = Vector2(begin, end)
+	for m in _materials:
+		m.set_shader_parameter("dist_begin", begin)
+		m.set_shader_parameter("dist_end", end)
+
+
+func distance_range() -> Vector2:
+	return _dist
 
 
 func clear_materials() -> void:

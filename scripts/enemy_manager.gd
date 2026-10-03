@@ -12,8 +12,11 @@ extends Node3D
 ## attack pattern (see _update_boss).
 
 signal enemy_killed(arena_id: int)
+## Re-audit Step 6: `src` is the firing enemy's node, so a stray bolt can hit its
+## neighbours (infighting) but never its shooter; boss patterns pass null and never
+## infight, which keeps every boss fight as designed.
 signal enemy_fired(origin: Vector3, velocity: Vector3, dmg: float, shot_size: float,
-	seeker: bool)
+	seeker: bool, src: Node3D)
 signal exploded(pos: Vector3, big: bool)
 signal turret_destroyed(pos: Vector3)   # V2.0: game chains fuel cells off this
 signal boss_killed
@@ -108,6 +111,20 @@ static func random_power() -> String:
 	if r < 0.75:
 		return "powercore"
 	return "phase"
+
+
+## Re-audit Step 4: drop every enemy the predicate picks (a resumed checkpoint
+## removes cleared arenas' guards and tunnel spawns behind the ship).
+func remove_where(pick: Callable) -> int:
+	var removed := 0
+	for k in range(enemies.size() - 1, -1, -1):
+		var e: Dictionary = enemies[k]
+		if e.get("is_boss", false) or not pick.call(e):
+			continue
+		_release_node(e.node)
+		enemies.remove_at(k)
+		removed += 1
+	return removed
 
 
 func clear_all() -> void:
@@ -290,7 +307,7 @@ func update_enemies(delta: float) -> void:
 						+ player.forward() * (player.speed * turret_dist / 24.0 * 0.35) \
 						- node.position
 					enemy_fired.emit(node.position, taim.normalized() * 24.0,
-						SHOT_DMG + 1.0, 2.1 if e.seeker else 1.8, e.seeker)
+						SHOT_DMG + 1.0, 2.1 if e.seeker else 1.8, e.seeker, node)
 			if _despawn_far(k, e):
 				continue
 			_skin(e)
@@ -335,7 +352,8 @@ func update_enemies(delta: float) -> void:
 				var aim: Vector3 = player.position \
 					+ player.forward() * (player.speed * dist / 26.0 * 0.4) \
 					- node.position
-				enemy_fired.emit(node.position, aim.normalized() * 26.0, SHOT_DMG, 1.7, false)
+				enemy_fired.emit(node.position, aim.normalized() * 26.0, SHOT_DMG, 1.7, false,
+					node)
 			if dist < 4.5 and player.wall_hurt_t <= 0.0:
 				player.wall_hurt_t = 0.45
 				player.take_damage(CONTACT_DMG, "COLLISION")
@@ -440,7 +458,7 @@ func _update_spinner(k: int, e: Dictionary, delta: float) -> bool:
 	e.fire_t -= delta * GameState.enemy_tempo()
 	if e.fire_t <= 0.0 and dist < 90.0:
 		e.fire_t = e.fire * randf_range(0.9, 1.25)
-		_ring_burst(node.position, SPINNER_SPOKES, e.spin_a, 17.0, 4.5)
+		_ring_burst(node.position, SPINNER_SPOKES, e.spin_a, 17.0, 4.5, SHOT_DMG, node)
 		e.spin_a += PI / SPINNER_SPOKES   # the next ring comes rotated half a gap
 	if dist < 4.5 and player.wall_hurt_t <= 0.0:
 		player.wall_hurt_t = 0.45
@@ -497,12 +515,13 @@ func _aim_basis(origin: Vector3) -> Array[Vector3]:
 ## small circle (from angle a0) and spread as they travel, so the ring arrives
 ## wide with a hole in the middle.
 func _ring_burst(origin: Vector3, count: int, a0: float, speed: float, spread: float,
-		dmg := SHOT_DMG) -> void:
+		dmg := SHOT_DMG, src: Node3D = null) -> void:
 	var b := _aim_basis(origin)
 	for i in count:
 		var a := a0 + TAU * i / float(count)
 		var radial: Vector3 = b[1] * cos(a) + b[2] * sin(a)
-		enemy_fired.emit(origin + radial * 1.2, b[0] * speed + radial * spread, dmg, 1.6, false)
+		enemy_fired.emit(origin + radial * 1.2, b[0] * speed + radial * spread, dmg, 1.6, false,
+			src)
 
 
 ## 3.0: one step of a spiral hose — `arms` emitters wheel around the source and
@@ -514,7 +533,7 @@ func _spiral_shot(origin: Vector3, a: float, arms: int, speed: float) -> void:
 		var aa := a + TAU * i / float(arms)
 		var from: Vector3 = origin + (b[1] * cos(aa) + b[2] * sin(aa)) * 7.0
 		enemy_fired.emit(from, (player.position - from).normalized() * speed, SHOT_DMG, 1.7,
-			false)
+			false, null)
 
 
 ## Phase J boss brain: three HP-gated phases — aimed heavy shots, then +spread
@@ -581,7 +600,8 @@ func _boss_aimed(e: Dictionary, dist: float, delta: float, slow: float) -> void:
 		var node: Sprite3D = e.node
 		var aim: Vector3 = player.position \
 			+ player.forward() * (player.speed * dist / 32.0 * 0.4) - node.position
-		enemy_fired.emit(node.position, aim.normalized() * 32.0, BOSS_SHOT_DMG, 2.4, false)
+		enemy_fired.emit(node.position, aim.normalized() * 32.0, BOSS_SHOT_DMG, 2.4, false,
+			null)
 
 
 ## DOCK SENTINEL (L3), the gatekeeper — the Phase J pattern: aimed heavy shots,
@@ -655,7 +675,8 @@ func _boss_volley(origin: Vector3, count: int) -> void:
 	var to_player := (player.position - origin).normalized()
 	for i in count:
 		var ang := -0.35 + i * (0.7 / float(count - 1))
-		enemy_fired.emit(origin, to_player.rotated(Vector3.UP, ang) * 30.0, SHOT_DMG, 1.7, false)
+		enemy_fired.emit(origin, to_player.rotated(Vector3.UP, ang) * 30.0, SHOT_DMG, 1.7, false,
+			null)
 
 
 ## The boss ejects escorts of `type_id` — capped at MAX_SUMMONS live so the room

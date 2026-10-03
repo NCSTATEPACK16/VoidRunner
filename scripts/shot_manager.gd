@@ -20,14 +20,32 @@ const POOL_PREWARM := 128
 const POOL_HARD_CAP := 256        # > every per-class cap below combined
 const PSHOT_CAP := 48             # overflow: skip (fire rates can't reach this)
 const ESHOT_CAP := 64             # overflow: reuse-oldest (oldest bolt vanishes)
+## Re-audit Step 6: infighting. A stray enemy bolt that reaches another enemy (never
+## its own shooter, never a boss) does this much, in enemy HP — a NEUTRON hit — and
+## only after it has cleared its shooter's hull.
+const INFIGHT_DMG := 1
+const INFIGHT_GRACE := 0.15
+# The check runs on packed copies of the enemies' positions and hit radii (built
+# once per frame, on demand), and each bolt is tested on alternate frames: a bolt
+# moves under 1 u a frame against a ~7 u hit circle, so nothing slips through, and
+# the worst case (64 bolts x 42 enemies) stays a fraction of a millisecond.
+var _inf_pos := PackedVector3Array()
+var _inf_r2 := PackedFloat32Array()
+var _inf_nodes: Array[Node3D] = []
+var _inf_valid := false
+var _inf_parity := 0
 const EXPLOSION_CAP := 12         # overflow: reuse-oldest (finishes an old one)
 const SPARK_CAP := 60             # overflow: skip (pure garnish)
 const SHOCK_CAP := 6              # 3.0 big-blast shock rings; overflow: skip
 const PUFF_CAP := 48              # 3.0 missile-trail / aftermath smoke; overflow: skip
-## 3.0 FX timing: a 10-frame fireball at this rate lasts ~0.65 s
-const BOOM_FRAME_T := 0.065
+## 3.0 FX timing — v4a: a 14-frame fireball at this rate lasts 0.70 s (was 10 at
+## 0.065 = 0.65 s), so the blast keeps its length and gains smoothness
+const BOOM_FRAME_T := 0.05
 const SHOCK_FRAME_T := 0.05
 const PUFF_LIFE := 0.5
+## v4a: a big blast leaves this many slower, bigger smoke puffs hanging as it ends
+const AFTERMATH_PUFFS := 3
+const AFTERMATH_LIFE := 1.4
 const TRAIL_EVERY := 0.04         # a missile drops a smoke puff this often
 
 var player: PlayerShip
@@ -228,7 +246,7 @@ func fire_player(w: WeaponDef) -> void:
 
 
 func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
-		shot_size := 1.7, seeker := false) -> void:
+		shot_size := 1.7, seeker := false, src: Node3D = null) -> void:
 	if _eshots.size() >= ESHOT_CAP:
 		_release(_eshots[0].node)   # reuse-oldest: the stalest bolt vanishes
 		_eshots.remove_at(0)
@@ -238,8 +256,38 @@ func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
 	sprite.position = origin
 	# Step 3: every enemy and boss bolt passes here, so difficulty scales it once
 	_eshots.append({"node": sprite, "vel": velocity * GameState.enemy_shot_speed(),
-		"life": 5.0, "dmg": dmg,
+		"life": 5.0, "dmg": dmg, "src": src, "age": 0.0,
 		"seeker": seeker})
+
+
+## Re-audit Step 6: a stray bolt against every enemy but its shooter and bosses.
+## Kills score like the chain kills mines and fuel cells already make.
+func _infight(es: Dictionary) -> bool:
+	if not _inf_valid:
+		_build_infight_cache()
+	var pos: Vector3 = es.node.position
+	for j in range(_inf_pos.size() - 1, -1, -1):
+		if pos.distance_squared_to(_inf_pos[j]) < _inf_r2[j] and _inf_nodes[j] != es.src:
+			enemy_mgr.hit_enemy(j, INFIGHT_DMG)
+			_inf_valid = false   # that hit may have removed an enemy
+			for i in 2:
+				_spawn_spark(_spark_tex, pos, 8.0)
+			return true
+	return false
+
+
+## Bosses get a negative radius, so they can never be hit by stray fire.
+func _build_infight_cache() -> void:
+	var n := enemy_mgr.enemies.size()
+	_inf_pos.resize(n)
+	_inf_r2.resize(n)
+	_inf_nodes.resize(n)
+	for j in n:
+		var ene: Dictionary = enemy_mgr.enemies[j]
+		_inf_pos[j] = (ene.node as Node3D).position
+		_inf_r2[j] = -1.0 if ene.get("is_boss", false) else float(ene.get("hit_r2", 13.0))
+		_inf_nodes[j] = ene.node
+	_inf_valid = true
 
 
 func detonate(pos: Vector3, radius: float, dmg: int) -> void:
@@ -258,7 +306,7 @@ func spawn_explosion(pos: Vector3, big: bool) -> void:
 	var sprite := _acquire(_explosion_frames[0], 9.0 if big else 6.0)
 	if sprite:
 		sprite.position = pos
-		_explosions.append({"node": sprite, "t": 0.0})
+		_explosions.append({"node": sprite, "t": 0.0, "big": big})
 	if big and _shocks.size() < SHOCK_CAP:   # 3.0: a shock ring races out of big blasts
 		var ring := _acquire(_shock_frames[0], 13.0)
 		if ring:
@@ -276,14 +324,14 @@ func spawn_explosion(pos: Vector3, big: bool) -> void:
 
 
 ## 3.0: one pooled smoke puff (missile trails).
-func _spawn_puff(pos: Vector3, size: float) -> void:
+func _spawn_puff(pos: Vector3, size: float, life := PUFF_LIFE) -> void:
 	if _puffs.size() >= PUFF_CAP:
 		return
 	var p := _acquire(_smoke_frames[0], size)
 	if p == null:
 		return
 	p.position = pos
-	_puffs.append({"node": p, "t": PUFF_LIFE})
+	_puffs.append({"node": p, "t": life, "life": life})
 
 
 ## K4: blue spark puff at the dodge origin — same lifecycle as explosion sparks.
@@ -393,6 +441,8 @@ func update_shots(delta: float) -> void:
 			_pshots.remove_at(i)
 		i -= 1
 	# --- enemy shots ---
+	_inf_valid = false   # re-audit Step 6: enemies moved since the last frame
+	_inf_parity ^= 1
 	eshot_cache.resize(0)
 	threat_near = false
 	var q := _eshots.size() - 1
@@ -417,6 +467,10 @@ func update_shots(delta: float) -> void:
 		if not kill and es.node.position.distance_squared_to(player.position) < PLAYER_HIT_RANGE_SQ:
 			player_hit.emit(es.get("dmg", ENEMY_SHOT_DMG), es.node.position)
 			kill = true
+		if not kill and es.src != null:
+			es.age += delta
+			if es.age > INFIGHT_GRACE and (q & 1) == _inf_parity and _infight(es):
+				kill = true
 		if kill:
 			_release(es.node)
 			_eshots.remove_at(q)
@@ -432,6 +486,11 @@ func update_shots(delta: float) -> void:
 		ex.t += delta
 		var frame := int(ex.t / BOOM_FRAME_T)
 		if frame >= _explosion_frames.size():
+			if ex.get("big", false):   # v4a: aftermath smoke hangs where it burst
+				var at: Vector3 = ex.node.position
+				for k in AFTERMATH_PUFFS:
+					_spawn_puff(at + Vector3(randf_range(-1.5, 1.5), randf_range(-0.5, 1.0),
+						randf_range(-1.5, 1.5)), 4.5, AFTERMATH_LIFE)
 			_release(ex.node)
 			_explosions.remove_at(x)
 		else:
@@ -459,7 +518,7 @@ func update_shots(delta: float) -> void:
 			_puffs.remove_at(u)
 		else:
 			pf.node.position.y += delta * 1.5
-			var k := int((1.0 - pf.t / PUFF_LIFE) * _smoke_frames.size())
+			var k := int((1.0 - pf.t / float(pf.get("life", PUFF_LIFE))) * _smoke_frames.size())
 			pf.node.texture = _smoke_frames[mini(k, _smoke_frames.size() - 1)]
 		u -= 1
 	# --- sparks ---

@@ -11,6 +11,7 @@ extends Node
 ##   4. game-over / victory panels    -> shot_game_over.png / shot_victory.png
 ##   5. touch II tab over flight, then the pause menu -> shot_touch.png / shot_pause.png
 ##   6. difficulty panel (Step 3)      -> shot_difficulty.png
+##   7. touch page of the manual (Step 5) -> shot_help_touch.png
 ## Output dir: VR_SHOT_DIR env var, else user://shots. Restores records/settings.
 
 
@@ -56,7 +57,7 @@ func _fly(game: Node3D, frames: int) -> void:
 
 func _run() -> void:
 	var saved := {}
-	for f in ["user://records.cfg", "user://settings.cfg"]:
+	for f in ["user://records.cfg", "user://settings.cfg", "user://checkpoint.cfg"]:
 		saved[f] = FileAccess.get_file_as_bytes(f) if FileAccess.file_exists(f) else null
 	var dir := _shot_dir()
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()
@@ -70,6 +71,7 @@ func _run() -> void:
 	game.overlays.show_only("start")
 	for i in 150:   # 3.0: let the attract-mode flythrough get going behind the title
 		await get_tree().process_frame
+	game.overlays.set_continue("L4")   # re-audit Step 4: the CONTINUE row lit
 	await _capture_root("shot_start.png", dir)
 	# M1/M2: the two panels this session changed most — the settings grid now packs
 	# ten controls into 320x200, and the photosensitivity notice is brand new.
@@ -79,6 +81,10 @@ func _run() -> void:
 	await _capture_root("shot_settings.png", dir)
 	game.overlays.show_only("help")
 	await _capture_root("shot_help.png", dir)   # M3 privacy + feedback lines
+	game.overlays.touch_mode = true          # re-audit Step 5: the manual's touch page
+	game.overlays.show_only("help")
+	await _capture_root("shot_help_touch.png", dir)
+	game.overlays.touch_mode = false
 	game.overlays.open_difficulty("start")   # re-audit Step 3: preset + assists
 	await _capture_root("shot_difficulty.png", dir)
 	game.overlays.show_only("start")
@@ -93,6 +99,8 @@ func _run() -> void:
 	# 1) corridor in flight — far enough in that fog/strip/lighting all read
 	await _fly(game, 60 * 6)
 	await _capture(game, "shot_corridor.png", dir)
+	await _fly(game, 30)   # v4a: half a second on, the colour cycling has moved
+	await _capture(game, "shot_corridor2.png", dir)
 	# 1b) Tab automap over the explored corridor — must read as a 1995 automap
 	game._open_automap()
 	await _capture(game, "shot_automap.png", dir)
@@ -177,6 +185,7 @@ func _run() -> void:
 	# overlays render outside the 320x200 SubViewport, hence _capture_root.
 	game.overlays.set_final_score("game_over", 4200, false)
 	game.overlays.suggest_recruit()   # Step 3: the repeat-death hint line
+	game.overlays.set_retry_options(true)   # Step 4: checkpoint first, then restart
 	game.overlays.show_only("game_over")
 	await _capture_root("shot_game_over.png", dir)
 	game.overlays.set_final_score("victory", 15800, true)

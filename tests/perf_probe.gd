@@ -18,7 +18,7 @@ func _run() -> void:
 	# the probe completes levels and would fold its score into the player's real
 	# records — snapshot user:// records/settings and restore them on exit
 	var saved := {}
-	for f in ["user://records.cfg", "user://settings.cfg"]:
+	for f in ["user://records.cfg", "user://settings.cfg", "user://checkpoint.cfg"]:
 		saved[f] = FileAccess.get_file_as_bytes(f) if FileAccess.file_exists(f) else null
 
 	var t_boot := Time.get_ticks_usec()

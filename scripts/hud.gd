@@ -47,6 +47,16 @@ var weapon_names: Array[String] = []
 var _flash: ColorRect
 var _bomb_flash: ColorRect   # V2.0 plasma bomb white-out, decays in _process
 var _phase_tint: ColorRect   # 3.0: faint cyan glaze while PHASE SHIELD runs
+## v4a: capped whole-screen flashes — red on a hit, gold on a pickup. At most one
+## new flash every FLASH_GAP_MS (no more than 3 a second, the photosensitivity
+## line); REDUCE FLASH scales them down. They sit under the palette layer, so they
+## come out in palette colours like everything else.
+const FLASH_GAP_MS := 340
+const FLASH_FADE := 0.25
+const FLASH_REDUCED := 0.35
+var _tint_flash: ColorRect
+var _tint_a0 := 0.0
+var _tint_last_ms := -100000
 var _power_draw: Control
 var _power_labels := {}      # kind -> Label
 var _c_power_live := false
@@ -118,6 +128,11 @@ func _ready() -> void:
 	_phase_tint.color = Color(0.3, 0.9, 1.0, 0.0)
 	_phase_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_phase_tint)
+	_tint_flash = ColorRect.new()   # v4a
+	_tint_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_tint_flash.color = Color(1, 1, 1, 0.0)
+	_tint_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_tint_flash)
 	# canopy frame under everything else so readouts stay on top; the static
 	# frame draws once at boot, the dynamic layer sits directly on top of it
 	_canopy_static = Control.new()
@@ -223,6 +238,18 @@ func show_message(text: String, t := 1.2) -> void:
 	_msg_t = t
 
 
+## v4a: a whole-screen tint pop that fades over FLASH_FADE. Returns false (and
+## does nothing) inside FLASH_GAP_MS of the last one — the 3-a-second cap.
+func flash_tint(color: Color, strength: float) -> bool:
+	var now := Time.get_ticks_msec()
+	if now - _tint_last_ms < FLASH_GAP_MS:
+		return false
+	_tint_last_ms = now
+	_tint_a0 = clampf(strength, 0.0, 0.6) * (FLASH_REDUCED if GameState.reduce_flashing else 1.0)
+	_tint_flash.color = Color(color.r, color.g, color.b, _tint_a0)
+	return true
+
+
 ## V2.0 plasma bomb white-out — bright pop that fades over ~0.4 s.
 func flash_white() -> void:
 	# M1.2: the full-screen white-out is the one effect here that plausibly crosses
@@ -259,11 +286,17 @@ func _process(delta: float) -> void:
 	_msg_t -= delta
 	_msg.visible = _msg_t > 0.0
 	_bomb_flash.color.a = maxf(0.0, _bomb_flash.color.a - delta * 1.4)
+	if _tint_flash.color.a > 0.0:
+		_tint_flash.color.a = maxf(0.0, _tint_flash.color.a - delta * _tint_a0 / FLASH_FADE)
 	if player:
-		var a := minf(1.0, player.shake * 1.6) * 0.3
+		# v4a: red now means "you were hit" (flash_tint, capped); shake alone no
+		# longer reddens the screen, so a nearby blast reads as a blast
+		var a := 0.0
 		# Phase J: low-shield warning pulse under everything else
 		if GameState.shields < 25.0 and not GameState.is_dead:
-			a = maxf(a, (sin(Time.get_ticks_msec() / 160.0) * 0.5 + 0.5) * 0.14)
+			# re-audit Step 6: under REDUCE FLASH the warning is a steady tint, not a pulse
+			a = maxf(a, 0.07 if GameState.reduce_flashing \
+				else (sin(Time.get_ticks_msec() / 160.0) * 0.5 + 0.5) * 0.14)
 		_flash.color.a = a
 		# only rebuild the readout string when the shown integers change
 		var vel := int(player.speed)
@@ -280,7 +313,9 @@ func _process(delta: float) -> void:
 	var boss_live := enemy_mgr != null and not enemy_mgr.boss.is_empty()
 	_boss_name.visible = boss_live
 	# V2.1: each dynamic layer redraws only on state change
-	var blink := int(Time.get_ticks_msec() / 180) % 2 if _threat else -1
+	# re-audit Step 6: REDUCE FLASH holds the lamp lit instead of blinking it
+	var blink := (1 if GameState.reduce_flashing else int(Time.get_ticks_msec() / 180) % 2) \
+		if _threat else -1
 	var boss_hp := int(enemy_mgr.boss.hp) if boss_live else -1
 	var boss_flash: bool = boss_live and enemy_mgr.boss.flash_t > 0.0
 	if _threat != _c_threat or blink != _c_blink or GameState.plasma_bombs != _c_pips \
@@ -294,7 +329,7 @@ func _process(delta: float) -> void:
 	var dodge_busy := player != null and player.dodge_cd > 0.0
 	var tsec := int(player.elapsed) if player else 0
 	# 3.0 phase 4: the top lit SHLD segment blinks while shields are critical
-	var led_blink := int(Time.get_ticks_msec() / 200) % 2 \
+	var led_blink := (0 if GameState.reduce_flashing else int(Time.get_ticks_msec() / 200) % 2) \
 		if GameState.shields < GameState.max_shields() * 0.25 and not GameState.is_dead else -1
 	if GameState.weapon_index != _c_wpn or GameState.missiles != _c_missiles \
 			or tsec != _c_tsec or _kills != _c_kills or _kill_target != _c_ktarget \
@@ -474,7 +509,7 @@ func _draw_canopy_static() -> void:
 ## when one of those inputs changes (see the dirty caches in _process).
 func _draw_canopy() -> void:
 	var c := _canopy
-	var lit := _threat and int(Time.get_ticks_msec() / 180) % 2 == 0
+	var lit := _threat and (GameState.reduce_flashing or int(Time.get_ticks_msec() / 180) % 2 == 0)
 	c.draw_rect(Rect2(W / 2.0 - 14, 3, 5, 5), Color("ff3018") if lit else Color(0.22, 0.09, 0.07))
 	var threat_col := Color("ff5030") if _threat else Color(0.36, 0.20, 0.16)
 	c.draw_rect(Rect2(W / 2.0 - 4, 4, 22, 3), threat_col)

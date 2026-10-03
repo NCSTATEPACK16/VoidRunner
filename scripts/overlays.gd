@@ -21,6 +21,8 @@ signal new_campaign_requested
 signal warning_acknowledged   # M1.2: photosensitivity notice dismissed
 signal resume_requested       # re-audit Step 2: pause menu RESUME
 signal quit_to_title_requested   # re-audit Step 2: pause menu QUIT TO TITLE (confirmed)
+signal continue_requested        # re-audit Step 4: title CONTINUE (resume the checkpoint)
+signal retry_checkpoint_requested   # re-audit Step 4: game over RETRY FROM CHECKPOINT
 
 const BG := Color(0.008, 0.012, 0.03, 0.975)   # full screens: the HUD must not bleed through
 const START_BG := Color(0.0, 0.0, 0.02, 0.38)  # the title lets the attract flythrough show
@@ -66,6 +68,20 @@ var _sector_names: Array[String] = []
 var _sector_label: Label
 var _high_label: Label
 var _difficulty_btn: Button   # Step 3: main-menu row, shows the current preset
+## Re-audit Step 5: set by game.gd in touch mode; the FLIGHT MANUAL then shows the
+## touch layout instead of keys
+var touch_mode := false
+var _help_keys: Control
+var _help_touch: Control
+# re-audit Step 4: checkpoint rows
+var _continue_btn: Button
+var _new_btn: Button
+var _continue_tag := ""          # "L4" when a checkpoint exists, "" otherwise
+var _briefing_launch: Button
+var _go_retry: Button
+var _go_restart: Button
+var _go_difficulty: Button
+var _go_feedback: Button
 var _difficulty_return := "start"   # where the difficulty panel's BACK returns to
 var _help_pad: Label   # K6: gamepad line on the controls screen, shown only when enabled
 
@@ -100,6 +116,9 @@ func show_only(panel_name: String) -> void:
 	# button becomes visible, instead of baking a one-time answer into construction.
 	if panel_name in ["start", "game_over", "victory"]:
 		_refresh_install_buttons()
+	if panel_name == "help" and _help_keys:
+		_help_keys.visible = not touch_mode   # re-audit Step 5
+		_help_touch.visible = touch_mode
 	if panel_name == "help" and _help_pad:
 		_help_pad.text = "PAD  stick · A/RT fire · X/B roll" \
 			if GameState.gamepad_enabled else ""
@@ -129,6 +148,37 @@ func selected_sector() -> int:
 	return _sector
 
 
+## Re-audit Step 4: game.gd names the checkpoint's sector ("L4"), or "" for none.
+func set_continue(sector_tag: String) -> void:
+	_continue_tag = sector_tag
+	_refresh_start()
+
+
+## Re-audit Step 4: a briefing opened to resume a checkpoint says so on its button.
+func set_launch_label(text: String) -> void:
+	if _briefing_launch:
+		_briefing_launch.text = text
+
+
+func _on_go_retry() -> void:
+	if _go_restart.visible:
+		retry_checkpoint_requested.emit()
+	else:
+		retry_requested.emit()
+
+
+## Re-audit Step 4: with a mid-sector checkpoint, game over offers it first (and a
+## full sector restart second); without one, the plain RETRY LEVEL as before.
+func set_retry_options(has_checkpoint: bool) -> void:
+	_go_retry.text = "@ RETRY FROM CHECKPOINT" if has_checkpoint else "@ RETRY LEVEL"
+	_go_restart.visible = has_checkpoint
+	var y := 116.0 if has_checkpoint else 104.0
+	for b in [_go_difficulty, _go_feedback]:
+		if b:
+			y += 12.0
+			b.position.y = y
+
+
 func _adjust_sector(dir: int) -> void:
 	var max_sector: int = mini(GameState.unlocked_level, _sector_names.size() - 1)
 	_sector = clampi(_sector + dir, 0, max_sector)
@@ -143,6 +193,13 @@ func _refresh_start() -> void:
 	_sector_label.text = "SECTOR: %s" % _sector_names[_sector]
 	if _difficulty_btn:
 		_difficulty_btn.text = "DIFFICULTY: %s" % GameState.difficulty_name()
+	if _continue_btn:
+		var has_save := _continue_tag != ""
+		_continue_btn.disabled = not has_save
+		_continue_btn.focus_mode = Control.FOCUS_ALL if has_save else Control.FOCUS_NONE
+		_continue_btn.text = "CONTINUE · %s · %s" % [_continue_tag,
+			GameState.difficulty_name()] if has_save else "CONTINUE · NO SAVE"
+		_focus["start"] = _continue_btn if has_save else _new_btn
 	var records := ""
 	if GameState.high_score > 0:
 		records = "HIGH SCORE %d" % GameState.high_score
@@ -260,32 +317,38 @@ func _build_start() -> void:
 	p.add_child(logo)
 	_center(p, 44, "RUN. SURVIVE. ESCAPE THE VOID.", Color("5fb6d8"))
 	# main menu
-	_window(p, Rect2(44, 58, 232, 80), "MAIN MENU")
-	var launch := _menu_button(p, Rect2(58, 72, 204, 11), "LAUNCH CAMPAIGN", func() -> void:
+	_window(p, Rect2(44, 58, 232, 82), "MAIN MENU")
+	# re-audit Step 4: CONTINUE is always the first row, greyed out until there is a
+	# checkpoint, so the menu never shifts under a returning player's cursor. Six
+	# rows at 11 px keep the window clear of the records line and the transmission.
+	_continue_btn = _menu_button(p, Rect2(58, 71, 204, 11), "CONTINUE", func() -> void:
+		AudioSys.unlock()
+		continue_requested.emit())
+	_new_btn = _menu_button(p, Rect2(58, 82, 204, 11), "NEW CAMPAIGN", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit())
-	_focus["start"] = launch
+	_focus["start"] = _new_btn
 	# M1.5: the sector label is centred on the window and the arrows sit at the
 	# window's edges, outside the span of even the longest sector name.
-	_menu_button(p, Rect2(48, 84, 12, 11), "<", func() -> void: _adjust_sector(-1),
+	_menu_button(p, Rect2(48, 93, 12, 11), "<", func() -> void: _adjust_sector(-1),
 		KEY_COL, true)
-	_sector_label = _center(p, 86, "", KEY_COL)
-	_menu_button(p, Rect2(260, 84, 12, 11), ">", func() -> void: _adjust_sector(1),
+	_sector_label = _center(p, 95, "", KEY_COL)
+	_menu_button(p, Rect2(260, 93, 12, 11), ">", func() -> void: _adjust_sector(1),
 		KEY_COL, true)
 	# Step 3: the preset rides on its own row; manual + settings share the last one
-	_difficulty_btn = _menu_button(p, Rect2(58, 96, 204, 11), "", func() -> void:
+	_difficulty_btn = _menu_button(p, Rect2(58, 104, 204, 11), "", func() -> void:
 		open_difficulty("start"), KEY_COL)
 	# K5: endless survival mode — the button doubles as the audio-unlock gesture
-	_menu_button(p, Rect2(58, 108, 204, 11), "VOID GAUNTLET", func() -> void:
+	_menu_button(p, Rect2(58, 115, 204, 11), "VOID GAUNTLET", func() -> void:
 		AudioSys.unlock()
 		gauntlet_requested.emit())
-	_menu_button(p, Rect2(58, 120, 100, 11), "FLIGHT MANUAL", func() -> void:
+	_menu_button(p, Rect2(58, 126, 100, 11), "FLIGHT MANUAL", func() -> void:
 		_help_return = "start"
 		show_only("help"))
-	_menu_button(p, Rect2(162, 120, 100, 11), "SETTINGS", func() -> void:
+	_menu_button(p, Rect2(162, 126, 100, 11), "SETTINGS", func() -> void:
 		_settings_return = "start"
 		show_only("settings"), ORANGE_COL)
-	_high_label = _center(p, 141, "", KEY_COL)
+	_high_label = _center(p, 143, "", KEY_COL)
 	# the backstory, as a received transmission
 	_window(p, Rect2(8, 157, 304, 39), "TRANSMISSION · SECTOR ALPHA", WIN_EDGE_DIM)
 	_wrap(p, Rect2(14, 164, 292, 30), Lore.story(0), TEXT_COL)
@@ -297,6 +360,9 @@ func _build_start() -> void:
 func _build_help() -> void:
 	var p := _panel("help")
 	_window(p, Rect2(6, 6, 308, 188), "FLIGHT MANUAL")
+	# re-audit Step 5: two pages share the window — keys/mouse, and the touch layout
+	_help_keys = _help_page(p)
+	_help_touch = _help_page(p)
 	var left := [
 		"FLIGHT", "MOUSE/ARROWS steer", "W or RMB  afterburn", "S         brake",
 		"A / D     evade roll", "", "SYSTEM", "ENTER/ESC pause", "TAB       automap",
@@ -313,13 +379,15 @@ func _build_help() -> void:
 		"BACKSPACE cycle", "P  plasma bomb", "", "POWER-UPS", "OVERDRIVE  rapid fire",
 		"POWER CORE 2x damage", "PHASE      invulnerable",
 	]
-	for i in left.size():
-		_text(p, Vector2(16, 22 + i * 11), left[i],
-			TITLE_COL if left[i] in ["FLIGHT", "SYSTEM"] else TEXT_COL)
-	_help_pad = _text(p, Vector2(16, 22 + left.size() * 11), "", TEXT_COL)
-	for i in right.size():
-		_text(p, Vector2(166, 22 + i * 11), right[i],
-			TITLE_COL if right[i] in ["WEAPONS", "POWER-UPS"] else TEXT_COL)
+	_help_columns(_help_keys, left, right)
+	_help_pad = _text(_help_keys, Vector2(16, 22 + left.size() * 11), "", TEXT_COL)
+	_help_columns(_help_touch, [
+		"FLIGHT", "LEFT THUMB  steer", "DOUBLE-TAP  afterburn", "  (left side, on/off)",
+		"FLICK TWICE evade roll", "", "SYSTEM", "II (top right) pause",
+	], [
+		"WEAPONS", "HOLD FIRE   shoot", "WPN  next weapon", "BOMB plasma bomb", "",
+		"POWER-UPS", "OVERDRIVE  rapid fire", "POWER CORE 2x damage", "PHASE      invulnerable",
+	])
 	# M3: the short version. The full privacy note lives in the README and on the
 	# form itself — anything longer than one line here and nobody reads any of it.
 	_center(p, 154, "No cookies, no accounts, no personal data.", DIM_COL)
@@ -329,6 +397,23 @@ func _build_help() -> void:
 	_help_back = _menu_button(p, Rect2(166, 170, 70, 11), "< BACK", func() -> void:
 		show_only(_help_return), TEXT_COL, true)
 	_focus["help"] = _help_start
+
+
+func _help_page(p: Control) -> Control:
+	var page := Control.new()
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(page)
+	return page
+
+
+func _help_columns(page: Control, left: Array, right: Array) -> void:
+	for i in left.size():
+		_text(page, Vector2(16, 22 + i * 11), left[i],
+			TITLE_COL if left[i] in ["FLIGHT", "SYSTEM"] else TEXT_COL)
+	for i in right.size():
+		_text(page, Vector2(166, 22 + i * 11), right[i],
+			TITLE_COL if right[i] in ["WEAPONS", "POWER-UPS"] else TEXT_COL)
 
 
 func _build_briefing() -> void:
@@ -352,6 +437,7 @@ func _build_briefing() -> void:
 		AudioSys.unlock()
 		launch_requested.emit(), TITLE_COL, true)
 	_focus["briefing"] = launch
+	_briefing_launch = launch   # re-audit Step 4: reads "> RESUME" for a checkpoint
 
 
 ## Re-audit Step 2: a real menu instead of "click to re-engage". The panel now
@@ -397,19 +483,24 @@ func _disarm_quit() -> void:
 
 func _build_game_over() -> void:
 	var p := _panel("game_over")
-	_window(p, Rect2(40, 40, 240, 124), "SIGNAL LOST", RED_COL)
-	_center(p, 58, "HULL BREACH", RED_COL, 16)
-	var s := _center(p, 84, "SCORE 0", KEY_COL)
+	_window(p, Rect2(40, 34, 240, 138), "SIGNAL LOST", RED_COL)
+	_center(p, 50, "HULL BREACH", RED_COL, 16)
+	var s := _center(p, 76, "SCORE 0", KEY_COL)
 	s.name = "Score"
-	var rec := _center(p, 98, "", Color("5fb6d8"))
+	var rec := _center(p, 90, "", Color("5fb6d8"))
 	rec.name = "Record"
-	var retry := _menu_button(p, Rect2(100, 112, 120, 11), "@ RETRY LEVEL", func() -> void:
-		retry_requested.emit(), TITLE_COL, true)
-	_focus["game_over"] = retry
-	_menu_button(p, Rect2(100, 124, 120, 11), "DIFFICULTY", func() -> void:
+	# re-audit Step 4: the first row resumes the checkpoint when there is one
+	# (set_retry_options relabels it and lays the rows out)
+	_go_retry = _menu_button(p, Rect2(80, 104, 160, 11), "@ RETRY LEVEL", _on_go_retry,
+		TITLE_COL, true)
+	_focus["game_over"] = _go_retry
+	_go_restart = _menu_button(p, Rect2(80, 116, 160, 11), "RESTART SECTOR", func() -> void:
+		retry_requested.emit(), TEXT_COL, true)
+	_go_restart.visible = false
+	_go_difficulty = _menu_button(p, Rect2(80, 116, 160, 11), "DIFFICULTY", func() -> void:
 		open_difficulty("game_over"), KEY_COL, true)   # Step 3
-	_feedback_button(p, Rect2(100, 136, 120, 11))   # M3
-	_install_button(p, Vector2(136, 152))   # D11
+	_go_feedback = _feedback_button(p, Rect2(80, 128, 160, 11))   # M3
+	_install_button(p, Vector2(136, 156))   # D11
 
 
 func _build_level_clear() -> void:
@@ -860,10 +951,10 @@ func _menu_button(p: Control, rect: Rect2, text: String, on_press: Callable,
 ## M3: one feedback button, built the same way everywhere it appears. Absent
 ## rather than dead when no form is configured — a button that does nothing is
 ## worse than no button.
-func _feedback_button(p: Control, rect: Rect2) -> void:
+func _feedback_button(p: Control, rect: Rect2) -> Button:
 	if not Feedback.is_configured():
-		return
-	_menu_button(p, rect, "F  SEND FEEDBACK", func() -> void: Feedback.open_form(),
+		return null
+	return _menu_button(p, rect, "F  SEND FEEDBACK", func() -> void: Feedback.open_form(),
 		ORANGE_COL, true)
 
 

@@ -5,6 +5,83 @@
 verification). Steps 3–6 make the game finishable. v4 makes it feel like a full mid-90s DOS
 shooter before the public launch in Step 8.*
 
+## Progress (2026-10-03)
+
+| Sub-step | Status |
+|---|---|
+| v4a palette tricks | Done (PR #11) |
+| Perf groundwork | Next, one commit |
+| v4b roster and mini-bosses | Queued, three commits: parts kit; 8 enemies with heavy variants; mini-bosses |
+| v4c hubs, keys and objectives | Queued, two commits: hubs with keycards and switches; objectives |
+| v4d tally, episodes and menu feel | Queued, one commit |
+
+**How v4a landed, and where it differs from the plan below:**
+- **Stepped darkness.** The sector shader already cut light into 12 bands, so the missing piece
+  was distance.
+  - World geometry now darkens in those same bands between the theme's fog start and end
+    (`LightRig.set_distance`, called from `game._apply_theme_mood`), instead of through Godot's
+    smooth fog. Sprites keep the fog.
+  - Full-bright texels never dim below a floor of 0.3, so distant lamps still read.
+  - The band count is still one shader default, not set per theme. Tune it after a playtest.
+- **Colour cycling.** Each material gets its own `cycle_speed`. A reserved hue would not work,
+  because the wall textures are mipmapped and a per-texel marker would smear into its neighbours.
+  - `TextureGen.CYCLE` picks the surfaces for each motif:
+    - console screens and pipe trims in panel sectors;
+    - lava cracks in rock;
+    - glowing pods and ceiling sacs in organic;
+    - lit walls and coolant pipes in ice;
+    - runes and trims in rune sectors.
+  - The force-field doors cycle too.
+  - A brightness crest runs through the glowing texels, driven by the shader's `TIME`, so there is
+    no per-frame uniform write at all.
+  - The portal already animated in its own shader.
+- **Whole-screen flashes.** They go through one HUD overlay (`Hud.flash_tint`), not a new uniform
+  in the palette pass:
+  - red on a hit, scaled by the damage;
+  - gold on a pickup: stronger for timed powers, faint for salvage;
+  - no green: PHASE SHIELD already had a steady cyan glaze;
+  - the plasma bomb keeps its own white flash.
+
+  At most one flash starts every 340 ms (under 3 a second), and REDUCE FLASH cuts it to 35%.
+  A flash inside that gap is skipped, not stacked; there is no priority order yet. Camera shake
+  no longer tints the screen red, so red always means a hit.
+- **Explosions and smoke.**
+  - The fireball has 14 frames (up from 10) at 0.05 s each. Smoke has 6 (up from 4).
+  - Big blasts leave 3 slow smoke puffs that hang for 1.4 s.
+  - Hot debris cooling through its ramp moves to perf groundwork: debris gets batched there, and
+    the ramp step can then be per-instance data.
+- **Cost.** All shader work, except the smoke puffs. They are the one v4a item that adds draw calls:
+  up to 3 pooled sprites per big blast for 1.4 s, until `FxBatch` lands.
+
+  Perf probe, 10 headless runs:
+
+  | Run | Worst step |
+  |---|---|
+  | L8 | 3.1–5.4 ms |
+  | L9 boss | 3.4 ms |
+  | Gauntlet | 4.9–6.1 ms, plus one borderline 8.3 ms step |
+
+  Two one-off stalls did not reproduce in 3–4 reruns of the same setup, and neither matched a chunk
+  build or a spawn. They are this shared container's noise:
+  - 123 ms on the level-end step of one L8 run;
+  - a 1.3 s cluster of spikes up to 170 ms early in one gauntlet run.
+- **A fix on the way:** pickup messages show the difficulty-scaled amount. Step 3 had left them at
+  the base +20 and +30.
+
+**Next, perf groundwork (one commit):**
+- `FxBatch`: one `MultiMeshInstance3D` per effect atlas, for sparks, smoke, explosions, shock rings
+  and gibs, plus bolts if the probe says they matter.
+  - A billboard shader picks the atlas cell from per-instance custom data.
+  - The pools stay.
+- Hot debris cooling through its colour ramp, as per-instance data.
+- Measurement:
+  - a dense-arena scene in `tests/perf_probe.gd`;
+  - a draw-call readout in the rendered probe;
+  - both logged in `tests/perf_baseline.md`.
+- The new shader added to the briefing's warm-up rig.
+
+Then v4b, v4c and v4d in order, each with the gates in *Order and gates*.
+
 ## Why
 
 3.0 got the look right: a 256-colour palette, sector lighting, turntable-baked sprites, a pixel

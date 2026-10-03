@@ -58,6 +58,13 @@ const WEAPON_KICK := [0.25, 0.7, 0.4, 0.9]
 var dodge_cd := 0.0           # public: the HUD's evade lamp reads this
 var iframes_t := 0.0
 var _kick_pitch := 0.0        # V2.2 L1: spring-decay camera kick, degrees
+## Re-audit Step 6: on a boost press the view widens briefly, then settles —
+## +BOOST_FOV_KICK degrees in over BOOST_FOV_IN s, back out over BOOST_FOV_OUT s.
+## Gated by SCREEN SHAKE, the same comfort switch as the kick and shake.
+const BOOST_FOV_KICK := 6.0
+const BOOST_FOV_IN := 0.15
+const BOOST_FOV_OUT := 0.4
+var _boost_pulse_t := -1.0    # time since the pulse began, < 0 = idle
 var _dodge_t := 0.0
 var _dodge_dir := Vector3.ZERO
 var _tap_l := -99.0
@@ -116,6 +123,19 @@ func reset_to_start() -> void:
 	camera.position = Vector3.ZERO
 	camera.rotation = Vector3.ZERO
 	_kick_pitch = 0.0
+
+
+## Re-audit Step 4: resume from a checkpoint — the ship sits on the ring's centre,
+## looking along the tunnel there (the inverse of PathGen.forward_from).
+func place_at_ring(idx: int) -> void:
+	var ring: Dictionary = path.rings[idx]
+	var d: Vector3 = ring.d
+	position = ring.p
+	yaw = atan2(-d.x, -d.z)
+	pitch = clampf(asin(clampf(d.y, -1.0, 1.0)), -PITCH_LIMIT, PITCH_LIMIT)
+	roll = 0.0
+	ring_idx = idx
+	rotation = Vector3(pitch, yaw, roll)
 
 
 ## Called by game.gd from root-viewport input — the ship sits inside the 320x200
@@ -193,6 +213,10 @@ func update_flight(delta: float) -> void:
 	# --- speed / energy (energy = afterburner reserve only) ---
 	var target := BASE_SPEED
 	var boosting := Input.is_action_pressed("boost") and GameState.energy > 0.5
+	# re-audit Step 6: the press itself (not holding it, not energy flickering back)
+	# gets a swell and an FOV pulse; touch's double-tap toggle presses it the same way
+	if Input.is_action_just_pressed("boost") and GameState.energy > 0.5:
+		_on_boost_start()
 	if boosting:
 		target = BOOST_SPEED
 	if Input.is_action_pressed("brake"):
@@ -219,7 +243,11 @@ func update_flight(delta: float) -> void:
 	_wall_collide()
 	_door_collide()
 	# --- camera framing ---
-	camera.fov = GameState.view_fov   # M2.2: live FOV slider
+	camera.fov = GameState.view_fov + boost_fov_pulse()   # M2.2 slider + Step 6 pulse
+	if _boost_pulse_t >= 0.0:
+		_boost_pulse_t += delta
+		if _boost_pulse_t > BOOST_FOV_IN + BOOST_FOV_OUT:
+			_boost_pulse_t = -1.0
 	_turn_sm *= pow(0.0001, delta)
 	# M2.1: comfort option damps the camera lean rather than removing it — a dead
 	# horizon reads as broken, a quarter-strength one just reads as a steadier ship
@@ -344,6 +372,24 @@ func take_damage(amount: float, message: String, pierce_evade := false) -> void:
 ## V2.2 L3c: hull plating rank — the testable seam for wall/door impact scaling.
 func wall_damage_mult() -> float:
 	return GameState.hull_mult()
+
+
+## Re-audit Step 6: the boost press — a one-shot swell, plus the FOV pulse when
+## camera motion effects are on.
+func _on_boost_start() -> void:
+	AudioSys.play_boost()
+	if GameState.screen_shake:
+		_boost_pulse_t = 0.0
+
+
+## Degrees added to the FOV right now: eased up to the kick, then eased back down.
+func boost_fov_pulse() -> float:
+	if _boost_pulse_t < 0.0:
+		return 0.0
+	if _boost_pulse_t < BOOST_FOV_IN:
+		return BOOST_FOV_KICK * ease(_boost_pulse_t / BOOST_FOV_IN, 0.5)
+	var out := clampf((_boost_pulse_t - BOOST_FOV_IN) / BOOST_FOV_OUT, 0.0, 1.0)
+	return BOOST_FOV_KICK * (1.0 - ease(out, 2.0))
 
 
 ## V2.2 L5: force the tracked ring index. Crossing a spur mouth jumps the index from

@@ -45,7 +45,7 @@ func _cap(game: Node3D, path: String) -> void:
 
 func _run() -> void:
 	var saved := {}
-	for f in ["user://records.cfg", "user://settings.cfg"]:
+	for f in ["user://records.cfg", "user://settings.cfg", "user://checkpoint.cfg"]:
 		saved[f] = FileAccess.get_file_as_bytes(f) if FileAccess.file_exists(f) else null
 	var dir := _dir()
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()

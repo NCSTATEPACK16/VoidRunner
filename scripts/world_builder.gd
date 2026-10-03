@@ -74,7 +74,12 @@ func rebuild(new_path: PathGen, theme_id: String) -> void:
 		mats[key] = _sector_mat(_textures[key])
 	# the floor strip's chevrons march down the corridor (v runs along the tunnel)
 	(mats.strip as ShaderMaterial).set_shader_parameter("uv_scroll", Vector2(0.0, -1.6))
+	# v4a: colour cycling on this theme's glowing surfaces, and on the bulkheads
+	var cyc := TextureGen.cycle_keys(theme_id)
+	for key in cyc:
+		(mats[key] as ShaderMaterial).set_shader_parameter("cycle_speed", cyc[key])
 	_door_mat = prop_material("door", 1.0, Color.WHITE, accent_color * 0.12)
+	_door_mat.set_shader_parameter("cycle_speed", TextureGen.DOOR_CYCLE)
 	# small synchronous head start (covers the deepest fog at the launch ring);
 	# the briefing pump (prebuild_step) builds the rest of a finite level
 	var initial: int = mini(CHUNK * 3, path.rings.size() - 1)
@@ -191,6 +196,12 @@ func is_prebuilt() -> bool:
 func prebuild_all() -> void:
 	while not prebuild_step(1 << 30):
 		pass
+
+
+## Re-audit Step 4: a resumed checkpoint starts mid-level. Without this the first
+## streaming frame would roll every ring from the start up to the ship at once.
+func skip_spawns_to(ring_idx: int) -> void:
+	_spawn_cursor = maxi(_spawn_cursor, ring_idx)
 
 
 func update_streaming(player_ring: int) -> void:

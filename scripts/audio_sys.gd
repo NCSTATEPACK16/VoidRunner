@@ -40,6 +40,7 @@ var _overheat: AudioStreamWAV
 var _portal: AudioStreamWAV
 var _clank: AudioStreamWAV
 var _dodge: AudioStreamWAV
+var _boost: AudioStreamWAV   # re-audit Step 6: afterburner swell
 var _bomb: AudioStreamWAV
 var _engine_loop: AudioStreamWAV
 var _gib_tick: AudioStreamWAV
@@ -63,6 +64,7 @@ func _ready() -> void:
 	_portal = _render_portal()
 	_clank = _render_clank()
 	_dodge = _render_dodge()
+	_boost = _render_boost()
 	_bomb = _render_bomb()
 	_engine_loop = _render_engine_loop()
 	_gib_tick = _render_gib_tick()
@@ -228,6 +230,11 @@ func play_clank() -> void:
 
 func play_dodge() -> void:
 	_play(_dodge)
+
+
+## Re-audit Step 6: the boost press — once per press, never while held.
+func play_boost() -> void:
+	_play(_boost)
 
 
 func play_bomb() -> void:
@@ -475,6 +482,31 @@ func _render_dodge() -> AudioStreamWAV:
 		lp += (rng.randf_range(-1.0, 1.0) - lp) * alpha * 4.0
 		lp2 += (lp - lp2) * 0.4
 		out[i] = clampf(lp2, -1.0, 1.0) * 0.3 * sweep
+	return _make_wav(out)
+
+
+func _render_boost() -> AudioStreamWAV:
+	# Re-audit Step 6 afterburner swell: noise opening through a rising low-pass,
+	# under an FM tone sweeping up an octave, swelling in and trailing off (0.5 s).
+	var n := int(SAMPLE_RATE * 0.5)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 31
+	var lp := 0.0
+	var phase := 0.0
+	var mod_phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		var env := minf(1.0, t / 0.12) * exp(-maxf(0.0, t - 0.12) * 6.0)
+		var cutoff := lerpf(250.0, 3200.0, minf(1.0, t / 0.3))
+		var alpha := clampf(cutoff / (SAMPLE_RATE * 0.5), 0.0, 1.0)
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * alpha * 3.0
+		var f := lerpf(110.0, 220.0, minf(1.0, t / 0.35))
+		mod_phase += f * 2.0 / SAMPLE_RATE
+		phase += f / SAMPLE_RATE
+		var tone := sin(TAU * phase + sin(TAU * mod_phase) * 1.6)
+		out[i] = clampf((lp * 0.5 + tone * 0.22) * env, -1.0, 1.0) * 0.6
 	return _make_wav(out)
 
 

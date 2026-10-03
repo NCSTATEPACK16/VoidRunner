@@ -12,10 +12,18 @@ shader_type spatial;
 //     "colormap" look where light falls off in visible rings
 //   * full-bright texels: texture alpha < 1 marks light panels, screens, lava
 //     cracks and glowing runes, which ignore lighting entirely
-// Distance diminishing is Godot's depth fog to black (shared with the sprites).
+//   * v4a distance diminishing: light fades to black between dist_begin and
+//     dist_end and is folded in BEFORE the banding step, so the tunnel darkens in
+//     the same visible rings (the colormap look). World geometry skips Godot's
+//     smooth depth fog; sprites keep it, with the same endpoints (LightRig pushes
+//     them). Full-bright texels only dim to glow_floor, so a light panel or a lava
+//     vein still shows far down a dark tunnel.
+//   * v4a colour cycling: on materials with cycle_speed > 0, a bright crest
+//     marches through the full-bright texels on TIME alone (no per-frame CPU
+//     work); the palette pass snaps it to ramp shades, like a DOS palette cycle.
 // Every world material is this one shader with different uniforms, so the web
 // build compiles it exactly once.
-render_mode unshaded, cull_disabled;
+render_mode unshaded, cull_disabled, fog_disabled;
 
 uniform sampler2D albedo_tex : source_color, filter_nearest_mipmap, repeat_enable;
 uniform vec4 tint : source_color = vec4(1.0);
@@ -26,6 +34,10 @@ uniform float use_vertex_light = 1.0;   // 0 for primitive meshes with no vertex
 uniform float base_light = 0.6;         // light level used when use_vertex_light = 0
 uniform vec2 uv_scroll = vec2(0.0);     // animated strips: UV units per second
 uniform float bands = 12.0;             // light quantization steps; 0 = smooth
+uniform float dist_begin = 18.0;        // v4a: banded distance darkness starts here
+uniform float dist_end = 110.0;         // ...and reaches black here (theme fog_end)
+uniform float glow_floor = 0.3;         // full-bright texels never dim below this
+uniform float cycle_speed = 0.0;        // v4a: glow crest speed; 0 = no cycling
 uniform vec4 dyn_pos[8];                // xyz world position, w = range (0 = slot off)
 uniform vec4 dyn_col[8];                // rgb = color * energy
 
@@ -52,10 +64,25 @@ void fragment() {
 			light += dyn_col[i].rgb * (att * ndl);
 		}
 	}
+	// v4a: distance diminishing, banded together with the light (VERTEX is the
+	// view-space position here, so its length is the distance from the eye)
+	float df = clamp(1.0 - (length(VERTEX) - dist_begin) / max(dist_end - dist_begin, 1.0),
+		0.0, 1.0);
+	light *= df;
+	float glow_dim = max(df, glow_floor);
 	if (bands > 0.0) {
 		light = floor(light * bands + 0.5) / bands;
+		glow_dim = floor(glow_dim * bands + 0.5) / bands;
 	}
 	float glow = 1.0 - tex.a;
 	vec3 col = tex.rgb * tint.rgb * light;
-	ALBEDO = mix(col, tex.rgb * glow_gain, glow) + emit_col;
+	vec3 lit = tex.rgb * glow_gain;
+	if (cycle_speed > 0.0) {
+		// a sawtooth crest keyed on the texel's own brightness and its place on the
+		// face, so it travels along the glow rather than blinking it all at once
+		float lum = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
+		float wave = fract(lum * 2.0 + (UV.x + UV.y) * 1.5 - TIME * cycle_speed);
+		lit *= 0.55 + 0.75 * wave;
+	}
+	ALBEDO = mix(col, lit * glow_dim, glow) + emit_col * df;
 }
