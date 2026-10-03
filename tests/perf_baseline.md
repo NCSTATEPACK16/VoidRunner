@@ -151,3 +151,34 @@ times are wall-clock, not device numbers.
   container noise as before, here on unchanged code.
 - The rendered screenshot probe now prints each shot's draw calls too. Baseline: corridor
   49, arena 48, combat 89, threats 61, boss room 18.
+
+**After batching** (`FxBatch`, same container, same commands). Rendered numbers come from
+an A/B: the baseline commit and the batched build ran alternately, two rounds each, so both
+saw the same container load.
+
+| Run | Mode | Before | After |
+|---|---|---|---|
+| Dense arena | rendered, draw calls (peak / average) | 166–204 / 117–118 | **78–86 / 68–72** |
+| Dense arena | rendered, average frame | 20.6–22.0 ms | **19.3–19.9 ms** |
+| L9 boss | rendered, draw calls (peak / average) | 77–78 / 43–44 | **42–43 / 31** |
+| L9 boss | rendered, average frame (worst) | 16.7–17.4 ms (52–83 ms) | **16.3–17.0 ms (32 ms)** |
+| Dense arena | headless, worst / average step | 4.3–5.4 / 0.63–0.76 ms | 1.8–2.2 / 0.65–0.74 ms |
+| L8 | headless, worst / average step | 3.5 / 0.32 ms | 2.7–5.4 / 0.40–0.44 ms |
+| L9 boss | headless, worst / average step | 2.1 / 0.16 ms | 2.6 / 0.18 ms |
+| Gauntlet | headless, worst / average step | 14.6 / 0.29 ms | 3.5–8.0 / 0.33–0.37 ms |
+
+- Every effect layer costs one draw call while anything in it is alive, and none when it is
+  empty: at most 7 (player bolts, enemy bolts, fireballs, shock rings, smoke, sparks and
+  debris). The dense arena drew more effects after (106 in a frame) than before (88), and
+  still used half the calls.
+- In the A/B, every rendered run was a little faster batched, and none was slower. On the
+  L9 boss, no frame went over 40 ms.
+- Script time per step rose by up to 0.1 ms headless. The layers are rebuilt in GDScript
+  each frame, and headless runs can't see the per-sprite node and mesh updates that
+  batching removed; the rendered frames show the net.
+- Behaviour is unchanged. The seeded dense runs land on the same two per-layer outcomes
+  before and after (86 or 104 effects in a frame).
+- One L8 run had a 23 ms step that came with nothing built or spawned. Two reruns stayed
+  at 5.4 ms or below.
+- Software GL is not a device. The draw-call savings are aimed at WebGL on iPad, where
+  each call costs most, and the Step 7 device pass measures them there.

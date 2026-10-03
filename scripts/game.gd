@@ -1041,15 +1041,18 @@ func _start_warmup() -> void:
 	var base: Vector3 = player.position + fwd * 9.0
 	var texes: Array = []
 	texes.append_array(enemy_mgr.warmup_textures())
-	texes.append_array(shot_mgr.warmup_textures(weapons))
 	texes.append_array(pickup_mgr.warmup_textures())
 	texes.append_array(prop_mgr.warmup_textures())
-	texes.append_array(SpriteGen.gib_frames())   # V2.2 L1: gib chunks join the rig
 	for i in texes.size():
 		var s := SpriteGen.make_sprite(texes[i], 0.7)
 		s.position = base + right * ((i % 6) - 2.5) * 1.1 \
 			+ Vector3.UP * (float(i / 6) - 1.0) * 1.1
 		_warmup_rig.add_child(s)
+	# v4: shots, blasts, smoke, sparks and debris draw through FxBatch layers now;
+	# one instance of each, in a row under the sprites, compiles their variants
+	var row: Vector3 = base + Vector3.UP * -2.2 - right * 3.3
+	shot_mgr.warmup_batches(row, right * 1.1)
+	gib_mgr.warmup_batch(row + right * 1.1 * shot_mgr.layers().size())
 	world.warmup_meshes(_warmup_rig, base + Vector3.UP * 2.4)
 	player.muzzle_energy = 0.6
 	shot_mgr.warmup_boom_light(base, true)
@@ -1062,6 +1065,8 @@ func _end_warmup() -> void:
 		_warmup_rig.queue_free()
 		player.muzzle_energy = 0.0
 		shot_mgr.warmup_boom_light(Vector3.ZERO, false)
+		shot_mgr.sync_batches()   # v4: the warm-up instances go; live effects stay
+		gib_mgr.sync_batch()
 	_warmup_rig = null
 
 
@@ -1236,6 +1241,10 @@ func _process(delta: float) -> void:
 		AudioSys.play_hit()
 	elif GameState.shields > 30.0:
 		_low_shield_warned = false
+	# v4 perf groundwork: draw this frame's effects, one call per layer, after
+	# everything that can spawn one (enemies, shots, props, traps) has run
+	shot_mgr.sync_batches()
+	gib_mgr.sync_batch()
 	_update_lights(delta)
 	if world.portal_active \
 			and player.position.distance_squared_to(world.portal_position) < PORTAL_TRIGGER_SQ:
