@@ -10,8 +10,8 @@ shooter before the public launch in Step 8.*
 | Sub-step | Status |
 |---|---|
 | v4a palette tricks | Done (PR #11) |
-| Perf groundwork | Next, one commit |
-| v4b roster and mini-bosses | Queued, three commits: parts kit; 8 enemies with heavy variants; mini-bosses |
+| Perf groundwork | Done (PR #12) |
+| v4b roster and mini-bosses | Next, three commits: parts kit; 8 enemies with heavy variants; mini-bosses |
 | v4c hubs, keys and objectives | Queued, two commits: hubs with keycards and switches; objectives |
 | v4d tally, episodes and menu feel | Queued, one commit |
 
@@ -68,19 +68,43 @@ shooter before the public launch in Step 8.*
 - **A fix on the way:** pickup messages show the difficulty-scaled amount. Step 3 had left them at
   the base +20 and +30.
 
-**Next, perf groundwork (one commit):**
-- `FxBatch`: one `MultiMeshInstance3D` per effect atlas, for sparks, smoke, explosions, shock rings
-  and gibs, plus bolts if the probe says they matter.
-  - A billboard shader picks the atlas cell from per-instance custom data.
-  - The pools stay.
-- Hot debris cooling through its colour ramp, as per-instance data.
-- Measurement:
-  - a dense-arena scene in `tests/perf_probe.gd`;
-  - a draw-call readout in the rendered probe;
-  - both logged in `tests/perf_baseline.md`.
-- The new shader added to the briefing's warm-up rig.
+**How the perf groundwork landed (PR #12, two commits):**
+- **Measured first.** `tests/perf_probe.gd` has a dense-arena scene (`VR_PERF_DENSE=1`) and
+  per-layer effect counts in every mode. Rendered runs also read the 3D view's draw calls.
+  Before batching, the dense arena peaked at 153–204 draw calls, about 90 of them effects.
+- **`FxBatch`** (`scripts/fx_batch.gd`) is one `MultiMeshInstance3D` per effect layer.
+  - Each layer's frames sit in one atlas strip.
+  - The material is a `StandardMaterial3D` in particle-billboard mode, the path
+    `CPUParticles3D` uses on WebGL, not a custom shader.
+  - There are seven layers: player bolts (every weapon in one atlas), enemy bolts,
+    fireballs, shock rings, smoke, sparks and debris.
+  - An empty layer hides, so it costs no draw call.
+  - Bolts are batched too: they are a third of the effects at the busiest moment of every
+    real level.
+  - Effects are now plain records in capped arrays, and the `Sprite3D` pool is gone.
+- **Hot debris.** Fresh debris glows yellow-hot and cools down the `FIRE` ramp into its hull tint
+  over 0.6 s (`GibManager.COOL_T`).
+- **Warm-up.** The briefing's warm-up rig shows one instance of every layer, so the batch
+  shader variants compile behind the briefing.
+- **Parity.** `tests/fx_parity_probe.gd` draws each layer's frame both as a `Sprite3D` and
+  through `FxBatch`, then compares them: 0 differing pixels on desktop GL and GLES3. It
+  caught a bug the headless tests could not: untinted layers drew nothing at first.
+- **Results** (A/B on software GL, `tests/perf_baseline.md`):
+  - dense arena: peak draw calls fell to 78–86 and the average from ~117 to ~70;
+  - L9 boss: peak draw calls fell from 78 to 42;
+  - every rendered run was a little faster, and none slower;
+  - script time rose by up to 0.1 ms a step, from rebuilding the layers in GDScript.
+- **Still to measure:** the savings are aimed at WebGL on iPad, which the Step 7 device
+  pass covers.
+- **The biggest group is now enemies.** They are still one `Sprite3D` each (42 at the cap),
+  which this plan keeps for now (per-type atlases, see *Performance plan*).
 
-Then v4b, v4c and v4d in order, each with the gates in *Order and gates*.
+**Next, v4b (three commits): parts kit; 8 enemies with heavy variants; mini-bosses.**
+- The +25% draw-call gate now has measured numbers: 153–204 in the dense arena before
+  batching, 78–86 after.
+- Holding v4b to +25% over the batched figure (about 105) keeps the savings.
+
+Then v4c and v4d, each with the gates in *Order and gates*.
 
 ## Why
 

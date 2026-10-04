@@ -6,6 +6,7 @@ extends Node
 ##   1b. Tab automap over explored L1  -> shot_automap.png
 ##   2. L1 first arena, guards live   -> shot_arena.png
 ##   2b. bolts, missile, fireballs    -> shot_combat.png
+##   2b'. a kill's debris, still hot  -> shot_debris.png (v4)
 ##   2c. stinger/spinner/mines + power-up timers -> shot_threats.png
 ##   3. L3 boss room, boss in view    -> shot_boss.png
 ##   4. game-over / victory panels    -> shot_game_over.png / shot_victory.png
@@ -29,10 +30,16 @@ func _shot_dir() -> String:
 
 func _capture(game: Node3D, file_name: String, dir: String) -> void:
 	await RenderingServer.frame_post_draw
-	var img: Image = (game.view as SubViewport).get_texture().get_image()
+	var view: SubViewport = game.view
+	var img: Image = view.get_texture().get_image()
 	img.save_png(dir + "/" + file_name)
-	# the state rides along so a stray auto-pause (focus loss under xvfb) shows up
-	print("[shot] %s/%s state=%d" % [dir, file_name, game.state])
+	# the state rides along so a stray auto-pause (focus loss under xvfb) shows up,
+	# and so do the 3D view's draw calls and objects for that frame (v4 perf gate)
+	print("[shot] %s/%s state=%d draws=%d objects=%d" % [dir, file_name, game.state,
+		view.get_render_info(Viewport.RENDER_INFO_TYPE_VISIBLE,
+			Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME),
+		view.get_render_info(Viewport.RENDER_INFO_TYPE_VISIBLE,
+			Viewport.RENDER_INFO_OBJECTS_IN_FRAME)])
 
 
 ## Root-window capture — overlays (briefing/menus) render at native res OUTSIDE
@@ -128,6 +135,11 @@ func _run() -> void:
 		game.shot_mgr.fire_player(game.weapons[0])
 		await _fly(game, 2)
 	await _capture(game, "shot_combat.png", dir)
+	# 2b') v4 hot debris: a kill's chunks, yellow-hot and cooling down the fire ramp
+	game.gib_mgr.burst(game.player.position + fwd * 14.0, Vector3.ZERO,
+		game.player.ring_idx, 20, EnemyManager.GIB_TINTS["drone"])
+	await _fly(game, 9)   # ~0.15 s in: mid-cooling
+	await _capture(game, "shot_debris.png", dir)
 	# 2c) 3.0 phase 5 threats: a stinger mid-tell, a spinner's ring in flight and
 	# two mines ahead (the near one arms as we close), with OVERDRIVE and POWER
 	# CORE timers live on the HUD

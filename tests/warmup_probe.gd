@@ -40,6 +40,9 @@ func _run() -> void:
 	assert(game.shot_mgr._pshots.is_empty())        # muted warm-up shots cleared
 	assert(game.shot_mgr._explosions.is_empty())
 	assert(game.shot_mgr._sparks.is_empty())
+	for layer in game.shot_mgr.layers():            # v4: no warm-up instance is left
+		assert(layer.count() == 0 and not layer.visible)   # drawing in a batch
+	assert(game.gib_mgr._fx.count() == 0)
 	assert(GameState.level_shots == shots_before)   # accuracy stat left untouched
 	assert(AudioServer.is_bus_mute(0) == mute_before)  # audio mute restored
 	var dark := true

@@ -237,31 +237,51 @@ func _run() -> void:
 	print("end state=%d ring=%d/%d shields=%.0f score=%d peak_enemies=%d overheat=%s" % [
 		game.state, game.player.ring_idx, game.path.rings.size(),
 		GameState.shields, GameState.score, peak_enemies, overheated_seen])
-	# --- V2.1 pooling: hidden free nodes, per-class caps hold under a 50-boom burst,
-	# and every effect returns to the pool (no node is ever freed mid-play) ---
-	for n in game.shot_mgr._pool_free:
-		assert(not n.visible)
+	# --- V2.1 caps, v4 batching: per-class caps hold under a 50-boom burst, each
+	# layer draws exactly what is alive through one FxBatch, and the burst drains.
+	# No node exists per effect any more, only the layers under ShotManager ---
+	var bsm: ShotManager = game.shot_mgr
+	for c in bsm.get_children():
+		assert(c is FxBatch)
 	for b in 50:
-		game.shot_mgr.spawn_explosion(game.player.position + Vector3(b, 0, 0), b % 2 == 0)
-	assert(game.shot_mgr._pool_total <= ShotManager.POOL_HARD_CAP)
-	assert(game.shot_mgr._explosions.size() <= ShotManager.EXPLOSION_CAP)
-	assert(game.shot_mgr._sparks.size() <= ShotManager.SPARK_CAP)
-	assert(game.shot_mgr._eshots.size() <= ShotManager.ESHOT_CAP)
-	for f in 90:   # explosions/sparks live 0.6 s — let the burst drain back
-		game.shot_mgr.update_shots(dt)
-	assert(game.shot_mgr._explosions.is_empty() and game.shot_mgr._sparks.is_empty())
-	print("pool ok — total=%d free=%d after 50-boom burst" % [
-		game.shot_mgr._pool_total, game.shot_mgr._pool_free.size()])
-	# --- V2.2 L1b: gibs — burst past the cap, ricochet sim, full drain ---
+		bsm.spawn_explosion(game.player.position + Vector3(b, 0, 0), b % 2 == 0)
+	assert(bsm._explosions.size() <= ShotManager.EXPLOSION_CAP)
+	assert(bsm._sparks.size() <= ShotManager.SPARK_CAP)
+	assert(bsm._shocks.size() <= ShotManager.SHOCK_CAP)
+	assert(bsm._eshots.size() <= ShotManager.ESHOT_CAP)
+	bsm.sync_batches()
+	assert(bsm._fx_boom.count() == bsm._explosions.size() and bsm._fx_boom.visible)
+	assert(bsm._fx_spark.count() == bsm._sparks.size())
+	assert(bsm._fx_shock.count() == bsm._shocks.size())
+	assert(bsm._fx_ebolt.count() == bsm._eshots.size())
+	for f in 90:   # fireballs and sparks live 0.6-0.7 s — let the burst drain away
+		bsm.update_shots(dt)
+	assert(bsm._explosions.is_empty() and bsm._sparks.is_empty() and bsm._shocks.is_empty())
+	bsm.sync_batches()
+	assert(bsm._fx_boom.count() == 0 and not bsm._fx_boom.visible)   # empty: no draw call
+	assert(bsm._fx_smoke.count() == bsm._puffs.size())   # the blasts' aftermath still hangs
+	print("batching ok — 50-boom burst capped and drained, %d layers, one draw call each" % [
+		bsm.layers().size()])
+	# --- V2.2 L1b: gibs — burst past the cap, ricochet sim, full drain. v4: all of
+	# them in one FxBatch, yellow-hot at first and cooling into the hull tint ---
 	var gm: GibManager = game.gib_mgr
 	gm.burst(game.player.position + game.player.forward() * 10.0, Vector3(4, 2, -6),
 		game.player.ring_idx, 60, Color.RED)   # 60 asked > 48 cap
 	assert(gm.active_count() <= 48)
 	assert(gm.active_count() > 0)
+	gm.sync_batch()
+	assert(gm._fx.count() == gm.active_count())
+	var hot := GibManager.heat_color(Color.RED, 0.0)
+	assert(hot.r > 0.95 and hot.g > 0.7 and hot.b < hot.g)   # yellow-hot, not red
+	var warm := GibManager.heat_color(Color.RED, GibManager.COOL_T * 0.5)
+	assert(warm.r > 0.9 and warm.g > 0.3 and warm.g < hot.g)   # cooling through orange
+	assert(GibManager.heat_color(Color.RED, GibManager.COOL_T) == Color.RED)   # the tint
 	for f in 400:   # ~4 s of physics — every chunk must expire and free its slot
 		gm._sim(0.01)
 	assert(gm.active_count() == 0)
-	print("gibs ok — cap held, pool drained")
+	gm.sync_batch()
+	assert(gm._fx.count() == 0 and not gm._fx.visible)
+	print("gibs ok — cap held, one batch, hot debris cools, pool drained")
 	# --- V2.2 L1c: hit-stop — crushes time, cooldown gates spam, real-time restore ---
 	gm._stop_cooldown_ms = 0   # earlier live-fire kills may have armed the cooldown
 	gm.hit_stop(50)
@@ -1970,6 +1990,45 @@ func _run() -> void:
 	assert(is_equal_approx(float(vsm._puffs[0].life), ShotManager.AFTERMATH_LIFE))
 	vsm.clear_all()
 	print("V4A ok — distance bands match the fog, cycling on themed surfaces, capped flashes, 14/6-frame blasts + aftermath smoke")
+	# --- v4 perf groundwork: FxBatch, one draw call per effect layer. A layer's frames
+	# sit in one atlas strip, add() refuses past capacity, an empty layer hides, and
+	# the material is the Sprite3D look in particle-billboard form ---
+	var fxb := FxBatch.new(FxGen.fireball_frames(), 3)
+	add_child(fxb)
+	var fmat: StandardMaterial3D = fxb.material_override
+	var strip: Image = fmat.albedo_texture.get_image()
+	assert(strip.get_width() == 48 * FxGen.FIREBALL_FRAMES and strip.get_height() == 48)
+	var f5: Image = FxGen.fireball_frames()[5].get_image()
+	for px in [Vector2i(24, 24), Vector2i(10, 30), Vector2i(40, 12)]:
+		assert(strip.get_pixelv(px + Vector2i(5 * 48, 0)) == f5.get_pixelv(px))
+	assert(fmat.billboard_mode == BaseMaterial3D.BILLBOARD_PARTICLES)
+	assert(fmat.particles_anim_h_frames == FxGen.FIREBALL_FRAMES)
+	assert(fmat.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR)
+	assert(fmat.texture_filter == BaseMaterial3D.TEXTURE_FILTER_NEAREST)
+	assert(fmat.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED)
+	assert(fmat.cull_mode == BaseMaterial3D.CULL_DISABLED)
+	assert(not fxb.visible and fxb.count() == 0)
+	fxb.begin()
+	for slot in 5:
+		fxb.add(Vector3(slot, 0, 0), 2.0, slot)
+	fxb.end()
+	assert(fxb.count() == 3 and fxb.visible)   # capacity 3: the other two refused
+	fxb.begin()
+	fxb.end()
+	assert(fxb.count() == 0 and not fxb.visible)   # empty: hidden, so no draw call
+	# the particle billboard floors .z x cells, so each cell's data lands mid-cell
+	for c in FxGen.FIREBALL_FRAMES:
+		assert(int(FxBatch.cell_data(c, FxGen.FIREBALL_FRAMES).b * FxGen.FIREBALL_FRAMES) == c)
+	assert(int(FxBatch.cell_data(99, 4).b * 4) == 3)   # out of range: the last cell
+	fxb.queue_free()
+	# the player-bolt atlas holds every weapon: two shimmer frames each, one missile
+	var want := 0
+	for w: WeaponDef in game.weapons:
+		assert(int(vsm._bolt_cell[w.display_name]) == want)
+		want += 1 if w.fuse > 0.0 else 2
+	assert(vsm._fx_pbolt.cells == want)
+	print("FXBATCH ok — %d-cell fireball strip, capacity and empty-layer rules, %d-cell bolt atlas" % [
+		FxGen.FIREBALL_FRAMES, want])
 	# --- re-audit Step 1: the app icons and link-preview card are painted by code
 	# (hard rule 1). Sizes are what the web export and the PWA manifest expect, and
 	# every pixel is a palette entry, read back through the same 8-bit Image path.
