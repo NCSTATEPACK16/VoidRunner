@@ -182,3 +182,32 @@ saw the same container load.
   at 5.4 ms or below.
 - Software GL is not a device. The draw-call savings are aimed at WebGL on iPad, where
   each call costs most, and the Step 7 device pass measures them there.
+
+## v4b: the roster and its bake (2026-10-05)
+
+Measured on a shared 4-vCPU container, xvfb with software GL (llvmpipe), Godot 4.7. Each
+figure is 8 runs of `tests/forge_probe.tscn`, dropping the first run's cold-cache outlier
+(about 900 ms either way).
+
+**Baseline on `main` (238c78e).** 7 enemies, 3 bosses, 9 pickups.
+
+| Run | Result | Notes |
+|---|---|---|
+| L8 headless | worst 4.6 ms, average 0.53 ms | 7908 steps |
+| L9 boss headless | worst 2.0 ms, average 0.21 ms | boss killed |
+| Gauntlet headless | worst 3.9 ms, average 0.41 ms | ring 370 |
+| Dense arena headless | worst 2.6 ms, average 0.89 ms | 86 effects in a frame |
+| Dense arena rendered | peak 73–74 draw calls, average 65 | average frame 30 ms on this container |
+| Sprite bake | 417 ms (349–487) | 3 sheets |
+
+**Commit 1 (parts kit).** Each (model, frame) is built once and duplicated across its 8 angle
+cells, so meshes and materials are shared. A sprite class taller than 2048 px splits across
+viewports (no class needed it yet).
+
+| Run | Bake (median, range) |
+|---|---|
+| Sprite bake | 379 ms (337–442), 3 sheets |
+
+About 10% faster on software GL, where rasterizing the cells dominates. The mesh-building
+share is larger on a device with a real GPU. The web build now logs the bake (`[vr] sprite
+bake N ms gpu=…`) and records it in `window.vrBoot.bakeMs`, so `vrReport()` carries it.

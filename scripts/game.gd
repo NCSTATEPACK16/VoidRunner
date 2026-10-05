@@ -112,6 +112,11 @@ func _ready() -> void:
 	# (one synchronous GPU pass; headless falls back to the pixel sprites). Before
 	# any manager exists — they pick their sprite sets up in _ready.
 	SpriteForge.bake(self)
+	if OS.has_feature("web"):   # v4b: what the bake cost on this device (vrReport shows it)
+		var gpu := "true" if SpriteForge.gpu_baked else "false"
+		JavaScriptBridge.eval("if (window.vrBoot) { window.vrBoot.bakeMs = %d;" % SpriteForge.bake_ms
+			+ " window.vrBoot.bakeGpu = %s; }" % gpu
+			+ " console.log('[vr] sprite bake %d ms gpu=%s');" % [SpriteForge.bake_ms, gpu], true)
 	for w in ["neutron", "scatter", "bolt", "missile"]:
 		weapons.append(load("res://resources/weapons/%s.tres" % w))
 	# Phase J: probe rather than hardcode the count — adding level_N.tres extends

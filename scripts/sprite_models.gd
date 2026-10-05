@@ -122,6 +122,198 @@ static func prism(x: float, y: float, z: float) -> PrismMesh:
 	return p
 
 
+# ---------------------------------------------------------------- v4b parts kit
+# Ship-shaped building blocks on top of the primitives above. Meshes are cached by
+# their parameters, so a part used by many models (and every angle cell of the bake)
+# is generated once. Faces are flat-shaded with a 0..1 UV square each, so painted
+# maps (painted()) land the same way on every face.
+
+static var _meshes := {}
+static var _mirrors := {}
+
+
+## A frustum along Z: a w0 x h0 back face at -len/2, a w1 x h1 front face at +len/2
+## (raised by dy). Wedge hulls, ram plows, carapaces and, barely tapered, armour.
+static func taper(w0: float, h0: float, w1: float, h1: float, length: float,
+		dy := 0.0) -> ArrayMesh:
+	var key := "taper|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f" % [w0, h0, w1, h1, length, dy]
+	if not _meshes.has(key):
+		var b := -length * 0.5
+		var f := length * 0.5
+		_meshes[key] = _hexa([
+			Vector3(-w0 * 0.5, -h0 * 0.5, b), Vector3(w0 * 0.5, -h0 * 0.5, b),
+			Vector3(w0 * 0.5, h0 * 0.5, b), Vector3(-w0 * 0.5, h0 * 0.5, b),
+			Vector3(-w1 * 0.5, dy - h1 * 0.5, f), Vector3(w1 * 0.5, dy - h1 * 0.5, f),
+			Vector3(w1 * 0.5, dy + h1 * 0.5, f), Vector3(-w1 * 0.5, dy + h1 * 0.5, f)])
+	return _meshes[key]
+
+
+## A swept fin standing out along +X from a root chord on the hull: span, root and
+## tip chords, how far the tip trails back (-Z), and its thickness (Y). Mirror it
+## for the other side with pair().
+static func fin(span: float, root: float, tip: float, sweep: float, thick: float) -> ArrayMesh:
+	var key := "fin|%.3f|%.3f|%.3f|%.3f|%.3f" % [span, root, tip, sweep, thick]
+	if not _meshes.has(key):
+		var t := thick * 0.5
+		_meshes[key] = _hexa([
+			Vector3(0, -t, -root * 0.5), Vector3(0, -t, root * 0.5),
+			Vector3(0, t, root * 0.5), Vector3(0, t, -root * 0.5),
+			Vector3(span, -t * 0.6, -sweep - tip * 0.5), Vector3(span, -t * 0.6, -sweep + tip * 0.5),
+			Vector3(span, t * 0.6, -sweep + tip * 0.5), Vector3(span, t * 0.6, -sweep - tip * 0.5)])
+	return _meshes[key]
+
+
+## The part at `pos` and its mirror image across X (the other wing, the other pod).
+## Kit meshes that aren't symmetric get a mirrored copy; primitives already are.
+static func pair(root: Node3D, mesh: Mesh, mat: Material, pos: Vector3,
+		rot := Vector3.ZERO, scl := Vector3.ONE) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = [part(root, mesh, mat, pos, rot, scl)]
+	var mirrored := _mirror_mesh(mesh) if mesh is ArrayMesh else mesh
+	out.append(part(root, mirrored, mat, Vector3(-pos.x, pos.y, pos.z),
+		Vector3(rot.x, -rot.y, -rot.z), scl))
+	return out
+
+
+## An engine pod pointing back along -Z: nacelle, intake ring, and an exhaust that
+## swells on the bright anim frame. Placed and turned as one piece.
+static func pod(root: Node3D, pos: Vector3, r: float, length: float, mat: Material,
+		exhaust: String, f: int, rot := Vector3.ZERO) -> Node3D:
+	var p := Node3D.new()
+	p.position = pos
+	p.rotation_degrees = rot
+	root.add_child(p)
+	part(p, cyl(r, r * 0.85, length), mat, Vector3.ZERO, Vector3(90, 0, 0))
+	part(p, torus(r * 0.62, r * 1.08), m("2a303c", 0.3), Vector3(0, 0, length * 0.5),
+		Vector3(90, 0, 0))
+	part(p, sphere(r * (0.62 if f == 0 else 0.78)), glow(exhaust, f),
+		Vector3(0, 0, -length * 0.5))
+	return p
+
+
+## A cockpit canopy: a stretched glass dome, long axis along Z.
+static func canopy(root: Node3D, pos: Vector3, r: float, length: float, col: String,
+		rot := Vector3.ZERO) -> MeshInstance3D:
+	return part(root, sphere(r, r * 1.3), m(col, 0.75, 0.3, 44.0, 1.1), pos, rot,
+		Vector3(1.0, 0.75, length / (2.0 * r)))
+
+
+## Greeble: a whip antenna with a light on the tip.
+static func antenna(root: Node3D, pos: Vector3, h: float, f: int, light := "ff3020") -> void:
+	part(root, cyl(0.025, 0.035, h), m("4a5468", 0.3), pos + Vector3(0, h * 0.5, 0))
+	part(root, sphere(0.06), glow(light, f), pos + Vector3(0, h, 0))
+
+
+## Greeble: a dark vent block with glowing slits. They pulse with the idle frames,
+## and the hit flash is cut from the bright frame, so a hit makes them blaze.
+static func vents(root: Node3D, pos: Vector3, w: float, n: int, light: String, f: int,
+		rot := Vector3.ZERO) -> Node3D:
+	var v := Node3D.new()
+	v.position = pos
+	v.rotation_degrees = rot
+	root.add_child(v)
+	part(v, box(w, 0.1 + 0.09 * n, 0.08), m("1c2028", 0.2), Vector3.ZERO)
+	for i in n:
+		part(v, box(w * 0.8, 0.04, 0.04), glow(light, f),
+			Vector3(0, (i - (n - 1) * 0.5) * 0.09, 0.04))
+	return v
+
+
+## Greeble: a pipe run from a to b.
+static func pipe(root: Node3D, a: Vector3, b: Vector3, r: float, mat: Material) -> MeshInstance3D:
+	var d := b - a
+	var mi := part(root, cyl(r, r, d.length(), 8), mat, Vector3.ZERO)
+	var dn := d.normalized()
+	var q := Quaternion(Vector3.UP, dn) if dn.dot(Vector3.UP) > -0.99 \
+		else Quaternion(Vector3.RIGHT, PI)
+	mi.transform = Transform3D(Basis(q), (a + b) * 0.5)
+	return mi
+
+
+## An armour plate: a slab with a bevelled face, thin along Z unless turned.
+static func plate(root: Node3D, pos: Vector3, w: float, h: float, d: float, mat: Material,
+		rot := Vector3.ZERO) -> MeshInstance3D:
+	return part(root, taper(w, h, w * 0.86, h * 0.86, d), mat, pos, rot)
+
+
+## A studio material with a painted map from TextureGen.hull_paint: "panel" or
+## "vents" multiply into the colour, "hazard" replaces it with stripes. `uv` sets
+## how many times the tile repeats across a face.
+static func painted(col: String, pattern: String, chrome := 0.3, uv := Vector2.ONE,
+		glow_amt := 0.0) -> ShaderMaterial:
+	var key := "paint|%s|%s|%.2f|%.2f|%.2f|%.2f" % [col, pattern, chrome, uv.x, uv.y, glow_amt]
+	if _mats.has(key):
+		return _mats[key]
+	var mat := m(col, chrome, glow_amt).duplicate() as ShaderMaterial
+	mat.set_shader_parameter("decal" if pattern == "hazard" else "detail",
+		TextureGen.hull_paint(pattern))
+	mat.set_shader_parameter("paint_uv", uv)
+	_mats[key] = mat
+	return mat
+
+
+## Eight corners (back face 0-3, front face 4-7, corner k of one opposite corner k
+## of the other) -> a closed, flat-shaded ArrayMesh. Each face's normal is turned
+## outward from the centroid and its winding is fixed to Godot's front face
+## (clockwise seen from outside), so corner order only has to be consistent.
+static func _hexa(c: Array) -> ArrayMesh:
+	var centre := Vector3.ZERO
+	for v: Vector3 in c:
+		centre += v / 8.0
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# back, front, then the four sides (their u runs along the hull, back to front)
+	_quad(st, centre, c[0], c[1], c[2], c[3], [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)])
+	_quad(st, centre, c[4], c[5], c[6], c[7], [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)])
+	for k in 4:
+		var k2 := (k + 1) % 4
+		_quad(st, centre, c[k], c[k2], c[k2 + 4], c[k + 4],
+			[Vector2(0, 1), Vector2(0, 0), Vector2(1, 0), Vector2(1, 1)])
+	return st.commit()
+
+
+static func _quad(st: SurfaceTool, centre: Vector3, a: Vector3, b: Vector3, c: Vector3,
+		d: Vector3, uv: Array) -> void:
+	var n := (b - a).cross(c - a)
+	if n.length_squared() < 1e-10:
+		n = (c - a).cross(d - a)
+	n = n.normalized()
+	if n.dot((a + b + c + d) * 0.25 - centre) < 0.0:
+		n = -n
+	var tris := [[0, 1, 2], [0, 2, 3]]
+	var vs := [a, b, c, d]
+	for t: Array in tris:
+		var p0: Vector3 = vs[t[0]]
+		var p1: Vector3 = vs[t[1]]
+		var p2: Vector3 = vs[t[2]]
+		# clockwise from outside means the right-hand normal points inward
+		var order: Array = t if (p1 - p0).cross(p2 - p0).dot(n) < 0.0 else [t[0], t[2], t[1]]
+		for i: int in order:
+			st.set_normal(n)
+			st.set_uv(uv[i])
+			st.add_vertex(vs[i])
+
+
+## A kit mesh mirrored across X (x negated, winding re-fixed), cached per mesh.
+static func _mirror_mesh(mesh: ArrayMesh) -> ArrayMesh:
+	var id := mesh.get_instance_id()
+	if _mirrors.has(id):
+		return _mirrors[id]
+	var arr := mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var norms: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	var uvs: PackedVector2Array = arr[Mesh.ARRAY_TEX_UV]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for t in range(0, verts.size(), 3):
+		for i in [t, t + 2, t + 1]:   # a mirror flips winding; swap two corners back
+			st.set_normal(norms[i] * Vector3(-1, 1, 1))
+			st.set_uv(uvs[i])
+			st.add_vertex(verts[i] * Vector3(-1, 1, 1))
+	var out := st.commit()
+	_mirrors[id] = out
+	return out
+
+
 # ---------------------------------------------------------------- enemies
 
 ## Sentry saucer: chrome hull, canopy dome, a big red eye, thruster pods.

@@ -119,6 +119,55 @@ func _run() -> void:
 	print("forge ok — %d enemy + %d boss sets, %d pickups, gpu=%s" % [
 		SpriteModels.ENEMIES.size(), SpriteModels.BOSSES.size(), SpriteModels.PICKUPS.size(),
 		SpriteForge.gpu_baked])
+	# --- v4b parts kit: closed flat-shaded meshes facing the right way, mirrored pairs,
+	# painted maps on their own materials, and bake sheets inside a WebGL2 texture ---
+	var kit_meshes: Array[ArrayMesh] = [SpriteModels.taper(1.2, 0.6, 0.3, 0.2, 1.8, 0.1),
+		SpriteModels.fin(0.9, 0.7, 0.25, 0.4, 0.08)]
+	kit_meshes.append(SpriteModels._mirror_mesh(kit_meshes[1]))
+	for km in kit_meshes:
+		var ka := km.surface_get_arrays(0)
+		var kv: PackedVector3Array = ka[Mesh.ARRAY_VERTEX]
+		var kn: PackedVector3Array = ka[Mesh.ARRAY_NORMAL]
+		assert(kv.size() == 36 and (ka[Mesh.ARRAY_TEX_UV] as PackedVector2Array).size() == 36)
+		var kc := Vector3.ZERO
+		for v in kv:
+			kc += v / kv.size()
+		for t in range(0, kv.size(), 3):
+			assert(is_equal_approx(kn[t].length(), 1.0))
+			assert(kn[t].dot((kv[t] + kv[t + 1] + kv[t + 2]) / 3.0 - kc) > 0.0)   # outward
+			# Godot's front faces wind clockwise seen from outside
+			assert((kv[t + 1] - kv[t]).cross(kv[t + 2] - kv[t]).dot(kn[t]) < 0.0)
+	assert(SpriteModels.taper(1, 1, 1, 1, 1) == SpriteModels.taper(1, 1, 1, 1, 1))   # cached
+	var kroot := Node3D.new()
+	var kpair := SpriteModels.pair(kroot, kit_meshes[1], SpriteModels.m("e8302a"),
+		Vector3(0.2, 0.1, 0.3), Vector3(0, 20, 10))
+	assert(kpair[1].position.is_equal_approx(Vector3(-0.2, 0.1, 0.3)))
+	assert(kpair[1].rotation_degrees.is_equal_approx(Vector3(0, -20, -10)))
+	for v in (kpair[1].mesh as ArrayMesh).surface_get_arrays(0)[Mesh.ARRAY_VERTEX]:
+		assert(v.x <= 0.0001)   # the mirrored fin stands out along -X
+	kroot.free()
+	var kpaint := SpriteModels.painted("b0b8c8", "panel")
+	assert(kpaint.get_shader_parameter("detail") == TextureGen.hull_paint("panel"))
+	assert(SpriteModels.painted("ffffff", "hazard").get_shader_parameter("decal") != null)
+	assert(SpriteModels.m("b0b8c8").get_shader_parameter("detail") == null)   # stays plain
+	for kind in ["panel", "vents", "hazard"]:
+		var hp := TextureGen.hull_paint(kind).get_image()
+		assert(hp.get_width() == TextureGen.SIZE and not hp.has_mipmaps())
+		var px := hp.get_pixel(9, 21)
+		assert(kind == "hazard" or (px.r == px.g and px.g == px.b))   # detail maps are grey
+	var fake_ids := []
+	for k in 18:
+		fake_ids.append("e%d" % k)
+	var chunks := SpriteForge.sheet_chunks(fake_ids, 64, 2)
+	assert(chunks.size() == 2 and chunks[0].size() == 9 and chunks[1].size() == 9)
+	for ids in chunks:
+		assert(ids.size() * 64 * 2 <= SpriteForge.MAX_SHEET_PX)
+	for ids in SpriteForge.sheet_chunks(fake_ids, 128, 2):   # boss-sized cells: 8 per sheet
+		assert(ids.size() * 128 * 2 <= SpriteForge.MAX_SHEET_PX)
+	assert(SpriteForge.sheet_chunks(SpriteModels.BOSSES, 128, 2).size() == 1)
+	assert(SpriteForge.sheet_chunks(fake_ids.slice(0, 16), 64, 2).size() == 1)   # 2048 fits
+	print("KIT ok — closed outward clockwise meshes, mirrored pairs, painted maps, %d-id sheets fit %d px" % [
+		chunks[0].size(), SpriteForge.MAX_SHEET_PX])
 	var game: Node3D = load("res://scenes/game.tscn").instantiate()
 	add_child(game)
 	await get_tree().process_frame
@@ -254,6 +303,11 @@ func _run() -> void:
 	assert(bsm._fx_spark.count() == bsm._sparks.size())
 	assert(bsm._fx_shock.count() == bsm._shocks.size())
 	assert(bsm._fx_ebolt.count() == bsm._eshots.size())
+	# shots still in flight from the run above (a bolt that infights, a missile on its
+	# fuse) can blow something up mid-drain and start a fresh blast, an intermittent
+	# failure here, so the drain runs without them
+	bsm._eshots.clear()
+	bsm._pshots.clear()
 	for f in 90:   # fireballs and sparks live 0.6-0.7 s — let the burst drain away
 		bsm.update_shots(dt)
 	assert(bsm._explosions.is_empty() and bsm._sparks.is_empty() and bsm._shocks.is_empty())

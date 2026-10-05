@@ -18,16 +18,25 @@ class_name SpriteForge
 ## Headless runs (the smoke test) have no renderer: bake() falls back to the old
 ## hand-plotted SpriteGen pixel sprites packed into the same set shape (1 angle),
 ## so every consumer runs the same code paths either way.
+##
+## v4b: each (model, frame) is built once and duplicated across its angle cells
+## (meshes and materials are shared), and a class too tall for one viewport is
+## split across several (see sheet_chunks).
 
 const ANGLES := 8
 const ANIM := 2
 const CELL_WORLD := 2.6   # world units one atlas cell spans
+## v4b: no bake viewport grows past this — the texture size every WebGL2 device must
+## support. A taller sprite class is split across several viewports.
+const MAX_SHEET_PX := 2048
 
 static var _sets := {}       # model id -> sprite set
 static var _pickups := {}    # pickup kind -> Array[ImageTexture] (spin frames)
 static var _prop: Array[ImageTexture] = []
 static var _baked := false
 static var gpu_baked := false   # true when the GPU turntable path produced the sets
+static var bake_ms := 0         # v4b: how long bake() took, either path
+static var sheet_count := 0     # v4b: bake viewports used (0 on the pixel fallback)
 
 
 ## Bake every sprite class. Call once, early, from a node inside the tree.
@@ -35,15 +44,27 @@ static func bake(host: Node) -> void:
 	if _baked:
 		return
 	_baked = true
+	var t0 := Time.get_ticks_msec()
+	_bake(host)
+	bake_ms = Time.get_ticks_msec() - t0
+
+
+static func _bake(host: Node) -> void:
 	if DisplayServer.get_name() == "headless":
 		_fallback()
 		return
-	var sheets := [
+	var sheets: Array[Dictionary] = []
+	for cls in [
 		{"cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0, "ids": SpriteModels.ENEMIES},
 		{"cell": 128, "angles": ANGLES, "anim": ANIM, "pitch": 10.0, "ids": SpriteModels.BOSSES},
 		{"cell": 32, "angles": 8, "anim": 1, "pitch": 24.0,
 			"ids": SpriteModels.PICKUPS + ["prop"]},
-	]
+	]:
+		for ids in sheet_chunks(cls.ids, cls.cell, cls.anim):
+			var sh: Dictionary = cls.duplicate()
+			sh.ids = ids
+			sheets.append(sh)
+	sheet_count = sheets.size()
 	var vps: Array[SubViewport] = []
 	for sh in sheets:
 		vps.append(_build_sheet(host, sh))
@@ -80,6 +101,18 @@ static func pickup_frames(kind: String) -> Array:
 static func prop_texture() -> Texture2D:
 	_ensure()
 	return _prop[0]
+
+
+## v4b: a sprite class's ids, split into as few equal viewports as keep each one
+## within MAX_SHEET_PX tall (a row of cells per id and anim frame).
+static func sheet_chunks(ids: Array, cell: int, anim: int) -> Array:
+	var per := maxi(1, MAX_SHEET_PX / (cell * anim))
+	var count := ceili(ids.size() / float(per))
+	var size := ceili(ids.size() / float(maxi(count, 1)))
+	var out: Array = []
+	for i in range(0, ids.size(), maxi(size, 1)):
+		out.append(ids.slice(i, i + size))
+	return out
 
 
 ## Which baked angle to show for a sprite facing `facing`, seen along `to_cam`
@@ -127,12 +160,15 @@ static func _build_sheet(host: Node, sh: Dictionary) -> SubViewport:
 	for idx in sh.ids.size():
 		for f in sh.anim:
 			var row: int = idx * sh.anim + f
+			# v4b: one build per (model, frame); the other angles are duplicates that
+			# share its meshes and materials
+			var proto := SpriteModels.build(sh.ids[idx], f)
 			for a in cols:
 				var pivot := Node3D.new()
 				pivot.position = Vector3((a + 0.5) * w - cols * w * 0.5,
 					rows * w * 0.5 - (row + 0.5) * w, 0.0)
 				pivot.rotation.x = deg_to_rad(sh.pitch)   # look down on it a little
-				var model := SpriteModels.build(sh.ids[idx], f)
+				var model: Node3D = proto if a == 0 else proto.duplicate()
 				model.rotation.y = a * TAU / cols
 				pivot.add_child(model)
 				vp.add_child(pivot)
@@ -156,7 +192,9 @@ static func _slice(img: Image, sh: Dictionary) -> void:
 			for f in sh.anim:
 				var region := img.get_region(Rect2i(a * cell, (idx * sh.anim + f) * cell, cell, cell))
 				tex.append(ImageTexture.create_from_image(region))
-				if f == 0:
+				# v4b: the flash is cut from the bright idle frame, so glows and vent
+				# slits are at full blaze inside the white pop
+				if f == sh.anim - 1:
 					flash.append(ImageTexture.create_from_image(_flash_of(region)))
 		if id == "prop":
 			_prop = [tex[0]]

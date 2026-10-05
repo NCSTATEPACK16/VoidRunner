@@ -13,7 +13,8 @@ func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
 	var t0 := Time.get_ticks_msec()
 	SpriteForge.bake(self)
-	print("[forge] baked in %d ms, gpu=%s" % [Time.get_ticks_msec() - t0, SpriteForge.gpu_baked])
+	print("[forge] baked in %d ms (bake_ms %d), %d sheets, gpu=%s" % [Time.get_ticks_msec() - t0,
+		SpriteForge.bake_ms, SpriteForge.sheet_count, SpriteForge.gpu_baked])
 	for group in [SpriteModels.ENEMIES, SpriteModels.BOSSES]:
 		var cell: int = (SpriteForge.sprite_set(group[0]).tex[0] as Texture2D).get_width()
 		var sheet := Image.create(cell * 8, cell * 3 * group.size(), false, Image.FORMAT_RGBA8)
