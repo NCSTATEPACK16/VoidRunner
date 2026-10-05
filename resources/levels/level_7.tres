@@ -15,5 +15,5 @@ enemy_speed = 8.8
 enemy_fire = 1.75
 theme_id = "ice"
 level_seed = 707
-enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk", "hulk", "turret", "stinger", "spinner", "mine", "mine")
+enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk", "hulk", "turret", "stinger", "spinner", "mine", "mine", "layer", "rammer", "mender", "splitter")
 spur_count = 2

@@ -98,6 +98,13 @@ var _spawn_queue: Array[Dictionary] = []     # {ring, arena_id, type}
 ## straight through, hiding a pickup cache (the original's holographic walls).
 var _secrets: Array[Dictionary] = []
 
+## v4b: this sector's newcomers (LevelDef.intro_types) -> the ring each is met at
+## first, alone (see _plan_intros). Nothing rolls one of them before its ring.
+var _intro_rings := {}
+## The solo first contacts only happen on a fresh sector start, never on a resume
+var _intros_live := false
+const INTRO_CLEAR := 8   # no random tunnel spawns this many rings either side of one
+
 
 func _ready() -> void:
 	# M4a diagnostics: proves GDScript is actually executing on a device we can't
@@ -112,6 +119,11 @@ func _ready() -> void:
 	# (one synchronous GPU pass; headless falls back to the pixel sprites). Before
 	# any manager exists — they pick their sprite sets up in _ready.
 	SpriteForge.bake(self)
+	if OS.has_feature("web"):   # v4b: what the bake cost on this device (vrReport shows it)
+		var gpu := "true" if SpriteForge.gpu_baked else "false"
+		JavaScriptBridge.eval("if (window.vrBoot) { window.vrBoot.bakeMs = %d;" % SpriteForge.bake_ms
+			+ " window.vrBoot.bakeGpu = %s; }" % gpu
+			+ " console.log('[vr] sprite bake %d ms gpu=%s');" % [SpriteForge.bake_ms, gpu], true)
 	for w in ["neutron", "scatter", "bolt", "missile"]:
 		weapons.append(load("res://resources/weapons/%s.tres" % w))
 	# Phase J: probe rather than hardcode the count — adding level_N.tres extends
@@ -211,6 +223,10 @@ func _ready() -> void:
 	enemy_mgr.boss_killed.connect(_on_boss_killed)
 	enemy_mgr.boss_phase.connect(_on_boss_phase)
 	enemy_mgr.gibs_requested.connect(gib_mgr.burst)
+	# v4b: a splitter's brood joins its locked room's tally; a mender's repair sparks
+	enemy_mgr.arena_reinforced.connect(func(arena_id: int, n: int) -> void:
+		_arena_spawned[arena_id] = _arena_spawned.get(arena_id, 0) + n)
+	enemy_mgr.mended.connect(shot_mgr.spawn_mend_sparks)
 	# V2.2 L1: nearby explosions rattle the camera, scaled by proximity
 	enemy_mgr.exploded.connect(func(pos: Vector3, big: bool) -> void:
 		var d2 := pos.distance_squared_to(player.position)
@@ -410,6 +426,7 @@ func _load_level_world(index: int) -> void:
 	path.generate(level.rings, level.level_seed, level.spawn_arena,
 		level.kind == "boss", _gauntlet)
 	path.add_spurs(level.spur_count)   # V2.2 L5: campaign spurs (guarded for boss/endless/0)
+	_intro_rings = _plan_intros(level)   # v4b: before any spawn picks a type
 	player.path = path
 	enemy_mgr.path = path
 	enemy_mgr.level = level
@@ -441,7 +458,7 @@ func _load_level_world(index: int) -> void:
 		if arena.door_ring < 0:
 			continue
 		for ring_idx in arena.spawn_rings:
-			enemy_mgr.spawn(ring_idx, arena.id, _pick_enemy_type(level))
+			enemy_mgr.spawn(ring_idx, arena.id, _pick_enemy_type(level, arena.start))
 		_arena_spawned[arena.id] = arena.spawn_rings.size()
 		_arena_kills[arena.id] = 0
 		if arena.spawn_rings.is_empty():
@@ -449,9 +466,9 @@ func _load_level_world(index: int) -> void:
 	# V2.2 L5c: 1-2 guards inside each spur. Fresh NEGATIVE arena_id — the kill
 	# handler early-outs on negatives, so spur kills never touch door/lock logic.
 	for sp in path.spurs:
-		enemy_mgr.spawn(sp.start + 3, -100 - sp.id, _pick_enemy_type(level))
+		enemy_mgr.spawn(sp.start + 3, -100 - sp.id, _pick_enemy_type(level, sp.entry))
 		if sp.cache - sp.start > 8:
-			enemy_mgr.spawn(sp.cache - 2, -100 - sp.id, _pick_enemy_type(level))
+			enemy_mgr.spawn(sp.cache - 2, -100 - sp.id, _pick_enemy_type(level, sp.entry))
 	# Phase J: boss levels put a single boss deep in the final room and keep the
 	# exit ring dark until it falls (no bulkheads on boss levels — see PathGen).
 	_boss_arena_start = -1
@@ -685,16 +702,20 @@ func _apply_gauntlet_tier(tier: int) -> void:
 		pool.append("hulk")
 		pool.append("turret")
 		pool.append("stinger")   # 3.0
+		pool.append("layer")     # v4b: the roster joins tier by tier, in campaign order
 	if tier >= 3:
 		pool.append("weaver")
 		pool.append("spinner")   # 3.0
+		pool.append("rammer")
 	if tier >= 4:
 		pool.append("stinger")
 		pool.append("mine")
+		pool.append("mender")
 	if tier >= 5:
 		pool.append("hulk")
 		pool.append("turret")   # tier 5+ turrets fire seekers (enemy_speed >= 9)
 		pool.append("spinner")
+		pool.append("splitter")
 	_gauntlet_def.enemy_types = pool
 	AudioSys.set_music_intensity(tier / 8.0)
 
@@ -737,6 +758,8 @@ func _launch_level() -> void:
 			# tunnel well before the first arena, so FIRE is taught on something real
 			enemy_mgr.spawn(mini(12, path.main_ring_count - 2), -1, "drone")
 	_start_tips(resume.is_empty() and not _gauntlet and GameState.level_index == 0)
+	# v4b: newcomers meet the ship alone only on a fresh start (see _on_tunnel_spawn)
+	_intros_live = resume.is_empty() and not _gauntlet
 	overlays.set_launch_label("> LAUNCH")
 	player.active = true
 	GameState.is_dead = false
@@ -1466,15 +1489,58 @@ func _on_tunnel_spawn(ring_idx: int) -> void:
 	if state == State.MENU:
 		return
 	var level := _current_level()
+	# v4b: a newcomer's first appearance on a fresh start, with its stretch of tunnel
+	# kept clear. It spawns lazily here, as the ship nears, because anything over
+	# 300 u off despawns
+	if _intros_live:
+		for type_id in _intro_rings:
+			var at: int = _intro_rings[type_id]
+			if ring_idx == at:
+				enemy_mgr.spawn(ring_idx, -1, type_id)
+				return
+			if absi(ring_idx - at) <= INTRO_CLEAR:
+				return
 	if randf() < level.spawn_tunnel:
-		enemy_mgr.spawn(ring_idx, -1, _pick_enemy_type(level))
+		enemy_mgr.spawn(ring_idx, -1, _pick_enemy_type(level, ring_idx))
 
 
 ## I3: weighted pick from a level's enemy_types pool (repeated ids act as weights).
-func _pick_enemy_type(level: LevelDef) -> String:
-	if level.enemy_types.is_empty():
+## v4b: a sector's newcomer is never picked for a ring before its own introduction.
+func _pick_enemy_type(level: LevelDef, ring := 1 << 30) -> String:
+	var pool := level.enemy_types
+	if not _intro_rings.is_empty():
+		pool = PackedStringArray()
+		for id in level.enemy_types:
+			if ring >= int(_intro_rings.get(id, -1)):
+				pool.append(id)
+	if pool.is_empty():
 		return "drone"
-	return level.enemy_types[randi() % level.enemy_types.size()]
+	return pool[randi() % pool.size()]
+
+
+## v4b: where each of this sector's newcomers (LevelDef.intro_types) is met first,
+## alone: newcomer i sits mid-way along stretch i of plain tunnel. The first stretch
+## runs from ring 21 (where tunnel spawns begin) to the first arena's mouth, each later
+## one from a bulkhead to the next mouth. A stretch too short to hold one is skipped.
+## A boss sector's entry tunnel is one stretch: ring 21 to the boss room's mouth.
+func _plan_intros(level: LevelDef) -> Dictionary:
+	var out := {}
+	if _gauntlet or level.intro_types.is_empty():
+		return out
+	var stretches: Array[Vector2i] = []
+	var from := 21
+	for arena in path.arenas:
+		stretches.append(Vector2i(from, arena.start - 6))
+		from = maxi(from, (arena.door_ring if arena.door_ring >= 0 else arena.end) + 6)
+	var si := 0
+	for id in level.intro_types:
+		while si < stretches.size() and stretches[si].y - stretches[si].x < 2:
+			si += 1
+		if si >= stretches.size():
+			break
+		out[id] = (stretches[si].x + stretches[si].y) / 2
+		si += 1
+	return out
 
 
 # ---------- input ----------

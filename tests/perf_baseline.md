@@ -182,3 +182,58 @@ saw the same container load.
   at 5.4 ms or below.
 - Software GL is not a device. The draw-call savings are aimed at WebGL on iPad, where
   each call costs most, and the Step 7 device pass measures them there.
+
+## v4b: the roster and its bake (2026-10-05)
+
+Measured on a shared 4-vCPU container, xvfb with software GL (llvmpipe), Godot 4.7. Each
+figure is 8 runs of `tests/forge_probe.tscn`, dropping the first run's cold-cache outlier
+(about 900 ms either way).
+
+**Baseline on `main` (238c78e).** 7 enemies, 3 bosses, 9 pickups.
+
+| Run | Result | Notes |
+|---|---|---|
+| L8 headless | worst 4.6 ms, average 0.53 ms | 7908 steps |
+| L9 boss headless | worst 2.0 ms, average 0.21 ms | boss killed |
+| Gauntlet headless | worst 3.9 ms, average 0.41 ms | ring 370 |
+| Dense arena headless | worst 2.6 ms, average 0.89 ms | 86 effects in a frame |
+| Dense arena rendered | peak 73–74 draw calls, average 65 | average frame 30 ms on this container |
+| Sprite bake | 417 ms (349–487) | 3 sheets |
+
+**Commit 1 (parts kit).** Each (model, frame) is built once and duplicated across its 8 angle
+cells, so meshes and materials are shared. A sprite class taller than 2048 px splits across
+viewports (no class needed it yet).
+
+| Run | Bake (median, range) |
+|---|---|
+| Sprite bake | 379 ms (337–442), 3 sheets |
+
+About 10% faster on software GL, where rasterizing the cells dominates. The mesh-building
+share is larger on a device with a real GPU. The web build now logs the bake (`[vr] sprite
+bake N ms gpu=…`) and records it in `window.vrBoot.bakeMs`, so `vrReport()` carries it.
+
+**Commit 2 (LAYER, RAMMER, MENDER, SPLITTER).** 11 enemy models in one sheet (1408 px).
+The bake is an A/B against the kit commit: the two builds ran alternately, 8 rounds, in
+the same container.
+
+| Run | Kit commit | This commit |
+|---|---|---|
+| Sprite bake (median, range) | 339 ms (315–400) | 448 ms (412–491), 3 sheets |
+
+| Run | Mode | Result |
+|---|---|---|
+| L8 ×2 | headless | worst 2.6 / 5.5 ms, average 0.50 / 0.56 ms |
+| L9 boss | headless | worst 3.9 ms, average 0.19 ms |
+| Gauntlet ×2 | headless | worst 4.6 / 3.7 ms, average 0.38 ms |
+| Dense arena ×5 | headless | worst 2.1–4.4 ms in 4 runs, plus one 9.9 ms step; average 0.79–0.91 ms |
+| Dense arena ×2 | rendered | **peak 83 / 87 draw calls**, average 73.8 / 73.3; average frame 17.3 / 17.7 ms |
+| Web (SwiftShader) | headless Chromium | bake 1663 ms, first flight 15.4 s, no script or shader errors |
+
+- The 9.9 ms dense step came with nothing built or spawned (42 → 42 enemies), and three
+  reruns of the same seeded scene stayed at 2.1–4.2 ms: container noise.
+- The bake grew by 109 ms for 4 models. Each kit model has more parts than a 3.0 one, so a
+  cell costs more to render. The full v4b roster adds 4 more enemies and 3 mini-bosses, so the
+  bake gets watched each PR. It is measured on a device in Step 7.
+- Draw calls stay one per enemy sprite. The dense arena now fields 11 types (114 effects at
+  its busiest, up from 86) and peaks 9–13 calls above main's 73–74. That is inside the +25%
+  gate.

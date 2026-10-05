@@ -166,6 +166,46 @@ func _run() -> void:
 	await _fly(game, 20)
 	await _capture(game, "shot_threats.png", dir)
 	GameState.clear_powers()
+	# 2d) v4b roster (part 1), each mid-rule: a layer down the tunnel with a mine just
+	# laid behind it, a rammer's red flare, a mender patching a drone (green sparks),
+	# and a splitter beside the brood that just burst out of another
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	fwd = game.player.forward()
+	right = fwd.cross(Vector3.UP).normalized()
+	pr = game.player.ring_idx
+	GameState.reduce_flashing = true   # holds the tells steady for the still
+	var roster := {
+		"layer": fwd * 46.0 + Vector3.UP * 1.5,
+		"rammer": fwd * 34.0 - right * 5.0 + Vector3.UP * 2.0,
+		"mender": fwd * 26.0 + right * 5.5 - Vector3.UP * 2.0,
+		"splitter": fwd * 20.0 - right * 4.0 - Vector3.UP * 2.5,
+	}
+	for id in roster:
+		em.spawn(pr, -1, id)
+		var en: Dictionary = em.enemies.back()
+		en.node.position = game.player.position + roster[id]
+		en.facing = -fwd
+	var medic: Dictionary = {}
+	for en in em.enemies:
+		match en.type:
+			"layer":
+				en.fire_t = 0.0   # a mine on its way down
+			"rammer":
+				en.mode = "rev"
+				en.mode_t = 5.0
+			"mender":
+				medic = en
+				en.fire_t = 0.0
+	em.spawn(pr, -1, "drone")   # the mender's patient
+	em.enemies.back().node.position = medic.node.position + right * 5.0
+	em.enemies.back().hp = 1
+	em.spawn(pr, -1, "splitter")   # and one that bursts into its brood
+	em.enemies.back().node.position = game.player.position + fwd * 30.0 + right * 3.0
+	em.hit_enemy(em.enemies.size() - 1, 99)
+	await _fly(game, 6)
+	await _capture(game, "shot_roster.png", dir)
+	GameState.reduce_flashing = false
 	# 3) L3 boss room with the boss in frame
 	GameState.reset_run()
 	GameState.level_index = 2

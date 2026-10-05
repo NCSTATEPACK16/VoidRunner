@@ -42,9 +42,12 @@ directory up**, outside this repo, in the parent `RadixRemix/` folder:
 - **Light:** no `OmniLight3D` anywhere. World meshes use `shaders/sector.gdshader` (baked vertex
   light ×0.5, 8 dynamic lights in uniform arrays); `LightRig` scores candidates each frame and
   pushes the best eight to every registered material.
-- **Sprites:** `SpriteModels` builds each enemy, boss and pickup from primitives, and
-  `SpriteForge.bake()` turntable-renders them at boot (8 angles × 2 frames + flash). Headless
-  runs fall back to the `SpriteGen` pixel sprites with the same frame layout.
+- **Sprites:** `SpriteModels` builds each enemy, boss and pickup from primitives plus the v4b
+  parts kit (`taper` hulls, `fin`, `pod`, `pair` for mirrored parts, `painted` materials with
+  `TextureGen.hull_paint` maps), and `SpriteForge.bake()` turntable-renders them at boot
+  (8 angles × 2 frames + a flash cut from the bright frame). Each (model, frame) is built once
+  and duplicated across its angles, and no bake viewport passes 2048 px. Headless runs fall
+  back to the `SpriteGen` pixel sprites with the same frame layout.
 - **UI:** `PixelFont.install()` must run first in `game._ready()`. It sets the default theme
   font, so every Control inherits the bitmap face; size 8 is 1×, 16 is 2×. `HudArt` paints the
   console once at boot. The CRT pass is a CanvasLayer at layer 100.

@@ -129,6 +129,41 @@ static func theme_textures(theme_id: String) -> Dictionary:
 	return out
 
 
+static var _hull_cache := {}
+
+
+## v4b parts kit: tiles SpriteModels paints onto hulls (studio.gdshader's maps),
+## from the same painters as the walls. "panel" (staggered plating, rivets) and
+## "vents" (louvres and slot rows) are greyscale detail maps the shader multiplies
+## into a part's colour; "hazard" is a decal of warning stripes that replaces it.
+## No mipmaps: the turntable bake samples nearest, like the 1995 renders did.
+static func hull_paint(kind: String) -> ImageTexture:
+	if _hull_cache.has(kind):
+		return _hull_cache[kind]
+	var img := _img()
+	match kind:
+		"hazard":
+			_hazard(img, 0, 0, SIZE, SIZE, Palette.GOLD, Palette.GREY)
+		"vents":
+			_rect(img, 0, 0, SIZE, SIZE, Palette.ramp(Palette.GREY, 12))
+			_grille(img, 0, 6, SIZE, 20, Palette.GREY, 10)
+			for y in [36, 46, 56]:
+				_slots(img, 2, y, SIZE - 4, Palette.GREY, 11)
+		_:
+			var grain := _noise(4141, 0.11, FastNoiseLite.TYPE_VALUE, 2)
+			for row in 2:
+				for col in 2:
+					# alternate columns drop half a plate, so seams stagger like hull plating
+					var x := col * 32
+					var y := row * 32 + (16 if col == 1 else 0)
+					_panel(img, x, y, 32, 32, Palette.GREY, 12, grain)
+					_rivet(img, x + 3, y + 3, Palette.GREY, 9)
+					_rivet(img, x + 27, y + 3, Palette.GREY, 9)
+	var tex := ImageTexture.create_from_image(img)
+	_hull_cache[kind] = tex
+	return tex
+
+
 # =====================================================================
 # motif painters — each fills wall_a..d, floor, floor_b, ceil, ceil_lamp, trim
 # =====================================================================
