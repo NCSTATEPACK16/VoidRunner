@@ -9,7 +9,8 @@ class_name SpriteModels
 const STUDIO := preload("res://shaders/studio.gdshader")
 
 ## enemy id -> builder name; ids match EnemyManager.TYPES and LevelDef.boss_model
-const ENEMIES := ["drone", "weaver", "hulk", "turret", "stinger", "spinner", "mine"]
+const ENEMIES := ["drone", "weaver", "hulk", "turret", "stinger", "spinner", "mine",
+	"layer", "rammer", "mender", "splitter"]
 const BOSSES := ["sentinel", "brood", "maw"]
 const PICKUPS := ["shield", "energy", "missile", "bomb", "salvage", "overdrive", "phase",
 	"powercore"]
@@ -27,6 +28,10 @@ static func build(id: String, frame: int) -> Node3D:
 		"stinger": _stinger(root, frame)
 		"spinner": _spinner(root, frame)
 		"mine": _mine(root, frame)
+		"layer": _layer(root, frame)
+		"rammer": _rammer(root, frame)
+		"mender": _mender(root, frame)
+		"splitter": _splitter(root, frame)
 		"sentinel": _sentinel(root, frame)
 		"brood": _brood(root, frame)
 		"maw": _maw(root, frame)
@@ -438,6 +443,84 @@ static func _mine(root: Node3D, f: int) -> void:
 		spike.transform = Transform3D(Basis(q), dn * 0.62)
 	part(root, torus(0.5, 0.58), glow("ff2020", 1) if f == 0 else m("401010", 0.1),
 		Vector3.ZERO)
+
+
+# ---------------------------------------------------------------- v4b roster
+
+## Layer: a mine-layer tug that flies away down the tunnel, so its tail is what you
+## see: twin hot engines, a hazard-striped drop chute, and a rack of armed mines riding
+## its back.
+static func _layer(root: Node3D, f: int) -> void:
+	var hull := painted("8a9050", "panel", 0.35, Vector2(2, 1))
+	var dark := m("2a2c20", 0.25)
+	part(root, taper(1.0, 0.5, 0.55, 0.35, 1.5, -0.05), hull, Vector3(0, -0.05, 0.05))
+	canopy(root, Vector3(0, 0.18, 0.55), 0.2, 0.45, "40c8f0")
+	part(root, taper(0.5, 0.4, 0.6, 0.5, 0.35), painted("ffffff", "hazard", 0.2),
+		Vector3(0, -0.12, -0.85))
+	part(root, box(0.36, 0.26, 0.05), glow("ff3020", f), Vector3(0, -0.12, -1.03))
+	for s in [-1.0, 1.0]:
+		pod(root, Vector3(s * 0.6, 0.0, -0.5), 0.17, 0.6, dark, "ff9020", f)
+	part(root, box(0.12, 0.08, 1.1), dark, Vector3(0, 0.22, -0.1))   # the rack rail
+	for i in 3:
+		var at := Vector3(0, 0.38, 0.25 - i * 0.38)
+		part(root, sphere(0.16), m("7a8298", 0.55), at)
+		part(root, torus(0.15, 0.19),
+			glow("ff2020", 1) if (i + f) % 2 == 0 else m("401010", 0.1), at)
+
+
+## Rammer: an armoured battering ram — a hazard-striped plow for a nose, a heavy engine
+## block, three exhausts that flicker hot. Head-on it is all plow.
+static func _rammer(root: Node3D, f: int) -> void:
+	part(root, taper(1.1, 0.9, 0.16, 0.16, 0.95), painted("ffffff", "hazard", 0.25, Vector2(2, 2)),
+		Vector3(0, 0, 0.6))
+	part(root, cyl(0.0, 0.1, 0.36), m("d8e0f0", 0.7), Vector3(0, 0, 1.02), Vector3(90, 0, 0))
+	part(root, taper(0.95, 0.85, 1.05, 0.9, 1.0), painted("6a7488", "panel", 0.45, Vector2(2, 1)),
+		Vector3(0, 0, -0.35))
+	part(root, box(0.5, 0.07, 0.05), glow("ff3020", f), Vector3(0, 0.38, 0.12))   # vision slit
+	pair(root, taper(0.12, 0.7, 0.12, 0.6, 0.9), m("5a6680", 0.35), Vector3(0.58, 0, -0.32))
+	for i in 3:
+		var at := Vector3((i - 1) * 0.32, -0.08 + (0.12 if i == 1 else 0.0), -0.92)
+		part(root, cyl(0.13, 0.15, 0.25), m("2a303c", 0.3), at, Vector3(90, 0, 0))
+		part(root, sphere(0.12 if (i + f) % 2 == 0 else 0.16), glow("ff6020", f),
+			at + Vector3(0, 0, -0.14))
+
+
+## Mender: a white repair drone, glass-topped, with a repair dish on its back and two
+## tool arms whose welding tips glow green and swing between frames.
+static func _mender(root: Node3D, f: int) -> void:
+	var shell := painted("e8ecf4", "panel", 0.45, Vector2(2, 1))
+	var joint := m("4a5468", 0.35)
+	part(root, capsule(0.38, 1.2), shell, Vector3(0, 0.05, -0.1), Vector3(90, 0, 0))
+	canopy(root, Vector3(0, 0.28, 0.25), 0.22, 0.45, "9ad62a")
+	part(root, cyl(0.32, 0.05, 0.12), m("c8d0e0", 0.6), Vector3(0, 0.5, -0.35), Vector3(-30, 0, 0))
+	antenna(root, Vector3(0, 0.55, -0.35), 0.25, f, "9ad62a")
+	var reach := 0.0 if f == 0 else 0.12
+	for s in [-1.0, 1.0]:
+		var elbow := Vector3(s * 0.72, -0.25, 0.35)
+		var tip := Vector3(s * (0.55 - reach * 0.5), -0.45 + reach, 0.85)
+		pipe(root, Vector3(s * 0.38, -0.05, 0.15), elbow, 0.06, joint)
+		pipe(root, elbow, tip, 0.05, joint)
+		part(root, sphere(0.1 if f == 0 else 0.13), glow("b8ff40", f), tip)
+	pod(root, Vector3(0, 0.0, -0.75), 0.16, 0.3, joint, "40c8f0", f)
+
+
+## Splitter: a swollen brood-pod. The drones it bursts into ride inside the membrane,
+## eyes lit, and its veins pulse between frames.
+static func _splitter(root: Node3D, f: int) -> void:
+	var skin := m("2ab8a8", 0.55, 0.12, 40.0, 1.0)
+	var vein := m("0b5a70", 0.3)
+	var r := 0.66 if f == 0 else 0.7
+	part(root, sphere(r, r * 1.8), skin, Vector3.ZERO)
+	part(root, torus(r * 0.9, r * 1.02), vein, Vector3(0, 0.1, 0), Vector3(20, 0, 0))
+	part(root, torus(r * 0.9, r * 1.02), vein, Vector3(0, -0.1, 0), Vector3(-20, 90, 0))
+	# the brood bulges out of the membrane, each with its eye lit
+	for i in 3:
+		var a := TAU * i / 3.0 + 0.5
+		var at := Vector3(cos(a) * 0.66, 0.06 * (i - 1), sin(a) * 0.66)
+		part(root, sphere(0.34, 0.26), m("8a9ac0", 0.45), at)
+		part(root, torus(0.26, 0.36), m("4a5468", 0.25), at + Vector3(0, -0.03, 0))
+		part(root, sphere(0.1), glow("ff3020", f), at + at.normalized() * 0.3)
+	part(root, box(0.36, 0.08, 0.1), glow("c8fcff", f), Vector3(0, -0.18, r * 0.92))   # a mouth slit
 
 
 # ---------------------------------------------------------------- bosses

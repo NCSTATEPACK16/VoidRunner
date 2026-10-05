@@ -51,9 +51,11 @@ const SHOCK_SIZE := 13.0
 const SPARK_SIZE := 1.1           # world size at birth; sparks shrink as they die
 const SPARK_LIFE := 0.6
 ## Spark atlas cells: hot orange (blasts, infighting) and, K4, cool blue for the
-## dodge burst, so it reads as thrusters, not damage
+## dodge burst, so it reads as thrusters, not damage. v4b adds green for a mender's
+## repairs.
 const SPARK_HOT := 0
 const SPARK_DODGE := 1
+const SPARK_MEND := 2
 
 var player: PlayerShip
 var enemy_mgr: EnemyManager
@@ -109,7 +111,8 @@ func _ready() -> void:
 	_fx_shock = _layer(_shock_frames, SHOCK_CAP)
 	_fx_smoke = _layer(_smoke_frames, PUFF_CAP)
 	_fx_spark = _layer([SpriteGen.star_texture(Palette.ORANGE_3, Palette.ORANGE_1, 8),
-		SpriteGen.star_texture(Palette.CYAN_3, Palette.BLUE_2, 8)], SPARK_CAP)
+		SpriteGen.star_texture(Palette.CYAN_3, Palette.BLUE_2, 8),
+		SpriteGen.star_texture(Palette.GREEN_2, Palette.GREEN_1, 8)], SPARK_CAP)
 	_build_bolt_layer()
 
 
@@ -337,6 +340,14 @@ func spawn_dodge_burst(pos: Vector3) -> void:
 	for i in 5:
 		if not _spawn_spark(SPARK_DODGE, pos, 10.0):
 			break
+
+
+## v4b: a mender's repair lands — green sparks on the patched hull and a chime.
+func spawn_mend_sparks(pos: Vector3) -> void:
+	for i in 5:
+		if not _spawn_spark(SPARK_MEND, pos + Vector3.UP * 0.6, 6.0):
+			break
+	AudioSys.play_mend()
 
 
 func _spawn_spark(cell: int, pos: Vector3, spread: float) -> bool:

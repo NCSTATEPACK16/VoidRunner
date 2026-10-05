@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L3 · DOCK SENTINEL"
-briefing = "Standard cannons hurt it slowly — save your missiles. It gets meaner as it drops. When it falls, fly the exit ring."
+briefing = "A LAYER seeds mines on the approach: catch it early. Save missiles for the Sentinel; when it falls, fly the exit ring."
 objective = "DESTROY THE DOCK SENTINEL"
 rings = 54
 spawn_tunnel = 0.07
@@ -15,7 +15,8 @@ enemy_speed = 7.0
 enemy_fire = 2.4
 theme_id = "navy"
 level_seed = 333
-enemy_types = PackedStringArray("drone", "weaver")
+enemy_types = PackedStringArray("drone", "weaver", "layer")
+intro_types = PackedStringArray("layer")
 kind = "boss"
 boss_name = "DOCK SENTINEL"
 boss_hp = 150

@@ -249,6 +249,11 @@ func play_warn() -> void:
 	_play(_warn)
 
 
+## v4b: a MENDER patching an ally — the power-up chime, higher and quicker.
+func play_mend() -> void:
+	_play(_powerup, 1.6)
+
+
 ## V2.2 L1f: quiet debris click on gib ricochet. Dedicated 2-voice pool — when
 ## both are busy the tick is simply dropped, so a 48-gib storm can't spam.
 func gib_tick() -> void:

@@ -18,6 +18,10 @@ extends Resource
 ## Phase I3: weighted spawn pool — both tunnel and arena spawns pick a type from
 ## here (repeat an id to weight it). L1 is drone-only; later levels mix in variants.
 @export var enemy_types := PackedStringArray(["drone"])
+## v4b: the types this sector introduces (at most two). Each is met first alone, in
+## plain tunnel before any other of its kind (game.gd _plan_intros), and its
+## briefing carries a tip for it.
+@export var intro_types := PackedStringArray()
 
 # --- Phase J: boss levels + score ranking ---
 ## "tunnel" = the classic winding run; "boss" = short entry tunnel into one large

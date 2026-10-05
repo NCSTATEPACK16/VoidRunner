@@ -5,7 +5,7 @@
 [resource]
 script = ExtResource("1")
 display_name = "L5 · HIVE TRENCHES"
-briefing = "Every bulkhead is kill-locked. Put a MISSILE in a cluster and let the fuse work. SPINNERS throw rings: hold your line."
+briefing = "MENDERS repair the swarm: shoot them first. SPLITTERS burst into three drones. SPINNERS throw rings: hold your line."
 objective = "BURN OUT THE NEST"
 rings = 180
 spawn_tunnel = 0.12
@@ -15,5 +15,6 @@ enemy_speed = 8.4
 enemy_fire = 1.9
 theme_id = "hive"
 level_seed = 404
-enemy_types = PackedStringArray("drone", "weaver", "hulk", "hulk", "turret", "stinger", "spinner", "mine")
+enemy_types = PackedStringArray("drone", "weaver", "hulk", "hulk", "turret", "stinger", "spinner", "mine", "layer", "rammer", "mender", "splitter")
+intro_types = PackedStringArray("mender", "splitter")
 spur_count = 2

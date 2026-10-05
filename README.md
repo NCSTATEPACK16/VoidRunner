@@ -19,7 +19,9 @@ and a chunky 320×200 look with light that dies into black shadow.
   a bezelled radar, DOS-window menus, a chrome title logo over an attract-mode flythrough, and an
   optional scanline / CRT filter.
 - **More to fight.** STINGERS that flash and then dive, SPINNERS that throw rings of plasma, and
-  proximity MINES that chain-react when shot. Each of the three bosses has its own attack pattern.
+  proximity MINES that chain-react when shot. LAYERS seed mines on the straights, RAMMERS beep and
+  charge (roll through them), MENDERS repair the swarm and SPLITTERS burst into drones; each new
+  type meets you alone first. Each of the three bosses has its own attack pattern.
 - **Power-ups.** OVERDRIVE, POWER CORE and PHASE SHIELD (see below) drop from heavy enemies and
   cleared arenas.
 - **An FM soundtrack.** A 27-second, eight-phrase song with 2-operator FM voices that layers up as

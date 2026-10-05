@@ -5,13 +5,14 @@
 verification). Steps 3–6 make the game finishable. v4 makes it feel like a full mid-90s DOS
 shooter before the public launch in Step 8.*
 
-## Progress (2026-10-03)
+## Progress (2026-10-05)
 
 | Sub-step | Status |
 |---|---|
 | v4a palette tricks | Done (PR #11) |
 | Perf groundwork | Done (PR #12) |
-| v4b roster and mini-bosses | Next, three commits: parts kit; 8 enemies with heavy variants; mini-bosses |
+| v4b part 1: parts kit; LAYER, RAMMER, MENDER, SPLITTER (sectors 3–5) | Done (PR #13) |
+| v4b part 2: WRAITH, CRAWLER, WARDEN, CARRIER (sectors 7–8); heavy variants; mini-bosses | Next, two commits |
 | v4c hubs, keys and objectives | Queued, two commits: hubs with keycards and switches; objectives |
 | v4d tally, episodes and menu feel | Queued, one commit |
 
@@ -99,12 +100,60 @@ shooter before the public launch in Step 8.*
 - **The biggest group is now enemies.** They are still one `Sprite3D` each (42 at the cap),
   which this plan keeps for now (per-type atlases, see *Performance plan*).
 
-**Next, v4b (three commits): parts kit; 8 enemies with heavy variants; mini-bosses.**
-- The +25% draw-call gate now has measured numbers: 153–204 in the dense arena before
-  batching, 78–86 after.
-- Holding v4b to +25% over the batched figure (about 105) keeps the savings.
+**How v4b part 1 landed (PR #13, two commits).** v4b is split in two PRs: four enemies
+for sectors 3–5 here; the other four, the heavy variants and the mini-bosses next.
+- **Parts kit** (`SpriteModels`):
+  - `taper` makes the wedge hulls, ram plows, carapaces and armour;
+  - `fin`, `pod` (the engine pod), `canopy` and `plate`;
+  - the greebles: `antenna`, `vents` and `pipe`;
+  - `pair` mirrors a part across X;
+  - `painted` carries a painted map.
 
-Then v4c and v4d, each with the gates in *Order and gates*.
+  The "paint sampler" became two studio maps:
+  - a greyscale `detail` map, multiplied in;
+  - an RGBA `decal` map, laid over.
+
+  `TextureGen.hull_paint` paints panel lines with rivets, vent louvres and hazard stripes.
+  Unset, both maps are no-ops.
+- **The bake.**
+  - Each (model, frame) is built once and duplicated across its 8 angles.
+  - A class taller than 2048 px splits across viewports.
+  - The bright frame gives the hit flash.
+  - The web build logs the bake time.
+- **Four enemies, one rule each:**
+
+  | Enemy | Rule | Debut |
+  |---|---|---|
+  | LAYER | keeps 4 rings (48 u) ahead at up to 24 u/s, faster than cruise but slower than the afterburner; lays a mine behind itself every 2.4 s on straights, at most 3 of its own | L3 entry |
+  | RAMMER | a warning tone and a red flare, then a straight charge at 78 u/s; a roll through it (`iframes_t`) shatters it for score, head-on it does 22, a miss wrecks it on the wall | L4 |
+  | MENDER | never fires and hangs 40–60 u off; every `MEND_T` (1.6 s) it gives the most damaged non-boss enemy within 28 u +1 HP, up to `max_hp`, with green sparks | L5 |
+  | SPLITTER | a slow, tanky chaser that bursts into 3 drones the next frame | L5 |
+- **The SPLITTER's brood counts toward `ENEMY_CAP`.** `_kill` reserves only the free slots,
+  and the cap check counts the reservations, so nothing spawned in between can take them. In a
+  locked arena the brood joins the room's tally, so the bulkhead waits for it too.
+- **Solo first contact.** Each `LevelDef.intro_types` newcomer gets one, on fresh sector starts
+  only:
+  - it waits mid-way along a stretch of plain tunnel (a boss sector's entry tunnel counts);
+  - random spawns skip ±8 rings around it;
+  - the pools hold the type back before its ring.
+
+  Briefings carry one tip each. The types join every later pool, and gauntlet tiers 2–5.
+- **Tests:**
+  - the smoke ROSTER block (one check per rule, the intro rule, pools, briefings);
+  - a SOAK block: every type runs 10 s beside the ship;
+  - `tests/soak_probe.tscn` flies L1–L9 and fails if any type never spawns.
+- **Cost.**
+  - Bake: 339 → 448 ms (median of 8, A/B with the kit commit on software GL); the 4 kit
+    models are busier than 3.0's.
+  - Dense arena: peak draw calls 83–87 (gate about 105); headless worst steps at most 5.5 ms.
+
+**Next, v4b part 2 (two commits):**
+- WRAITH, CRAWLER, WARDEN and CARRIER;
+- heavy RAMMER, SPLITTER and WARDEN as tints of their base sprite sets;
+- the HAULER, SPORE TENDER and GATE WARDEN mini-bosses.
+
+The bake budget decides the optional extra angle ring for large ships. Then v4c and v4d, each
+with the gates in *Order and gates*.
 
 ## Why
 

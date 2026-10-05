@@ -558,6 +558,301 @@ func _run() -> void:
 	GameState.shields = pw_full
 	GameState.is_dead = was_dead
 	print("bosses ok — brood hatches stingers + lays mines, maw hoses a double spiral")
+	# --- v4b roster (part 1): LAYER, RAMMER, MENDER, SPLITTER, each with one rule ---
+	GameState.is_dead = false
+	game.player.reset_to_start()
+	game.player.iframes_t = 0.0
+	game.player.wall_hurt_t = 0.0
+	GameState.shields = pw_full
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	pring = game.player.ring_idx
+	pfwd = game.player.forward()
+	var pside := pfwd.cross(Vector3.UP).normalized()
+	var roster_shots := [0]
+	var count_roster_shots := func(_o: Vector3, _v: Vector3, _d: float, _s: float, _k: bool,
+			_src: Node3D) -> void:
+		roster_shots[0] += 1
+	em.enemy_fired.connect(count_roster_shots)
+	# SPLITTER: dies into three drones the frame after, fanned out where it burst...
+	em.spawn(pring + 3, -1, "splitter")
+	var spl: Dictionary = em.enemies.back()
+	assert(spl.max_hp == spl.hp)
+	var burst_at: Vector3 = spl.node.position   # (its node goes back to the pool)
+	em.hit_enemy(em.enemies.find(spl), 99)
+	assert(em.enemies.is_empty() and em._pending_splits.size() == 1)   # the brood waits
+	assert(em._reserved == 3)
+	em.update_enemies(dt)
+	assert(em.enemies.size() == 3 and em._reserved == 0)
+	for brood in em.enemies:
+		assert(brood.type == "drone" and brood.node.position.distance_to(burst_at) < 4.0)
+	em.hit_enemy(0, 99)                              # ...and a drone never splits
+	assert(em._pending_splits.is_empty())
+	em.clear_all()
+	# the brood counts toward ENEMY_CAP: only the free slots are reserved, and no other
+	# spawn can take them before the hatch
+	for n in EnemyManager.ENEMY_CAP - 2:
+		em.spawn(pring + 4, -1, "drone")
+	em.spawn(pring + 3, -1, "splitter")
+	assert(em.enemies.size() == EnemyManager.ENEMY_CAP - 1)
+	em.hit_enemy(em.enemies.size() - 1, 99)
+	assert(em._reserved == 2)
+	em.spawn(pring + 4, -1, "drone")                 # refused: the brood's slots are held
+	assert(em.enemies.size() == EnemyManager.ENEMY_CAP - 2)
+	em.update_enemies(dt)
+	assert(em.enemies.size() == EnemyManager.ENEMY_CAP and em._reserved == 0)
+	em.clear_all()
+	# inside a locked arena the brood joins the room's tally, so the door waits for it
+	var lock: Dictionary = {}
+	for a in game.path.arenas:
+		if a.door_ring >= 0 and not game.world.is_door_open(a.id):
+			lock = a
+	assert(not lock.is_empty())
+	game._arena_spawned[lock.id] = 1
+	game._arena_kills[lock.id] = 0
+	em.spawn(lock.start + 2, lock.id, "splitter")
+	em.hit_enemy(em.enemies.size() - 1, 99)
+	assert(game._arena_spawned[lock.id] == 4 and game._arena_kills[lock.id] == 1)
+	assert(not game.world.is_door_open(lock.id))
+	em.update_enemies(dt)
+	for k in range(em.enemies.size() - 1, -1, -1):
+		em.hit_enemy(k, 99)
+	assert(game.world.is_door_open(lock.id))         # the brood is down: it opens
+	em.clear_all()
+	# MENDER: never fires; patches the most damaged ally in reach, +1 a tick, never past
+	# full, never a boss; each repair throws green sparks
+	em.spawn(pring + 6, -1, "mender")
+	var mnd: Dictionary = em.enemies.back()
+	em.spawn(pring + 6, -1, "hulk")
+	var patient: Dictionary = em.enemies.back()
+	patient.node.position = mnd.node.position + Vector3(6, 0, 0)
+	patient.hp = patient.max_hp - 2
+	patient.fire_t = 99.0
+	var mends := [0]
+	var count_mends := func(_p: Vector3) -> void:
+		mends[0] += 1
+	em.mended.connect(count_mends)
+	game.shot_mgr.clear_all()
+	roster_shots[0] = 0
+	mnd.fire_t = 0.0
+	em.update_enemies(dt)
+	assert(patient.hp == patient.max_hp - 1 and mends[0] == 1)
+	var mend_spark := false
+	for sp in game.shot_mgr._sparks:
+		mend_spark = mend_spark or sp.cell == ShotManager.SPARK_MEND
+	assert(mend_spark)
+	for tick in 3:
+		mnd.fire_t = 0.0
+		em.update_enemies(dt)
+	assert(patient.hp == patient.max_hp and mends[0] == 2)   # topped up, never past full
+	for f in 180:
+		em.update_enemies(dt)
+	assert(roster_shots[0] == 0)                     # three seconds and not one shot
+	em.clear_all()
+	em.spawn_boss(pring + 8, game.levels[2])
+	em.boss.node.position = game.player.position + pfwd * 250.0   # dormant, out of reach
+	em.boss.hp = em.boss.max_hp - 5
+	em.spawn(pring + 6, -1, "mender")
+	mnd = em.enemies.back()
+	mnd.node.position = em.boss.node.position + Vector3(4, 0, 0)
+	mnd.fire_t = 0.0
+	em.update_enemies(dt)
+	assert(em.boss.hp == em.boss.max_hp - 5 and mends[0] == 2)   # bosses are never patched
+	em.mended.disconnect(count_mends)
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	# LAYER: holds 40-60 u ahead of a cruising ship down the tunnel, and on a straight
+	# lays mines behind itself, never more than LAY_CAP of its own
+	em.spawn(pring + 3, -1, "layer")
+	var lay: Dictionary = em.enemies.back()
+	var lay_from: Vector3 = game.player.position
+	for f in 180:                                    # 3 s of cruise down the tunnel
+		var at_ring: Dictionary = game.path.rings[game.player.ring_idx + 1]
+		game.player.position += (at_ring.p - game.player.position).normalized() \
+			* PlayerShip.BASE_SPEED * dt
+		game.player.ring_idx = game.path.nearest_ring(game.player.position,
+			game.player.ring_idx)
+		lay.fire_t = 99.0                            # no mines yet: just the chase
+		em.update_enemies(dt)
+	var lay_gap: float = lay.node.position.distance_to(game.player.position)
+	assert(lay_gap > 40.0 and lay_gap < 60.0)
+	assert(game.player.position.distance_to(lay_from) > 40.0)   # the ship really moved
+	for drop in 5:
+		lay.fire_t = 0.0
+		em.update_enemies(dt)
+	var lay_mines := 0
+	for en in em.enemies:
+		if en.get("laid_by") == lay.node:
+			lay_mines += 1
+			assert(en.type == "mine")
+			assert(en.node.position.distance_to(game.player.position) < lay_gap)   # behind it
+	assert(lay_mines == EnemyManager.LAY_CAP)
+	em.clear_all()
+	game.player.reset_to_start()
+	# RAMMER: a warning, then a straight charge at where the ship was; met mid-roll it
+	# shatters (scored)...
+	em.spawn(pring + 6, -1, "rammer")
+	var ram: Dictionary = em.enemies.back()
+	ram.node.position = game.player.position + pfwd * 60.0
+	ram.mode_t = 0.0
+	em.update_enemies(dt)
+	assert(ram.mode == "rev")
+	for f in 90:
+		em.update_enemies(dt)
+		if ram.mode == "charge":
+			break
+	assert(ram.mode == "charge")
+	var ram_line: Vector3 = ram.dive_dir
+	game.player.position += pside * 2.0              # the ship slips aside: no tracking
+	em.update_enemies(dt)
+	assert((ram.dive_dir as Vector3).is_equal_approx(ram_line))
+	game.player.position -= pside * 2.0
+	game.player.iframes_t = 1.0
+	var ram_score := GameState.score
+	var ram_sh := GameState.shields
+	for f in 90:
+		em.update_enemies(dt)
+		if em.enemies.is_empty():
+			break
+	assert(em.enemies.is_empty() and GameState.shields == ram_sh and GameState.score > ram_score)
+	game.player.iframes_t = 0.0
+	# ...a miss can't stop before the wall (scored too)...
+	em.spawn(pring + 6, -1, "rammer")
+	var ram_miss: Dictionary = em.enemies.back()
+	ram_miss.node.position = game.player.position + pfwd * 4.0 + pside * 6.0
+	ram_miss.mode = "charge"
+	ram_miss.mode_t = EnemyManager.RAMMER_CHARGE_T
+	ram_miss.dive_dir = (-pfwd + pside * 0.4).normalized()
+	ram_score = GameState.score
+	for f in 60:
+		em.update_enemies(dt)
+		if em.enemies.is_empty():
+			break
+	assert(em.enemies.is_empty() and GameState.shields == ram_sh and GameState.score > ram_score)
+	# ...and taken head-on it hurts badly, and it's spent
+	em.spawn(pring + 6, -1, "rammer")
+	var ram_hit: Dictionary = em.enemies.back()
+	ram_hit.node.position = game.player.position + pfwd * 30.0
+	ram_hit.mode = "charge"
+	ram_hit.mode_t = EnemyManager.RAMMER_CHARGE_T
+	ram_hit.dive_dir = -pfwd
+	for f in 90:
+		em.update_enemies(dt)
+		if em.enemies.is_empty():
+			break
+	assert(em.enemies.is_empty())
+	assert(is_equal_approx(GameState.shields,
+		ram_sh - EnemyManager.RAMMER_DMG * GameState.damage_taken_mult()))
+	GameState.shields = pw_full
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	em.enemy_fired.disconnect(count_roster_shots)
+	GameState.is_dead = was_dead
+	# every pool id is a real type with a baked model, and every type has its tables
+	for lv: LevelDef in game.levels:
+		for id in lv.enemy_types:
+			assert(EnemyManager.TYPES.has(id))
+		assert(lv.intro_types.size() <= 2)
+		for id in lv.intro_types:
+			assert(id in lv.enemy_types)
+	for id in EnemyManager.TYPES:
+		assert(SpriteModels.ENEMIES.has(id) and EnemyManager.GIB_TINTS.has(id))
+	for id in ["layer", "rammer", "mender", "splitter"]:
+		var tdef: Dictionary = EnemyManager.TYPES[id]
+		assert(tdef.has("salvage") or tdef.has("split"))
+		assert(EnemyManager.POWER_DROP.has(id))
+	# the gauntlet's deepest tiers field the whole roster, newcomers from tier 2 up
+	game._apply_gauntlet_tier(5)
+	for id in EnemyManager.TYPES:
+		assert(id in game._gauntlet_def.enemy_types)
+	game._apply_gauntlet_tier(1)
+	for id in ["layer", "rammer", "mender", "splitter"]:
+		assert(not id in game._gauntlet_def.enemy_types)
+	game._apply_gauntlet_tier(0)
+	# L5's newcomers: met in plain tunnel, in order, never rolled before their ring
+	var l5: LevelDef = game.levels[4]
+	var l5_path := PathGen.new()
+	l5_path.generate(l5.rings, l5.level_seed, l5.spawn_arena, false)
+	var held_path: PathGen = game.path
+	game.path = l5_path
+	var plan: Dictionary = game._plan_intros(l5)
+	assert(plan.size() == 2 and plan.mender < plan.splitter and plan.mender >= 21)
+	for id in plan:
+		var at: int = plan[id]
+		for r in range(at - 4, at + 5):
+			assert(not l5_path.rings[r].arena)
+		for a in l5_path.arenas:
+			assert(a.door_ring < 0 or absi(at - a.door_ring) >= 6)
+	game._intro_rings = plan
+	for roll in 200:
+		assert(game._pick_enemy_type(l5, plan.mender - 1) != "mender")
+		assert(game._pick_enemy_type(l5, plan.splitter - 1) != "splitter")
+	var seen := {}
+	for roll in 400:
+		seen[game._pick_enemy_type(l5, plan.splitter)] = true
+	assert(seen.has("mender") and seen.has("splitter"))
+	# L3's newcomer waits in the boss sector's entry tunnel, short of the room
+	var l3: LevelDef = game.levels[2]
+	var l3_path := PathGen.new()
+	l3_path.generate(l3.rings, l3.level_seed, l3.spawn_arena, true)
+	game.path = l3_path
+	var l3_plan: Dictionary = game._plan_intros(l3)
+	assert(l3_plan.size() == 1 and l3_plan.layer >= 21)
+	assert(l3_plan.layer < (l3_path.arenas[0].start as int))
+	game.path = held_path
+	# on a fresh start the newcomer spawns at its ring, alone: random rolls around it
+	# are held off. On a resume it doesn't come at all
+	var l1_tunnel: float = game.levels[0].spawn_tunnel
+	game.levels[0].spawn_tunnel = 1.0
+	game._intro_rings = {"rammer": 24}
+	game._intros_live = true
+	game._on_tunnel_spawn(24)
+	assert(em.enemies.size() == 1 and em.enemies[0].type == "rammer")
+	game._on_tunnel_spawn(24 + 6)
+	game._on_tunnel_spawn(24 - game.INTRO_CLEAR)
+	assert(em.enemies.size() == 1)
+	game._on_tunnel_spawn(24 + game.INTRO_CLEAR + 1)
+	assert(em.enemies.size() == 2)
+	em.clear_all()
+	game._intros_live = false
+	game._on_tunnel_spawn(24)
+	assert(em.enemies.size() == 1 and em.enemies[0].type != "rammer")
+	game.levels[0].spawn_tunnel = l1_tunnel
+	game._intro_rings = {}
+	em.clear_all()
+	# every sector's tactical briefing fits its three-line band
+	var brief_body: Label = game.overlays._panels.briefing.get_node("Body")
+	for lv: LevelDef in game.levels:
+		game.overlays.set_briefing(lv)
+		assert(brief_body.get_line_count() <= 3)
+	game.overlays.set_briefing(game._current_level())
+	print("ROSTER ok — splitter brood (under the cap, holds the door), mender to full (never a boss), layer 40-60 u ahead + mine cap, rammer straight charge + roll/miss/hit; pools, intros, briefings")
+	# --- v4b SOAK: every type runs 10 s beside a fixed, immortal ship ---
+	GameState.is_dead = false
+	game.player.reset_to_start()
+	var soak_at: Vector3 = game.player.position + game.player.forward() * 25.0
+	for soak_id in EnemyManager.TYPES:
+		em.clear_all()
+		game.shot_mgr.clear_all()
+		em.spawn(game.player.ring_idx + 2, -1, soak_id)
+		var soak_e: Dictionary = em.enemies.back()
+		soak_e.node.position = soak_at
+		var soak_alive := 0
+		for f in 600:
+			GameState.shields = GameState.max_shields()
+			em.update_enemies(dt)
+			game.shot_mgr.update_shots(dt)
+			game.shot_mgr.sync_batches()
+			for en in em.enemies:
+				if is_same(en, soak_e):
+					soak_alive += 1
+		assert(soak_alive > 0)
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	game.shot_mgr.sync_batches()
+	GameState.shields = pw_full
+	GameState.is_dead = was_dead
+	print("SOAK ok — %d types ran 10 s beside the ship" % EnemyManager.TYPES.size())
 	# --- V2.2 L2a: three phase-aligned music mixes on synced players ---
 	var mix_a: AudioStream = MusicGen.render_loop(0)
 	var mix_b: AudioStream = MusicGen.render_loop(2)
@@ -1788,6 +2083,7 @@ func _run() -> void:
 	assert(game.state == game.State.PLAYING)
 	var rr: int = int(saved_cp.ring)
 	assert(game.player.ring_idx == rr)
+	assert(not game._intros_live)   # v4b: no solo first contacts on a resume
 	var rring: Dictionary = game.path.rings[rr]
 	assert(game.player.position.distance_to(rring.p) < 1.5)   # one frame of flight since the launch
 	assert(game.player.forward().dot(rring.d) > 0.97)
@@ -1826,6 +2122,7 @@ func _run() -> void:
 	game._built_level = -1
 	game._launch_level()   # sector 1 straight from code: builds the world, starts the tips
 	assert(game.state == game.State.PLAYING)
+	assert(game._intros_live)   # v4b: a fresh start meets its newcomers alone
 	var first_contact := false
 	for e in game.enemy_mgr.enemies:
 		if int(e.arena_id) == -1 and e.type == "drone" and int(e.ring) == 12:

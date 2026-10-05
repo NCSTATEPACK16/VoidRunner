@@ -10,8 +10,17 @@ extends Node3D
 ## in the middle) and MINE (drifts, arms with a red blink, bursts; shot from range it
 ## pops harmlessly and chains into its neighbours) — and gives each boss its own
 ## attack pattern (see _update_boss).
+##
+## v4b adds more, each with one rule to learn: LAYER (seeds mines behind itself on the
+## straights), RAMMER (a warning tone, then a straight charge: roll through it), MENDER
+## (repairs the swarm: kill it first) and SPLITTER (bursts into three drones).
 
 signal enemy_killed(arena_id: int)
+## v4b: a locked arena's tally grows by `count` (a splitter burst into its brood),
+## so the room's bulkhead waits for them too
+signal arena_reinforced(arena_id: int, count: int)
+## v4b: a mender patched the enemy at `pos` (green sparks and a chime)
+signal mended(pos: Vector3)
 ## Re-audit Step 6: `src` is the firing enemy's node, so a stray bolt can hit its
 ## neighbours (infighting) but never its shooter; boss patterns pass null and never
 ## infight, which keeps every boss fight as designed.
@@ -51,22 +60,54 @@ const MINE_BLAST_R := 9.0
 const MINE_DMG := 15.0
 const MINE_CHAIN_DMG := 4        # what a burst does to enemies caught in it
 ## Chance a scored kill drops a timed power-up (heavies carry them more often).
-const POWER_DROP := {"hulk": 0.10, "spinner": 0.08}
+const POWER_DROP := {"hulk": 0.10, "spinner": 0.08, "layer": 0.05, "rammer": 0.06,
+	"mender": 0.08, "splitter": 0.04}
 const POWER_DROP_BASE := 0.025
 
 ## Per-type tuning (I3). Stats derive from the level's base numbers × these, so each
 ## type stays relative as the campaign scales. behavior: "chase" | "weave" |
-## "turret" | 3.0's "dive" (stinger) | "spin" (spinner) | "mine".
+## "turret" | 3.0's "dive" (stinger) | "spin" (spinner) | "mine" | v4b's "lay" (layer)
+## | "ram" (rammer) | "mend" (mender). The splitter chases; its rule is its death.
 ## 3.0: sizes grew ~12% — the baked sprites leave a margin inside their cell.
+## v4b optional keys: gibs (debris chunks, 6), salvage (a sure drop; 0 = the 30% roll,
+## -1 = none), drop_mult (pickup odds), hit_r2 (else HIT_R2), split + split_into (the
+## brood a death releases).
 const TYPES := {
 	"drone":  {"hp_mul": 1.0, "hp_add": 0,  "speed_mul": 1.0,  "fire_mul": 1.0,  "score": 100, "size": 4.7, "behavior": "chase"},
 	"weaver": {"hp_mul": 1.0, "hp_add": -1, "speed_mul": 1.7,  "fire_mul": 0.85, "score": 150, "size": 3.8, "behavior": "weave"},
-	"hulk":   {"hp_mul": 2.0, "hp_add": 3,  "speed_mul": 0.55, "fire_mul": 0.7,  "score": 300, "size": 6.2, "behavior": "chase"},
-	"turret": {"hp_mul": 1.5, "hp_add": 2,  "speed_mul": 0.0,  "fire_mul": 1.1,  "score": 200, "size": 5.0, "behavior": "turret"},
+	"hulk":   {"hp_mul": 2.0, "hp_add": 3,  "speed_mul": 0.55, "fire_mul": 0.7,  "score": 300, "size": 6.2, "behavior": "chase",
+		"gibs": 12, "salvage": 15, "drop_mult": 1.6},
+	"turret": {"hp_mul": 1.5, "hp_add": 2,  "speed_mul": 0.0,  "fire_mul": 1.1,  "score": 200, "size": 5.0, "behavior": "turret",
+		"salvage": 10},
 	"stinger": {"hp_mul": 0.6, "hp_add": 0, "speed_mul": 1.2,  "fire_mul": 1.0,  "score": 175, "size": 4.0, "behavior": "dive"},
-	"spinner": {"hp_mul": 1.4, "hp_add": 1, "speed_mul": 0.45, "fire_mul": 1.5,  "score": 250, "size": 5.2, "behavior": "spin"},
-	"mine":   {"hp_mul": 0.0, "hp_add": 1,  "speed_mul": 0.3,  "fire_mul": 1.0,  "score": 50,  "size": 3.6, "behavior": "mine"},
+	"spinner": {"hp_mul": 1.4, "hp_add": 1, "speed_mul": 0.45, "fire_mul": 1.5,  "score": 250, "size": 5.2, "behavior": "spin",
+		"salvage": 8},
+	"mine":   {"hp_mul": 0.0, "hp_add": 1,  "speed_mul": 0.3,  "fire_mul": 1.0,  "score": 50,  "size": 3.6, "behavior": "mine",
+		"salvage": -1},
+	# --- v4b roster ---
+	"layer": {"hp_mul": 1.0, "hp_add": 1, "speed_mul": 1.3, "fire_mul": 1.0, "score": 200, "size": 4.8, "behavior": "lay",
+		"salvage": 6, "drop_mult": 1.2},
+	"rammer": {"hp_mul": 2.2, "hp_add": 3, "speed_mul": 0.8, "fire_mul": 1.0, "score": 300, "size": 5.8, "behavior": "ram",
+		"gibs": 10, "salvage": 8, "drop_mult": 1.3, "hit_r2": 20.0},
+	"mender": {"hp_mul": 0.8, "hp_add": 0, "speed_mul": 1.1, "fire_mul": 1.0, "score": 225, "size": 4.2, "behavior": "mend",
+		"salvage": 6, "drop_mult": 1.5},
+	"splitter": {"hp_mul": 1.5, "hp_add": 1, "speed_mul": 0.55, "fire_mul": 1.3, "score": 200, "size": 5.4, "behavior": "chase",
+		"split": 3, "split_into": "drone", "hit_r2": 17.0},
 }
+
+# v4b roster tuning
+const LAY_REACH := 40             # rings a layer may run ahead of where it began
+const LAY_LEAD := 4               # rings ahead of the ship it holds (48 u: inside 40-60)
+const LAY_SPEED := 24.0           # outruns cruise (18 u/s), not the afterburner (38)
+const LAY_T := 2.4                # it drops a mine this often on a straight...
+const LAY_CAP := 3                # ...with at most this many of its own alive
+const MEND_T := 1.6               # a mender's repair clock (difficulty tempo)...
+const MEND_R := 28.0              # ...and how far its repair reaches
+const RAMMER_REV := 0.7           # the warning before a charge (× warn_mult)
+const RAMMER_SPEED := 78.0
+const RAMMER_CHARGE_T := 2.2      # a charge that long burns out against the wall
+const RAMMER_HIT_R := 5.5
+const RAMMER_DMG := 22.0
 
 var path: PathGen
 var player: PlayerShip
@@ -84,6 +125,10 @@ var _node_cache: Array[Sprite3D] = []
 # 3.0: mine bursts queue here and resolve at the top of the next update, outside
 # any walk over `enemies` — so a chain reaction can never corrupt a loop index
 var _pending_blasts: Array[Vector3] = []
+# v4b: a splitter's brood hatches the same way, the frame after it dies. Its slots
+# are reserved under ENEMY_CAP when it dies, so the brood always counts toward the cap
+var _pending_splits: Array[Dictionary] = []
+var _reserved := 0
 
 # V2.2 L1: debris tint per archetype (boss gibs use its own modulate tint instead).
 # Approximations of each sprite's dominant hull color; the dither pass re-quantizes.
@@ -95,6 +140,10 @@ const GIB_TINTS := {
 	"stinger": Color(0.85, 0.72, 0.2),
 	"spinner": Color(0.78, 0.35, 0.7),
 	"mine": Color(0.4, 0.4, 0.46),
+	"layer": Color(0.55, 0.57, 0.33),
+	"rammer": Color(0.62, 0.65, 0.72),
+	"mender": Color(0.9, 0.92, 0.95),
+	"splitter": Color(0.2, 0.7, 0.66),
 }
 
 
@@ -133,6 +182,8 @@ func clear_all() -> void:
 	enemies.clear()
 	boss = {}
 	_pending_blasts.clear()
+	_pending_splits.clear()
+	_reserved = 0
 
 
 func _acquire_node(tex: Texture2D, world_size: float) -> Sprite3D:
@@ -199,8 +250,10 @@ func _light_for(ring_idx: int) -> Color:
 		clampf(0.45 + l.b * 0.75, 0.5, 1.25))
 
 
-func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
-	if enemies.size() >= ENEMY_CAP and arena_id < 0:
+## `force` is only for a splitter's brood, whose slots were reserved under the cap when
+## its parent died (see _kill).
+func spawn(ring_idx: int, arena_id: int, type_id := "drone", force := false) -> void:
+	if not force and arena_id < 0 and enemies.size() + _reserved >= ENEMY_CAP:
 		return
 	var t: Dictionary = TYPES.get(type_id, TYPES["drone"])
 	var st: Dictionary = _sets.get(type_id, _sets["drone"])
@@ -215,19 +268,20 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 	if t.behavior == "turret":
 		# V2.0 wall turret: anchored flush against one wall, never moves
 		var side := 1.0 if randf() < 0.5 else -1.0
-		sprite.position = ring.p + ring.r * (side * (ring.hw - 1.6)) \
-			+ ring.u * (randf_range(-0.35, 0.25) * (ring.hh - ring.fo - ring.co))
+		sprite.position = _wall_point(ring, side, randf_range(-0.35, 0.25))
 		facing = ring.r * -side   # its muzzle looks across the tunnel
 	sprite.modulate = _light_for(ring_idx)
-	enemies.append({
-		"node": sprite, "hp": maxi(1, int(round(level.enemy_hp * t.hp_mul)) + int(t.hp_add)),
+	var hp := maxi(1, int(round(level.enemy_hp * t.hp_mul)) + int(t.hp_add))
+	var e := {
+		"node": sprite, "hp": hp,
 		"fire_t": 1.5 + randf() * 2.0,
 		"bob_p": randf() * TAU, "ring": ring_idx, "arena_id": arena_id,
 		"anim_t": randf() * FRAME_TIME, "frame": 0, "flash_t": 0.0,
 		"skin": st, "facing": facing, "lit_ring": ring_idx,
 		"speed": level.enemy_speed * t.speed_mul,
 		"fire": level.enemy_fire * t.fire_mul, "score": int(t.score),
-		"behavior": t.behavior, "weave_p": randf() * TAU, "hit_r2": HIT_R2,
+		"behavior": t.behavior, "weave_p": randf() * TAU,
+		"hit_r2": float(t.get("hit_r2", HIT_R2)),
 		"type": type_id,
 		# 3.0 phase 5 state: stinger dive cycle, spinner ring rotation, mine arming
 		"mode": "idle" if t.behavior == "mine" else "stalk",
@@ -236,7 +290,45 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone") -> void:
 		# the manual's seeking missile-wall variant. Dodge roll i-frames beat them.
 		"seeker": t.behavior == "turret" and (GameState.level_index >= 5
 			or (GameState.gauntlet_mode and level.enemy_speed >= 9.0)),
-	})
+		# v4b: repairs top out at max_hp; a layer's stretch of tunnel and its lane
+		"max_hp": hp, "lo": ring_idx, "hi": ring_idx, "lane": 0.0,
+	}
+	if t.behavior == "lay":
+		var span := _travel_range(ring_idx, arena_id, 0, LAY_REACH)
+		e.lo = span.x
+		e.hi = span.y
+		e.lane = randf_range(-0.4, 0.4)
+	enemies.append(e)
+
+
+## A point flush with one tunnel wall (side -1/+1), `v` of the way up or down it.
+func _wall_point(ring: Dictionary, side: float, v: float) -> Vector3:
+	return ring.p + ring.r * (side * (ring.hw - 1.6)) + ring.u * (v * (ring.hh - ring.fo - ring.co))
+
+
+## v4b: the stretch of rings an enemy may travel along — `back` rings behind and
+## `ahead` rings in front of `ring_idx`. That's its own arena if it guards one, its
+## post if it guards a spur, and otherwise plain tunnel that stops short of any
+## arena mouth or bulkhead, so nothing creeps through a sealed door.
+func _travel_range(ring_idx: int, arena_id: int, back: int, ahead: int) -> Vector2i:
+	if arena_id >= 0 and arena_id < path.arenas.size():
+		var a: Dictionary = path.arenas[arena_id]
+		return Vector2i(a.start, a.end)
+	if path.rings[ring_idx].get("spur", -1) >= 0:
+		return Vector2i(ring_idx, ring_idx)
+	var doors := {}
+	for a in path.arenas:
+		if a.door_ring >= 0:
+			doors[a.door_ring] = true
+	var last := (path.rings.size() if path.is_endless else path.main_ring_count) - 2
+	var lo := ring_idx
+	while lo > maxi(1, ring_idx - back) and not path.rings[lo - 1].arena and not doors.has(lo - 1):
+		lo -= 1
+	var hi := ring_idx
+	while hi < mini(last, ring_idx + ahead) and not path.rings[hi + 1].arena \
+			and not doors.has(hi + 1):
+		hi += 1
+	return Vector2i(lo, hi)
 
 
 ## Phase J: the boss rides the same enemies array, so shots, splash, homing
@@ -274,6 +366,8 @@ func update_enemies(delta: float) -> void:
 		_pending_blasts.clear()
 		for bp: Vector3 in blasts:
 			splash_damage(bp, MINE_BLAST_R, MINE_CHAIN_DMG)
+	if not _pending_splits.is_empty():
+		_hatch_splits()
 	for k in range(enemies.size() - 1, -1, -1):
 		var e: Dictionary = enemies[k]
 		var node: Sprite3D = e.node
@@ -312,8 +406,8 @@ func update_enemies(delta: float) -> void:
 				continue
 			_skin(e)
 			continue
-		# 3.0 phase 5 behaviours: each returns true when it removed the enemy
-		if e.behavior == "dive" or e.behavior == "spin" or e.behavior == "mine":
+		# 3.0 phase 5 and v4b behaviours: each returns true when it removed the enemy
+		if e.behavior != "chase" and e.behavior != "weave":
 			var gone := false
 			match e.behavior:
 				"dive":
@@ -322,6 +416,12 @@ func update_enemies(delta: float) -> void:
 					gone = _update_spinner(k, e, delta)
 				"mine":
 					gone = _update_mine(k, e, delta)
+				"lay":
+					gone = _update_layer(k, e, delta)
+				"ram":
+					gone = _update_rammer(k, e, delta)
+				"mend":
+					gone = _update_mender(k, e, delta)
 			if gone or _despawn_far(k, e):
 				continue
 			_skin(e)
@@ -499,6 +599,192 @@ func _update_mine(k: int, e: Dictionary, delta: float) -> bool:
 		player.bounce += to_player / maxf(dist, 0.001) * 10.0   # the burst shoves the ship
 	_kill(k, false)
 	return true
+
+
+## v4b MENDER: a repair drone that never fires. It keeps its distance (40-60 u off the
+## ship) and, every MEND_T, patches the most damaged enemy in reach (see _mend_near).
+## Kill it first, or the fight never ends.
+func _update_mender(k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	if dist > 130.0:
+		return false
+	var dir := to_player / maxf(dist, 0.001)
+	if dist > 60.0:
+		node.position += dir * (e.speed * delta)
+	elif dist < 40.0:
+		node.position -= dir * (e.speed * delta)
+	e.weave_p += delta * 1.6
+	node.position += dir.cross(Vector3.UP).normalized() * (sin(e.weave_p) * e.speed * 0.4 * delta)
+	node.position.y += sin(e.bob_p) * delta * 1.2
+	_turn(e, to_player, 3.0, delta)
+	e.ring = path.nearest_ring(node.position, e.ring)
+	node.position = path.clamp_to_ring(node.position, e.ring, 2.2)
+	e.fire_t -= delta * GameState.enemy_tempo()   # the repair clock
+	if e.fire_t <= 0.0:
+		e.fire_t = MEND_T
+		_mend_near(e)
+	return _collide(k, dist)
+
+
+## The most damaged enemy within MEND_R of mender `m` gets +1 HP, never past its full
+## hull. Bosses (and mini-bosses) are never patched: their fights stay as designed.
+func _mend_near(m: Dictionary) -> void:
+	var best: Dictionary = {}
+	var best_gap := 0.0
+	var at: Vector3 = m.node.position
+	for o in enemies:
+		if is_same(o, m) or o.get("is_boss", false):
+			continue
+		if o.node.position.distance_squared_to(at) > MEND_R * MEND_R:
+			continue
+		var gap: float = 1.0 - o.hp / float(o.max_hp)
+		if gap > best_gap:
+			best_gap = gap
+			best = o
+	if best.is_empty():
+		return
+	best.hp = mini(int(best.hp) + 1, int(best.max_hp))
+	mended.emit(best.node.position)
+
+
+## v4b LAYER: a mine-layer. It keeps LAY_LEAD rings (40-60 u) ahead of the ship down
+## the tunnel, never past the end of its stretch (so never through a sealed bulkhead),
+## and on the straights drops a mine behind itself, at most LAY_CAP of its own alive.
+## It outruns a cruising ship but not the afterburner: boost to catch it.
+func _update_layer(k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	if dist > 120.0:
+		return false
+	var hold: Dictionary = path.rings[clampi(player.ring_idx + LAY_LEAD, e.lo, e.hi)]
+	var to_goal: Vector3 = hold.p + hold.r * (e.lane * hold.hw) - node.position
+	var step := LAY_SPEED * delta
+	if to_goal.length() > step:
+		node.position += to_goal.normalized() * step
+	node.position.y += sin(e.bob_p) * delta * 1.0
+	e.ring = path.nearest_ring(node.position, e.ring)
+	node.position = path.clamp_to_ring(node.position, e.ring, 2.4)
+	_turn(e, path.rings[e.ring].d, 2.0, delta)   # it flies down the tunnel, tail to you
+	e.fire_t -= delta * GameState.enemy_tempo()   # the laying clock
+	if e.fire_t <= 0.0:
+		e.fire_t = LAY_T
+		# a mine only goes down between it and the ship, on a straight, under its cap
+		if e.ring > player.ring_idx and _straight(e.ring) \
+				and _count_tagged("laid_by", node) < LAY_CAP:
+			var before := enemies.size()
+			spawn(e.ring, -1, "mine")
+			if enemies.size() > before:
+				var mine: Dictionary = enemies.back()
+				mine["laid_by"] = node
+				mine.node.position = path.clamp_to_ring(
+					node.position - (path.rings[e.ring].d as Vector3) * 3.0, e.ring, 2.0)
+	return _collide(k, dist)
+
+
+## v4b RAMMER: an armoured kamikaze, too tough to shoot down in time. It cruises
+## 60-80 u off the nose; its tell is a warning tone and a red engine flare, then it
+## charges in a straight line at where the ship was. A dodge roll as it closes wins:
+## met mid-roll it shatters on your shields, and a miss can't stop before the wall
+## (both score). Taken head-on it hits hard, and it's spent.
+func _update_rammer(k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	if dist > 140.0 and e.mode == "stalk":
+		return false
+	var dir := to_player / maxf(dist, 0.001)
+	e.mode_t -= delta * (GameState.enemy_tempo() if e.mode == "stalk" else 1.0)
+	match e.mode:
+		"stalk":
+			if dist > 80.0:
+				node.position += dir * (e.speed * delta)
+			elif dist < 60.0:
+				node.position -= dir * (e.speed * 0.6 * delta)
+			node.position.y += sin(e.bob_p) * delta * 0.8
+			_turn(e, to_player, 2.0, delta)
+			# like the stinger, it only winds up in front of the ship
+			if e.mode_t <= 0.0 and dist < 95.0 and player.forward().dot(-dir) > 0.45:
+				e.mode = "rev"
+				e.mode_t = RAMMER_REV * GameState.warn_mult()
+				AudioSys.play_warn()
+		"rev":
+			# the tell: its engines flare red (a steady glow under REDUCE FLASH)
+			_turn(e, to_player, 6.0, delta)
+			var hot: bool = GameState.reduce_flashing or int(e.mode_t * 10.0) % 2 == 0
+			node.modulate = Color(1.9, 0.45, 0.3) if hot else _light_for(e.ring)
+			if e.mode_t <= 0.0:
+				e.mode = "charge"
+				e.mode_t = RAMMER_CHARGE_T
+				e.dive_dir = dir   # locked now: a straight line at where the ship was
+				node.modulate = _light_for(e.ring)
+		"charge":
+			node.position += (e.dive_dir as Vector3) * (RAMMER_SPEED * delta)
+			_turn(e, e.dive_dir, 12.0, delta)
+	e.ring = path.nearest_ring(node.position, e.ring)
+	var held := path.clamp_to_ring(node.position, e.ring, 2.0)
+	if e.mode == "charge":
+		var missed: bool = to_player.dot(e.dive_dir) < 0.0 and dist > RAMMER_HIT_R
+		# it can't stop: past the ship and into the wall, or out of charge, it wrecks
+		if (missed and held.distance_squared_to(node.position) > 0.04) or e.mode_t <= 0.0:
+			_kill(k, true)   # you made it miss: yours
+			return true
+	node.position = held
+	if dist < RAMMER_HIT_R and e.mode != "stalk":
+		if player.iframes_t > 0.0:
+			_kill(k, true)   # rolled through: it shatters on the shields
+			return true
+		player.wall_hurt_t = 0.45
+		player.take_damage(RAMMER_DMG, "RAMMED")
+		player.bounce += (e.dive_dir as Vector3) * 18.0
+		_kill(k, false)
+		return true
+	return false
+
+
+## Flown into, a small ship scrapes the hull (contact damage) and is spent.
+func _collide(k: int, dist: float) -> bool:
+	if dist < 4.5 and player.wall_hurt_t <= 0.0:
+		player.wall_hurt_t = 0.45
+		player.take_damage(CONTACT_DMG, "COLLISION")
+		_kill(k, false)
+		return true
+	return false
+
+
+## A straight stretch around ring ri: where a laid mine can't be flown around.
+func _straight(ri: int) -> bool:
+	var last := path.rings.size() - 1
+	return (path.rings[maxi(ri - 2, 0)].d as Vector3).dot(path.rings[mini(ri + 2, last)].d) > 0.98
+
+
+## How many live enemies carry `node` under `key` (a layer's mines).
+func _count_tagged(key: String, node: Node3D) -> int:
+	var n := 0
+	for o in enemies:
+		if o.get(key) == node:
+			n += 1
+	return n
+
+
+## v4b: last frame's splitter deaths hatch here, each brood fanned out around where
+## its parent burst, outside any walk over `enemies`. Their slots were reserved under
+## ENEMY_CAP when the parent died, so each one spawns now and frees its reservation.
+func _hatch_splits() -> void:
+	var splits := _pending_splits.duplicate()
+	_pending_splits.clear()
+	for s: Dictionary in splits:
+		for i in int(s.n):
+			_reserved -= 1
+			spawn(s.ring, s.arena_id, s.type, true)
+			var c: Dictionary = enemies.back()
+			var a := TAU * i / float(s.n)
+			c.node.position = path.clamp_to_ring((s.pos as Vector3)
+				+ Vector3(cos(a) * 2.5, sin(a * 2.0) * 0.8, sin(a) * 2.5), s.ring, 2.0)
+			c.fire_t = 1.2 + randf()   # a beat before the brood opens fire
+	_reserved = maxi(_reserved, 0)
 
 
 ## 3.0: basis looking from `origin` at the ship — [forward, side, up].
@@ -785,12 +1071,28 @@ func _kill(index: int, scored: bool) -> void:
 			_pending_blasts.append(e.node.position)   # chains next frame (see top of update)
 	if e.get("type", "") == "turret":
 		turret_destroyed.emit(e.node.position)   # V2.0: chains nearby fuel cells
-	# V2.2 L1: debris burst — chunk count scales with the kill's heft
-	var gcount := 6
-	if e.get("is_boss", false):
-		gcount = 20
-	elif e.get("type", "") == "hulk":
-		gcount = 12
+	elif e.behavior == "lay":
+		# v4b: its node goes back to the pool, so its mines stop counting as its own
+		for o in enemies:
+			if o.get("laid_by") == e.node:
+				o.erase("laid_by")
+	var tdef: Dictionary = TYPES.get(e.get("type", ""), {})
+	# v4b: a splitter bursts into its brood next frame (see _hatch_splits). The brood
+	# counts toward ENEMY_CAP: only the slots free now (this one leaves the list below)
+	# are reserved, so nothing spawned before the hatch can take them. Inside a locked
+	# arena the brood joins the room's tally now, before this kill counts, so the
+	# bulkhead can't open on the splitter's own death
+	var split := int(tdef.get("split", 0))
+	if split > 0:
+		var n := clampi(ENEMY_CAP - (enemies.size() - 1) - _reserved, 0, split)
+		if n > 0:
+			_reserved += n
+			_pending_splits.append({"pos": e.node.position, "ring": e.ring,
+				"arena_id": e.arena_id, "type": tdef.split_into, "n": n})
+			if e.arena_id >= 0:
+				arena_reinforced.emit(e.arena_id, n)
+	# V2.2 L1: debris burst — chunk count scales with the kill's heft (v4b: TYPES.gibs)
+	var gcount := 20 if e.get("is_boss", false) else int(tdef.get("gibs", 6))
 	var gtint: Color = e.node.modulate if e.get("is_boss", false) \
 		else GIB_TINTS.get(e.get("type", ""), Color(0.6, 0.6, 0.65))
 	gibs_requested.emit(e.node.position,
@@ -804,21 +1106,19 @@ func _kill(index: int, scored: bool) -> void:
 		GameState.register_kill(int(e.score))   # streak-multiplied (Phase J)
 		var type_id: String = e.get("type", "")
 		# V2.2 L3b: salvage — guaranteed from heavies, a 30% roll from the rest
-		# (3.0: spinners count as heavies; mines carry nothing but their score)
+		# (3.0: spinners count as heavies; mines carry nothing but their score).
+		# v4b: the sure amounts live in TYPES.salvage
+		var salvage := int(tdef.get("salvage", 0))
 		if e.get("is_boss", false):
 			drop_spawned.emit(e.node.position, e.ring, "salvage", 50)
-		elif type_id == "hulk":
-			drop_spawned.emit(e.node.position, e.ring, "salvage", 15)
-		elif type_id == "turret":
-			drop_spawned.emit(e.node.position, e.ring, "salvage", 10)
-		elif type_id == "spinner":
-			drop_spawned.emit(e.node.position, e.ring, "salvage", 8)
-		elif type_id != "mine" and randf() < 0.30:
+		elif salvage > 0:
+			drop_spawned.emit(e.node.position, e.ring, "salvage", salvage)
+		elif salvage == 0 and randf() < 0.30:
 			drop_spawned.emit(e.node.position, e.ring, "salvage", 5)
 		# Phase J drop roll — one chance per scored kill (never the boss itself;
-		# its reward is the exit ring). Hulks are tanky, so they drop more often.
+		# its reward is the exit ring). Tanky types (TYPES.drop_mult) drop more often.
 		if not e.get("is_boss", false) and type_id != "mine":
-			var mult: float = 1.6 if type_id == "hulk" else 1.0
+			var mult := float(tdef.get("drop_mult", 1.0))
 			var roll := randf()
 			if roll < 0.12 * mult:
 				drop_spawned.emit(e.node.position, e.ring, "shield", 0)
