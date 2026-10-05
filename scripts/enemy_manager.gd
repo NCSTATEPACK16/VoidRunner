@@ -13,7 +13,11 @@ extends Node3D
 ##
 ## v4b adds more, each with one rule to learn: LAYER (seeds mines behind itself on the
 ## straights), RAMMER (a warning tone, then a straight charge: roll through it), MENDER
-## (repairs the swarm: kill it first) and SPLITTER (bursts into three drones).
+## (repairs the swarm: kill it first), SPLITTER (bursts into three drones), WRAITH
+## (cloaked until it shimmers in to fire: hit it while it shows), CRAWLER (creeps along
+## a wall and fires bursts across the tunnel), WARDEN (a front shield turns light
+## shots: flank it or use BOLT) and CARRIER (launches drones until its bays are shot
+## out). Heavy rammers, splitters and wardens wear their base sprites with a tint.
 
 signal enemy_killed(arena_id: int)
 ## v4b: a locked arena's tally grows by `count` (a splitter burst into its brood),
@@ -21,6 +25,10 @@ signal enemy_killed(arena_id: int)
 signal arena_reinforced(arena_id: int, count: int)
 ## v4b: a mender patched the enemy at `pos` (green sparks and a chime)
 signal mended(pos: Vector3)
+## v4b: a warden's shield turned a shot aside at `pos` (blue sparks and a ping)
+signal deflected(pos: Vector3)
+## v4b: a line for the HUD ("CARRIER BAYS DOWN")
+signal announced(text: String)
 ## Re-audit Step 6: `src` is the firing enemy's node, so a stray bolt can hit its
 ## neighbours (infighting) but never its shooter; boss patterns pass null and never
 ## infight, which keeps every boss fight as designed.
@@ -61,17 +69,21 @@ const MINE_DMG := 15.0
 const MINE_CHAIN_DMG := 4        # what a burst does to enemies caught in it
 ## Chance a scored kill drops a timed power-up (heavies carry them more often).
 const POWER_DROP := {"hulk": 0.10, "spinner": 0.08, "layer": 0.05, "rammer": 0.06,
-	"mender": 0.08, "splitter": 0.04}
+	"mender": 0.08, "splitter": 0.04, "wraith": 0.06, "crawler": 0.05, "warden": 0.06,
+	"carrier": 0.30, "rammer_hv": 0.12, "splitter_hv": 0.12, "warden_hv": 0.12}
 const POWER_DROP_BASE := 0.025
 
 ## Per-type tuning (I3). Stats derive from the level's base numbers × these, so each
 ## type stays relative as the campaign scales. behavior: "chase" | "weave" |
 ## "turret" | 3.0's "dive" (stinger) | "spin" (spinner) | "mine" | v4b's "lay" (layer)
-## | "ram" (rammer) | "mend" (mender). The splitter chases; its rule is its death.
+## | "ram" (rammer) | "mend" (mender) | "cloak" (wraith) | "crawl" (crawler) | "ward"
+## (warden) | "carry" (carrier). The splitter chases; its rule is its death.
 ## 3.0: sizes grew ~12% — the baked sprites leave a margin inside their cell.
 ## v4b optional keys: gibs (debris chunks, 6), salvage (a sure drop; 0 = the 30% roll,
 ## -1 = none), drop_mult (pickup odds), hit_r2 (else HIT_R2), split + split_into (the
-## brood a death releases).
+## brood a death releases), burst (shots per crawler burst), shield (a front shield,
+## see hit_enemy), turn (how fast it swings to face you), and for a heavy variant
+## model (the base type whose sprite set it wears) + tint (folded into its light).
 const TYPES := {
 	"drone":  {"hp_mul": 1.0, "hp_add": 0,  "speed_mul": 1.0,  "fire_mul": 1.0,  "score": 100, "size": 4.7, "behavior": "chase"},
 	"weaver": {"hp_mul": 1.0, "hp_add": -1, "speed_mul": 1.7,  "fire_mul": 0.85, "score": 150, "size": 3.8, "behavior": "weave"},
@@ -93,6 +105,24 @@ const TYPES := {
 		"salvage": 6, "drop_mult": 1.5},
 	"splitter": {"hp_mul": 1.5, "hp_add": 1, "speed_mul": 0.55, "fire_mul": 1.3, "score": 200, "size": 5.4, "behavior": "chase",
 		"split": 3, "split_into": "drone", "hit_r2": 17.0},
+	"wraith": {"hp_mul": 0.9, "hp_add": 0, "speed_mul": 1.2, "fire_mul": 1.0, "score": 250, "size": 4.4, "behavior": "cloak",
+		"salvage": 6, "drop_mult": 1.2},
+	"crawler": {"hp_mul": 1.2, "hp_add": 1, "speed_mul": 0.8, "fire_mul": 1.1, "score": 175, "size": 4.6, "behavior": "crawl",
+		"burst": 3, "salvage": 6},
+	"warden": {"hp_mul": 1.5, "hp_add": 2, "speed_mul": 0.6, "fire_mul": 1.0, "score": 250, "size": 5.6, "behavior": "ward",
+		"shield": true, "turn": 1.1, "salvage": 8, "hit_r2": 18.0},
+	"carrier": {"hp_mul": 5.0, "hp_add": 6, "speed_mul": 0.35, "fire_mul": 1.4, "score": 600, "size": 9.5, "behavior": "carry",
+		"gibs": 16, "salvage": 25, "drop_mult": 2.0, "hit_r2": 52.0},
+	# heavy variants: the same rule in more armour, on their base's sprites, tinted
+	"rammer_hv": {"hp_mul": 3.5, "hp_add": 4, "speed_mul": 0.8, "fire_mul": 1.0, "score": 450, "size": 6.8, "behavior": "ram",
+		"gibs": 12, "salvage": 15, "drop_mult": 1.6, "hit_r2": 27.0,
+		"model": "rammer", "tint": Color(1.35, 0.62, 0.5)},
+	"splitter_hv": {"hp_mul": 2.5, "hp_add": 2, "speed_mul": 0.45, "fire_mul": 1.2, "score": 400, "size": 6.6, "behavior": "chase",
+		"split": 3, "split_into": "drone", "gibs": 12, "salvage": 15, "drop_mult": 1.6, "hit_r2": 25.0,
+		"model": "splitter", "tint": Color(1.05, 0.62, 1.4)},
+	"warden_hv": {"hp_mul": 2.5, "hp_add": 3, "speed_mul": 0.45, "fire_mul": 0.9, "score": 450, "size": 6.8, "behavior": "ward",
+		"shield": true, "turn": 0.8, "gibs": 12, "salvage": 15, "drop_mult": 1.6, "hit_r2": 26.0,
+		"model": "warden", "tint": Color(1.35, 1.1, 0.5)},
 }
 
 # v4b roster tuning
@@ -108,6 +138,15 @@ const RAMMER_SPEED := 78.0
 const RAMMER_CHARGE_T := 2.2      # a charge that long burns out against the wall
 const RAMMER_HIT_R := 5.5
 const RAMMER_DMG := 22.0
+const WRAITH_TELL := 0.6          # its shimmer before it fires (× warn_mult)...
+const WRAITH_SHOW := 1.0          # ...and how long it stays in view (and hittable) after
+const CRAWL_REACH := 10           # rings a crawler may creep from where it landed
+const CRAWL_BURST_GAP := 0.13     # seconds between the shots of one burst
+const WARDEN_ARC_COS := 0.5736    # cos 55°: a hit inside this front arc meets the shield...
+const WARDEN_BLOCK := 3           # ...and is turned aside if it does less than this
+const LAUNCH_T := 3.5             # a carrier launches a drone this often...
+const CARRIER_LIVE := 3           # ...with at most this many of its own alive...
+const BAY_HP := 10                # ...until it has taken this much damage: the bays blow
 
 var path: PathGen
 var player: PlayerShip
@@ -144,6 +183,10 @@ const GIB_TINTS := {
 	"rammer": Color(0.62, 0.65, 0.72),
 	"mender": Color(0.9, 0.92, 0.95),
 	"splitter": Color(0.2, 0.7, 0.66),
+	"wraith": Color(0.35, 0.22, 0.6),
+	"crawler": Color(0.78, 0.42, 0.2),
+	"warden": Color(0.85, 0.86, 0.9),
+	"carrier": Color(0.32, 0.38, 0.58),
 }
 
 
@@ -160,6 +203,19 @@ static func random_power() -> String:
 	if r < 0.75:
 		return "powercore"
 	return "phase"
+
+
+## v4b: the type whose sprite set (and intro) a type shares: a heavy's base type, or
+## the type itself.
+static func base_type(id: String) -> String:
+	var t: Dictionary = TYPES.get(id, {})
+	return String(t.get("model", id))
+
+
+## v4b: what an enemy's light looks like with its tint folded in (a heavy's colour
+## ramp, a boss's tint).
+func _lit(e: Dictionary) -> Color:
+	return _light_for(e.ring) * (e.get("tint", Color.WHITE) as Color)
 
 
 ## Re-audit Step 4: drop every enemy the predicate picks (a resumed checkpoint
@@ -256,7 +312,8 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone", force := false) -> 
 	if not force and arena_id < 0 and enemies.size() + _reserved >= ENEMY_CAP:
 		return
 	var t: Dictionary = TYPES.get(type_id, TYPES["drone"])
-	var st: Dictionary = _sets.get(type_id, _sets["drone"])
+	# v4b: a heavy wears its base type's sprite set, tinted
+	var st: Dictionary = _sets.get(base_type(type_id), _sets["drone"])
 	var ring: Dictionary = path.rings[ring_idx]
 	var sprite := _acquire_node(st.tex[0], t.size)
 	var pos: Vector3 = ring.p \
@@ -265,12 +322,16 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone", force := false) -> 
 	sprite.position = path.clamp_to_ring(pos, ring_idx, 2.5)
 	# 3.0: enemies spawn facing back down the tunnel, toward where the player comes from
 	var facing: Vector3 = -ring.d
-	if t.behavior == "turret":
-		# V2.0 wall turret: anchored flush against one wall, never moves
-		var side := 1.0 if randf() < 0.5 else -1.0
-		sprite.position = _wall_point(ring, side, randf_range(-0.35, 0.25))
+	var side := 0.0
+	var wall_v := 0.0
+	if t.behavior == "turret" or t.behavior == "crawl":
+		# V2.0 wall turret (v4b: and the crawler): flush against one wall
+		side = 1.0 if randf() < 0.5 else -1.0
+		wall_v = randf_range(-0.35, 0.25)
+		sprite.position = _wall_point(ring, side, wall_v)
 		facing = ring.r * -side   # its muzzle looks across the tunnel
-	sprite.modulate = _light_for(ring_idx)
+	var tint: Color = t.get("tint", Color.WHITE)
+	sprite.modulate = _light_for(ring_idx) * tint
 	var hp := maxi(1, int(round(level.enemy_hp * t.hp_mul)) + int(t.hp_add))
 	var e := {
 		"node": sprite, "hp": hp,
@@ -290,14 +351,38 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone", force := false) -> 
 		# the manual's seeking missile-wall variant. Dodge roll i-frames beat them.
 		"seeker": t.behavior == "turret" and (GameState.level_index >= 5
 			or (GameState.gauntlet_mode and level.enemy_speed >= 9.0)),
-		# v4b: repairs top out at max_hp; a layer's stretch of tunnel and its lane
-		"max_hp": hp, "lo": ring_idx, "hi": ring_idx, "lane": 0.0,
+		# v4b: repairs top out at max_hp; a layer's stretch of tunnel and its lane; a
+		# heavy's tint; a warden's shield and slow turn
+		"max_hp": hp, "lo": ring_idx, "hi": ring_idx, "lane": 0.0, "tint": tint,
+		"shielded": bool(t.get("shield", false)), "turn": float(t.get("turn", 5.0)),
 	}
-	if t.behavior == "lay":
-		var span := _travel_range(ring_idx, arena_id, 0, LAY_REACH)
-		e.lo = span.x
-		e.hi = span.y
-		e.lane = randf_range(-0.4, 0.4)
+	match t.behavior:
+		"lay":
+			var span := _travel_range(ring_idx, arena_id, 0, LAY_REACH)
+			e.lo = span.x
+			e.hi = span.y
+			e.lane = randf_range(-0.4, 0.4)
+		"crawl":
+			# its wall, where on it, and the stretch it may creep along
+			var span := _travel_range(ring_idx, arena_id, CRAWL_REACH, CRAWL_REACH)
+			e.lo = span.x
+			e.hi = span.y
+			e.side = side
+			e.wall_v = wall_v
+			e.ring_f = float(ring_idx)
+			e.burst = 0
+			e.burst_t = 0.0
+		"carry":
+			e.side = 1.0 if randf() < 0.5 else -1.0   # which flank it turns to you
+			e.bays = true
+			e.launch_t = 2.0
+		"cloak":
+			# a wraith arrives unseen; its first shimmer comes after a beat
+			e.mode = "cloak"
+			e.cloaked = true
+			e.tell = WRAITH_TELL
+			e.hit_r2 = -1.0
+			sprite.visible = false
 	enemies.append(e)
 
 
@@ -354,6 +439,7 @@ func spawn_boss(ring_idx: int, lvl: LevelDef) -> void:
 		# 3.0: which attack pattern runs (see _update_boss) and its clocks
 		"model": lvl.boss_model, "lay_t": 3.0, "spin_a": 0.0,
 		"spiral_t": 0.0, "spiral_cd": 0.0, "spiral_a": 0.0,
+		"tint": lvl.boss_tint,   # v4b: the ring re-light folds it in, as for a heavy
 	}
 	enemies.append(boss)
 
@@ -382,8 +468,7 @@ func update_enemies(delta: float) -> void:
 		e.bob_p += delta * 2.0
 		if e.ring != e.lit_ring:   # 3.0: re-sample the sector light on ring change
 			e.lit_ring = e.ring
-			node.modulate = _light_for(e.ring) * (level.boss_tint if e.get("is_boss", false) \
-				else Color.WHITE)
+			node.modulate = _lit(e)   # v4b: with a heavy's (or a boss's) tint folded in
 		if e.get("is_boss", false):
 			_update_boss(e, delta)
 			_skin(e)
@@ -422,6 +507,14 @@ func update_enemies(delta: float) -> void:
 					gone = _update_rammer(k, e, delta)
 				"mend":
 					gone = _update_mender(k, e, delta)
+				"cloak":
+					gone = _update_wraith(k, e, delta)
+				"crawl":
+					gone = _update_crawler(k, e, delta)
+				"ward":
+					gone = _update_warden(k, e, delta)
+				"carry":
+					gone = _update_carrier(k, e, delta)
 			if gone or _despawn_far(k, e):
 				continue
 			_skin(e)
@@ -591,7 +684,7 @@ func _update_mine(k: int, e: Dictionary, delta: float) -> bool:
 	e.mode_t -= delta
 	# armed: blinks hot red (a steady red glow under REDUCE FLASH)
 	var hot: bool = GameState.reduce_flashing or int(e.mode_t * 14.0) % 2 == 0
-	node.modulate = Color(1.9, 0.35, 0.25) if hot else _light_for(e.ring)
+	node.modulate = Color(1.9, 0.35, 0.25) if hot else _lit(e)
 	if e.mode_t > 0.0:
 		return false
 	if dist < MINE_BLAST_R:
@@ -714,12 +807,12 @@ func _update_rammer(k: int, e: Dictionary, delta: float) -> bool:
 			# the tell: its engines flare red (a steady glow under REDUCE FLASH)
 			_turn(e, to_player, 6.0, delta)
 			var hot: bool = GameState.reduce_flashing or int(e.mode_t * 10.0) % 2 == 0
-			node.modulate = Color(1.9, 0.45, 0.3) if hot else _light_for(e.ring)
+			node.modulate = Color(1.9, 0.45, 0.3) if hot else _lit(e)
 			if e.mode_t <= 0.0:
 				e.mode = "charge"
 				e.mode_t = RAMMER_CHARGE_T
 				e.dive_dir = dir   # locked now: a straight line at where the ship was
-				node.modulate = _light_for(e.ring)
+				node.modulate = _lit(e)
 		"charge":
 			node.position += (e.dive_dir as Vector3) * (RAMMER_SPEED * delta)
 			_turn(e, e.dive_dir, 12.0, delta)
@@ -741,6 +834,179 @@ func _update_rammer(k: int, e: Dictionary, delta: float) -> bool:
 		player.bounce += (e.dive_dir as Vector3) * 18.0
 		_kill(k, false)
 		return true
+	return false
+
+
+## v4b WRAITH: a cloaker. Cloaked it can't be seen or hit: no radar blip, no missile
+## lock, and shots pass straight through (a blast still finds it). Before it fires it
+## shimmers into view: a flicker, or under REDUCE FLASH a steady fade up out of the
+## dark. From the first shimmer until it vanishes again, WRAITH_SHOW after its volley,
+## it can be hit. That's the window.
+func _update_wraith(k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	if dist > 130.0 and e.cloaked:
+		return false
+	var dir := to_player / maxf(dist, 0.001)
+	# the unseen drift runs on the difficulty clock; the tell and the strike keep real
+	# time (the tell is scaled by warn_mult below)
+	e.mode_t -= delta * (GameState.enemy_tempo() if e.cloaked else 1.0)
+	match e.mode:
+		"cloak":
+			# unseen, it slides to a new spot 30-50 u off the nose
+			if dist > 50.0:
+				node.position += dir * (e.speed * delta)
+			elif dist < 30.0:
+				node.position -= dir * (e.speed * delta)
+			e.weave_p += delta * 1.4
+			node.position += dir.cross(Vector3.UP).normalized() \
+				* (sin(e.weave_p) * e.speed * 0.8 * delta)
+			if e.mode_t <= 0.0 and dist < 70.0:
+				e.mode = "shimmer"
+				e.tell = WRAITH_TELL * GameState.warn_mult()
+				e.mode_t = e.tell
+				e.cloaked = false
+				e.hit_r2 = float(TYPES[e.type].get("hit_r2", HIT_R2))
+				AudioSys.play_warn()
+		"shimmer":
+			if GameState.reduce_flashing:
+				# no flicker: it brightens steadily from a dark silhouette to full light
+				var lit := _lit(e)
+				var up := clampf(1.0 - e.mode_t / maxf(e.tell, 0.01), 0.0, 1.0)
+				node.visible = true
+				node.modulate = Color(lit.r * up, lit.g * up, lit.b * up)
+			else:
+				node.visible = int(e.mode_t * 14.0) % 2 == 0
+			if e.mode_t <= 0.0:
+				e.mode = "strike"
+				e.mode_t = WRAITH_SHOW
+				node.visible = true
+				node.modulate = _lit(e)
+				for a in [-0.12, 0.0, 0.12]:
+					enemy_fired.emit(node.position, dir.rotated(Vector3.UP, a) * 28.0, SHOT_DMG,
+						1.7, false, node)
+		"strike":
+			if e.mode_t <= 0.0:
+				e.mode = "cloak"
+				e.mode_t = randf_range(2.0, 3.2)
+				e.cloaked = true
+				e.hit_r2 = -1.0
+				node.visible = false
+	node.position.y += sin(e.bob_p) * delta * 1.0
+	_turn(e, to_player, 4.0, delta)
+	e.ring = path.nearest_ring(node.position, e.ring)
+	node.position = path.clamp_to_ring(node.position, e.ring, 2.2)
+	return not e.cloaked and _collide(k, dist)
+
+
+## v4b CRAWLER: a wall-walker. It clings to its wall like a turret, creeps along the
+## tunnel toward the ship (never past its stretch, see _travel_range) and fires
+## bursts across the tunnel: watch the sides, not just the middle.
+func _update_crawler(_k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	if dist > 130.0:
+		return false   # dormant until the ship is near
+	e.ring_f = move_toward(e.ring_f, clampf(float(player.ring_idx), e.lo, e.hi),
+		e.speed / PathGen.SEG * delta)
+	var r0 := int(e.ring_f)
+	var r1 := mini(r0 + 1, int(e.hi))
+	var w: float = e.ring_f - r0
+	node.position = _wall_point(path.rings[r0], e.side, e.wall_v).lerp(
+		_wall_point(path.rings[r1], e.side, e.wall_v), w)
+	e.ring = r0 if w < 0.5 else r1
+	e.facing = (path.rings[e.ring].r as Vector3) * -e.side   # muzzle across the tunnel
+	var clock := delta * GameState.enemy_tempo()
+	if e.burst > 0:
+		e.burst_t -= clock
+		if e.burst_t <= 0.0:
+			e.burst -= 1
+			e.burst_t = CRAWL_BURST_GAP
+			var aim: Vector3 = player.position \
+				+ player.forward() * (player.speed * dist / 24.0 * 0.35) - node.position
+			enemy_fired.emit(node.position, aim.normalized() * 24.0, SHOT_DMG, 1.7, false, node)
+	else:
+		e.fire_t -= clock
+		if e.fire_t <= 0.0 and dist < 95.0:
+			e.fire_t = e.fire * randf_range(0.9, 1.3)
+			e.burst = int(TYPES[e.type].get("burst", 3))
+			e.burst_t = 0.0
+	return false
+
+
+## v4b WARDEN: a gunship behind a front shield. A light shot that meets the shield is
+## turned aside (see hit_enemy). It swings round to face you only slowly, so come at
+## it from the side, punch through with BOLT, or let a missile's blast reach round it.
+func _update_warden(k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	if dist > 130.0:
+		return false
+	var dir := to_player / maxf(dist, 0.001)
+	if dist > 55.0:
+		node.position += dir * (e.speed * delta)
+	elif dist < 30.0:
+		node.position -= dir * (e.speed * 0.7 * delta)
+	node.position.y += sin(e.bob_p) * delta * 1.0
+	_turn(e, to_player, e.turn, delta)   # slow: a flanking ship gets ahead of the shield
+	e.ring = path.nearest_ring(node.position, e.ring)
+	node.position = path.clamp_to_ring(node.position, e.ring, 2.6)
+	e.fire_t -= delta * GameState.enemy_tempo()
+	if e.fire_t <= 0.0 and dist < 95.0:
+		e.fire_t = e.fire * randf_range(0.85, 1.2)
+		# twin guns at the shield's rim, both on the lead point
+		var aim: Vector3 = (player.position + player.forward() * (player.speed * dist / 26.0 * 0.4)
+			- node.position).normalized()
+		var rim := aim.cross(Vector3.UP).normalized() * 1.4
+		enemy_fired.emit(node.position + rim, aim * 26.0, SHOT_DMG, 1.7, false, node)
+		enemy_fired.emit(node.position - rim, aim * 26.0, SHOT_DMG, 1.7, false, node)
+	return _collide(k, dist)
+
+
+## v4b CARRIER: a slow capital ship. It turns broadside, so its bays face you, and
+## launches a drone every LAUNCH_T (CARRIER_LIVE of its own at most) until it has taken
+## BAY_HP of damage: then its bays blow (see _hurt) and it can only shoot back.
+func _update_carrier(_k: int, e: Dictionary, delta: float) -> bool:
+	var node: Sprite3D = e.node
+	var to_player: Vector3 = player.position - node.position
+	var dist := to_player.length()
+	if dist > 140.0:
+		return false
+	var dir := to_player / maxf(dist, 0.001)
+	if dist > 80.0:
+		node.position += dir * (e.speed * delta)
+	elif dist < 50.0:
+		node.position -= dir * (e.speed * delta)
+	node.position.y += sin(e.bob_p) * delta * 0.6
+	_turn(e, dir.cross(Vector3.UP) * e.side, 0.9, delta)   # broadside on
+	e.ring = path.nearest_ring(node.position, e.ring)
+	node.position = path.clamp_to_ring(node.position, e.ring, 4.0)
+	var clock := delta * GameState.enemy_tempo()
+	if e.bays:
+		e.launch_t -= clock
+		if e.launch_t <= 0.0:
+			e.launch_t = LAUNCH_T
+			if _count_tagged("parent", node) < CARRIER_LIVE:
+				var before := enemies.size()
+				spawn(e.ring, -1, "drone")
+				if enemies.size() > before:
+					var d: Dictionary = enemies.back()
+					d["parent"] = node
+					d.node.position = path.clamp_to_ring(node.position + dir * 3.0, e.ring, 2.0)
+					d.fire_t = 1.0 + randf()
+					exploded.emit(d.node.position, false)   # the launch puff
+	e.fire_t -= clock
+	if e.fire_t <= 0.0 and dist < 100.0:
+		e.fire_t = e.fire * randf_range(0.9, 1.2)
+		enemy_fired.emit(node.position, dir * 22.0, SHOT_DMG + 2.0, 2.2, false, node)
+	if dist < 6.0 and player.wall_hurt_t <= 0.0:
+		# a capital ship doesn't break on your hull: you bounce off it
+		player.wall_hurt_t = 0.45
+		player.take_damage(CONTACT_DMG, "COLLISION")
+		player.bounce += dir * 16.0
 	return false
 
 
@@ -1016,8 +1282,20 @@ func splash_damage(pos: Vector3, radius: float, dmg: int) -> int:
 	return kills
 
 
-## Direct hit. Returns true if the enemy died.
-func hit_enemy(index: int, dmg: int) -> bool:
+## Direct hit. Returns true if the enemy died. v4b: `from_dir` is the shot's travel
+## direction (zero for a blast or the plasma bomb). A shielded enemy turns aside a
+## light hit (under WARDEN_BLOCK) that meets it inside its front arc: no damage, just
+## blue sparks and a ping (`deflected`). So NEUTRON and SCATTER bounce off a warden's
+## nose, while BOLT, a shot from the flank and any blast land.
+func hit_enemy(index: int, dmg: int, from_dir := Vector3.ZERO) -> bool:
+	var e: Dictionary = enemies[index]
+	if e.get("shielded", false) and dmg < WARDEN_BLOCK:
+		var flat := Vector3(from_dir.x, 0.0, from_dir.z)
+		if flat.length_squared() > 0.0001:
+			flat = flat.normalized()
+			if (e.facing as Vector3).dot(-flat) > WARDEN_ARC_COS:
+				deflected.emit((e.node as Node3D).position - flat * 1.6)
+				return false
 	return _hurt(index, dmg)
 
 
@@ -1028,6 +1306,8 @@ func nearest_enemy(from: Vector3) -> Node3D:
 	var best: Node3D = null
 	var best_d := INF
 	for e in enemies:
+		if e.get("cloaked", false):
+			continue   # v4b: nothing locks onto a cloaked wraith
 		var d: float = e.node.position.distance_squared_to(from)
 		if d < best_d:
 			best_d = d
@@ -1052,6 +1332,11 @@ func _hurt(index: int, dmg: int) -> bool:
 	if e.hp <= 0:
 		_kill(index, true)
 		return true
+	if e.get("bays", false) and e.max_hp - e.hp >= BAY_HP:
+		# v4b: a carrier's first BAY_HP of damage blows its launch bays
+		e.bays = false
+		exploded.emit((e.node as Node3D).position, true)
+		announced.emit("CARRIER BAYS DOWN")
 	return false
 
 
@@ -1071,11 +1356,13 @@ func _kill(index: int, scored: bool) -> void:
 			_pending_blasts.append(e.node.position)   # chains next frame (see top of update)
 	if e.get("type", "") == "turret":
 		turret_destroyed.emit(e.node.position)   # V2.0: chains nearby fuel cells
-	elif e.behavior == "lay":
-		# v4b: its node goes back to the pool, so its mines stop counting as its own
+	elif e.behavior == "lay" or e.behavior == "carry":
+		# v4b: its node goes back to the pool, so its mines (or its drones) stop
+		# counting as its own
+		var tag := "laid_by" if e.behavior == "lay" else "parent"
 		for o in enemies:
-			if o.get("laid_by") == e.node:
-				o.erase("laid_by")
+			if o.get(tag) == e.node:
+				o.erase(tag)
 	var tdef: Dictionary = TYPES.get(e.get("type", ""), {})
 	# v4b: a splitter bursts into its brood next frame (see _hatch_splits). The brood
 	# counts toward ENEMY_CAP: only the slots free now (this one leaves the list below)
@@ -1093,8 +1380,10 @@ func _kill(index: int, scored: bool) -> void:
 				arena_reinforced.emit(e.arena_id, n)
 	# V2.2 L1: debris burst — chunk count scales with the kill's heft (v4b: TYPES.gibs)
 	var gcount := 20 if e.get("is_boss", false) else int(tdef.get("gibs", 6))
+	# (v4b: a heavy's debris is its base type's, in its tint)
 	var gtint: Color = e.node.modulate if e.get("is_boss", false) \
-		else GIB_TINTS.get(e.get("type", ""), Color(0.6, 0.6, 0.65))
+		else GIB_TINTS.get(base_type(e.get("type", "")), Color(0.6, 0.6, 0.65)) \
+			* (e.get("tint", Color.WHITE) as Color)
 	gibs_requested.emit(e.node.position,
 		(e.node.position - player.position).normalized() * 4.0, e.ring, gcount, gtint)
 	if gcount >= 12:   # V2.2 L2d: hulk/boss kills punch the music down for a beat

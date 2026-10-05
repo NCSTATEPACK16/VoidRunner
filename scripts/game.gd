@@ -227,6 +227,9 @@ func _ready() -> void:
 	enemy_mgr.arena_reinforced.connect(func(arena_id: int, n: int) -> void:
 		_arena_spawned[arena_id] = _arena_spawned.get(arena_id, 0) + n)
 	enemy_mgr.mended.connect(shot_mgr.spawn_mend_sparks)
+	# ...a warden's shield turning a shot, and lines like "CARRIER BAYS DOWN"
+	enemy_mgr.deflected.connect(shot_mgr.spawn_deflect_sparks)
+	enemy_mgr.announced.connect(func(text: String) -> void: hud.show_message(text, 2.0))
 	# V2.2 L1: nearby explosions rattle the camera, scaled by proximity
 	enemy_mgr.exploded.connect(func(pos: Vector3, big: bool) -> void:
 		var d2 := pos.distance_squared_to(player.position)
@@ -716,6 +719,14 @@ func _apply_gauntlet_tier(tier: int) -> void:
 		pool.append("turret")   # tier 5+ turrets fire seekers (enemy_speed >= 9)
 		pool.append("spinner")
 		pool.append("splitter")
+		pool.append("wraith")
+		pool.append("crawler")
+	if tier >= 6:
+		pool.append("warden")
+		pool.append("carrier")
+		pool.append("rammer_hv")
+		pool.append("splitter_hv")
+		pool.append("warden_hv")
 	_gauntlet_def.enemy_types = pool
 	AudioSys.set_music_intensity(tier / 8.0)
 
@@ -1505,13 +1516,14 @@ func _on_tunnel_spawn(ring_idx: int) -> void:
 
 
 ## I3: weighted pick from a level's enemy_types pool (repeated ids act as weights).
-## v4b: a sector's newcomer is never picked for a ring before its own introduction.
+## v4b: a sector's newcomer is never picked for a ring before its own introduction,
+## and neither is its heavy variant.
 func _pick_enemy_type(level: LevelDef, ring := 1 << 30) -> String:
 	var pool := level.enemy_types
 	if not _intro_rings.is_empty():
 		pool = PackedStringArray()
 		for id in level.enemy_types:
-			if ring >= int(_intro_rings.get(id, -1)):
+			if ring >= int(_intro_rings.get(EnemyManager.base_type(id), -1)):
 				pool.append(id)
 	if pool.is_empty():
 		return "drone"

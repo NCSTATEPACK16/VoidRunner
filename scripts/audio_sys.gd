@@ -254,6 +254,11 @@ func play_mend() -> void:
 	_play(_powerup, 1.6)
 
 
+## v4b: a WARDEN's shield turning a shot — the clank, pitched up into a ping.
+func play_deflect() -> void:
+	_play(_clank, 2.3)
+
+
 ## V2.2 L1f: quiet debris click on gib ricochet. Dedicated 2-voice pool — when
 ## both are busy the tick is simply dropped, so a 48-gib storm can't spam.
 func gib_tick() -> void:

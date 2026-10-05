@@ -205,6 +205,79 @@ func _run() -> void:
 	em.hit_enemy(em.enemies.size() - 1, 99)
 	await _fly(game, 6)
 	await _capture(game, "shot_roster.png", dir)
+	# 2e) v4b roster (part 2): a warden dead ahead turning a NEUTRON stream (blue
+	# sparks), a wraith half-faded in (the REDUCE FLASH tell, held), a crawler bursting
+	# from its wall and a carrier broadside, its bays toward us
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	game.gib_mgr.clear_all()
+	# from the first long straight of plain tunnel, so the far ones aren't behind a door
+	var open_r := pr
+	for r in range(21, game.path.main_ring_count - 10):
+		var open := true
+		for q in range(r, r + 8):
+			open = open and not game.path.rings[q].arena and em._straight(q)
+		if open:
+			open_r = r
+			break
+	var oring: Dictionary = game.path.rings[open_r]
+	game.player.ring_idx = open_r
+	game.player.position = oring.p
+	game.player.yaw = atan2(-oring.d.x, -oring.d.z)
+	game.player.pitch = 0.0
+	await _fly(game, 2)
+	fwd = game.player.forward()
+	right = fwd.cross(Vector3.UP).normalized()
+	pr = game.player.ring_idx
+	var roster2 := {
+		"warden": fwd * 20.0 - Vector3.UP * 1.5,
+		"wraith": fwd * 14.0 - right * 6.0 + Vector3.UP * 2.0,
+		"carrier": fwd * 34.0 + right * 3.0 + Vector3.UP * 3.0,
+	}
+	for id in roster2:
+		em.spawn(pr, -1, id)
+		var en: Dictionary = em.enemies.back()
+		en.node.position = game.player.position + roster2[id]
+		en.facing = -fwd
+		match id:
+			"wraith":
+				en.mode = "shimmer"
+				en.cloaked = false
+				en.hit_r2 = 13.0
+				en.tell = 8.0
+				en.mode_t = 3.6   # hold the fade at half-light for the still
+			"carrier":
+				en.facing = right   # broadside, bays toward us
+				en.side = -1.0      # (and turning to stay that way)
+				en.launch_t = 99.0  # (a fresh drone would hide it)
+				en.fire_t = 99.0
+	em.spawn(pr + 2, -1, "crawler")
+	var crawl: Dictionary = em.enemies.back()
+	crawl.side = 1.0   # the right-hand wall
+	crawl.fire_t = 0.0
+	GameState.weapon_index = 0
+	for k in 4:
+		game.shot_mgr.fire_player(game.weapons[0])
+		await _fly(game, 2)
+	await _capture(game, "shot_roster2.png", dir)
+	# 2f) the heavies beside their base types: each wears its base's sprite set with a
+	# tint folded into the light (left column base, right column heavy)
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	game.gib_mgr.clear_all()
+	var hv_row := 3.4
+	for base_id in ["rammer", "splitter", "warden"]:
+		for col in [-1.0, 1.0]:
+			em.spawn(pr, -1, base_id if col < 0.0 else base_id + "_hv")
+			var en: Dictionary = em.enemies.back()
+			en.node.position = game.player.position + fwd * 30.0 + right * (5.0 * col) \
+				+ Vector3.UP * hv_row
+			en.facing = -fwd
+			en.mode_t = 99.0   # (no rammer tell, no wind-up)
+			en.fire_t = 99.0
+		hv_row -= 3.4
+	await _fly(game, 3)
+	await _capture(game, "shot_heavies.png", dir)
 	GameState.reduce_flashing = false
 	# 3) L3 boss room with the boss in frame
 	GameState.reset_run()

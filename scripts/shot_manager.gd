@@ -51,11 +51,12 @@ const SHOCK_SIZE := 13.0
 const SPARK_SIZE := 1.1           # world size at birth; sparks shrink as they die
 const SPARK_LIFE := 0.6
 ## Spark atlas cells: hot orange (blasts, infighting) and, K4, cool blue for the
-## dodge burst, so it reads as thrusters, not damage. v4b adds green for a mender's
-## repairs.
+## dodge burst, so it reads as thrusters, not damage (v4b: a warden's shield turning
+## a shot sparks blue too). v4b adds green for a mender's repairs.
 const SPARK_HOT := 0
 const SPARK_DODGE := 1
 const SPARK_MEND := 2
+const DEFLECT_PING_GAP := 0.08   # v4b: one shield ping per this long, however many hit
 
 var player: PlayerShip
 var enemy_mgr: EnemyManager
@@ -93,6 +94,7 @@ var _bolt_cell := {}   # weapon display_name -> its first cell in the player-bol
 # fresh Array[Vector3] allocations enemy_shot_positions() made every frame
 var eshot_cache := PackedVector3Array()
 var threat_near := false
+var _ping_cd := 0.0   # v4b: the shield-ping rate limit
 
 
 func _ready() -> void:
@@ -132,6 +134,8 @@ func layers() -> Array[FxBatch]:
 func clear_all() -> void:
 	for arr in [_pshots, _eshots, _explosions, _sparks, _shocks, _puffs]:
 		arr.clear()
+	eshot_cache.resize(0)   # no stale threat for the HUD, radar or music to read
+	threat_near = false
 	for b in _booms:   # no explosion light survives a level transition / warm-up
 		b.energy = 0.0
 	sync_batches()
@@ -280,7 +284,7 @@ func _infight(es: Dictionary) -> bool:
 	var pos: Vector3 = es.pos
 	for j in range(_inf_pos.size() - 1, -1, -1):
 		if pos.distance_squared_to(_inf_pos[j]) < _inf_r2[j] and _inf_nodes[j] != es.src:
-			enemy_mgr.hit_enemy(j, INFIGHT_DMG)
+			enemy_mgr.hit_enemy(j, INFIGHT_DMG, es.vel)   # v4b: a warden's shield turns it
 			_inf_valid = false   # that hit may have removed an enemy
 			for i in 2:
 				_spawn_spark(SPARK_HOT, pos, 8.0)
@@ -350,6 +354,17 @@ func spawn_mend_sparks(pos: Vector3) -> void:
 	AudioSys.play_mend()
 
 
+## v4b: a warden's shield turns a shot — blue sparks where it met the shield and a
+## ping, at most one ping per DEFLECT_PING_GAP however many bolts hit at once.
+func spawn_deflect_sparks(pos: Vector3) -> void:
+	for i in 3:
+		if not _spawn_spark(SPARK_DODGE, pos, 9.0):
+			break
+	if _ping_cd <= 0.0:
+		_ping_cd = DEFLECT_PING_GAP
+		AudioSys.play_deflect()
+
+
 func _spawn_spark(cell: int, pos: Vector3, spread: float) -> bool:
 	if _sparks.size() >= SPARK_CAP:
 		return false
@@ -386,6 +401,7 @@ func _steer_homing(s: Dictionary, delta: float) -> void:
 func update_shots(delta: float) -> void:
 	for b in _booms:
 		b.energy *= pow(0.002, delta)
+	_ping_cd -= delta
 	# hot loops are index-walked `while`s: range() allocates an Array per call,
 	# and these run every frame (nested per shot × enemy in the worst case)
 	# --- player shots ---
@@ -414,8 +430,10 @@ func update_shots(delta: float) -> void:
 				var ene: Dictionary = enemy_mgr.enemies[j]
 				if s.pos.distance_squared_to(ene.node.position) < ene.get("hit_r2", 13.0):
 					# a contact hit always lands its direct damage; splash shots
-					# then detonate on top (Phase J — makes MISSILE matter vs bosses)
-					enemy_mgr.hit_enemy(j, s.dmg)
+					# then detonate on top (Phase J — makes MISSILE matter vs bosses).
+					# v4b: unless a warden's shield turns it (a missile's blast still
+					# reaches round)
+					enemy_mgr.hit_enemy(j, s.dmg, s.vel)
 					GameState.level_hits += 1
 					if s.splash > 0.0:
 						boom = true

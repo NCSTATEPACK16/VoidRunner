@@ -756,13 +756,14 @@ func _run() -> void:
 		for id in lv.intro_types:
 			assert(id in lv.enemy_types)
 	for id in EnemyManager.TYPES:
-		assert(SpriteModels.ENEMIES.has(id) and EnemyManager.GIB_TINTS.has(id))
+		var model_id := EnemyManager.base_type(id)   # (a heavy wears its base's set)
+		assert(SpriteModels.ENEMIES.has(model_id) and EnemyManager.GIB_TINTS.has(model_id))
 	for id in ["layer", "rammer", "mender", "splitter"]:
 		var tdef: Dictionary = EnemyManager.TYPES[id]
 		assert(tdef.has("salvage") or tdef.has("split"))
 		assert(EnemyManager.POWER_DROP.has(id))
 	# the gauntlet's deepest tiers field the whole roster, newcomers from tier 2 up
-	game._apply_gauntlet_tier(5)
+	game._apply_gauntlet_tier(6)
 	for id in EnemyManager.TYPES:
 		assert(id in game._gauntlet_def.enemy_types)
 	game._apply_gauntlet_tier(1)
@@ -827,6 +828,254 @@ func _run() -> void:
 		assert(brief_body.get_line_count() <= 3)
 	game.overlays.set_briefing(game._current_level())
 	print("ROSTER ok — splitter brood (under the cap, holds the door), mender to full (never a boss), layer 40-60 u ahead + mine cap, rammer straight charge + roll/miss/hit; pools, intros, briefings")
+	# --- v4b roster (part 2): WRAITH, CRAWLER, WARDEN, CARRIER and the heavies ---
+	GameState.is_dead = false
+	game.player.reset_to_start()
+	game.player.iframes_t = 0.0
+	game.player.wall_hurt_t = 0.0
+	GameState.shields = pw_full
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	pring = game.player.ring_idx
+	pfwd = game.player.forward()
+	pside = pfwd.cross(Vector3.UP).normalized()
+	em.enemy_fired.connect(count_roster_shots)
+	# WRAITH: cloaked it can't be seen, locked or shot (a blast still finds it)...
+	em.spawn(pring + 4, -1, "wraith")
+	var wr: Dictionary = em.enemies.back()
+	assert(wr.cloaked and not wr.node.visible and wr.hit_r2 < 0.0)
+	assert(em.nearest_enemy(game.player.position) == null)
+	var wr_hp: int = wr.hp
+	wr.node.position = game.player.position + pfwd * 8.0
+	wr.mode_t = 99.0
+	GameState.weapon_index = 0
+	game.shot_mgr.fire_player(game.weapons[0])
+	for f in 20:
+		game.shot_mgr.update_shots(dt)
+	assert(wr.hp == wr_hp)                           # straight through
+	em.splash_damage(wr.node.position, 10.0, 1)
+	assert(wr.hp == wr_hp - 1)
+	wr.hp = wr_hp
+	# ...it shimmers in before it fires, hittable from the first shimmer, fires a fan
+	# of three, and vanishes again WRAITH_SHOW later
+	wr.node.position = game.player.position + pfwd * 40.0
+	wr.mode_t = 0.0
+	roster_shots[0] = 0
+	em.update_enemies(dt)
+	assert(wr.mode == "shimmer" and not wr.cloaked and wr.hit_r2 > 0.0)
+	assert(em.nearest_enemy(game.player.position) == wr.node)
+	for f in 60:
+		em.update_enemies(dt)
+		if wr.mode == "strike":
+			break
+	assert(wr.mode == "strike" and wr.node.visible and roster_shots[0] == 3)
+	var wr_shown := 0
+	while wr.mode == "strike" and wr_shown < 120:
+		em.update_enemies(dt)
+		wr_shown += 1
+	assert(wr.cloaked and not wr.node.visible)
+	assert(absf(wr_shown * dt - EnemyManager.WRAITH_SHOW) < 0.05)
+	em.clear_all()
+	# under REDUCE FLASH the shimmer is a steady fade up out of the dark: no flicker
+	GameState.reduce_flashing = true
+	em.spawn(pring + 4, -1, "wraith")
+	var wr2: Dictionary = em.enemies.back()
+	wr2.node.position = game.player.position + pfwd * 40.0
+	wr2.mode_t = 0.0
+	em.update_enemies(dt)
+	assert(wr2.mode == "shimmer")
+	var wr_glow: Array[float] = []
+	while wr2.mode == "shimmer" and wr_glow.size() < 120:
+		em.update_enemies(dt)
+		assert(wr2.node.visible)
+		wr_glow.append(wr2.node.modulate.r + wr2.node.modulate.g + wr2.node.modulate.b)
+	for g in range(1, wr_glow.size()):
+		assert(wr_glow[g] >= wr_glow[g - 1] - 0.001)   # it only ever brightens
+	assert(wr_glow.size() > 10 and wr_glow[0] < wr_glow.back() * 0.3)
+	assert(wr2.node.modulate.is_equal_approx(em._lit(wr2)))   # full light as it fires
+	GameState.reduce_flashing = false
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	# CRAWLER: pinned to its wall, it creeps toward the ship and fires one burst
+	em.spawn(pring + 6, -1, "crawler")
+	var cw: Dictionary = em.enemies.back()
+	var cw_from: float = cw.ring_f
+	cw.fire_t = 0.0
+	roster_shots[0] = 0
+	for f in 60:
+		em.update_enemies(dt)
+	var cw_ring: Dictionary = game.path.rings[cw.ring]
+	assert(absf(absf((cw.node.position - cw_ring.p).dot(cw_ring.r)) - (cw_ring.hw - 1.6)) < 0.5)
+	assert(cw.ring_f < cw_from and roster_shots[0] == 3)
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	# WARDEN: its front shield turns a light hit (NEUTRON, SCATTER, a stray bolt);
+	# BOLT, the flank, the rear and any blast land
+	em.spawn(pring + 4, -1, "warden")
+	var wd: Dictionary = em.enemies.back()
+	var wd_i := em.enemies.size() - 1
+	assert(wd.shielded)
+	wd.facing = -pfwd
+	wd.hp = 40
+	var wd_hp := 40
+	var wd_turned := [0]
+	var count_turned := func(_p: Vector3) -> void:
+		wd_turned[0] += 1
+	em.deflected.connect(count_turned)
+	em.hit_enemy(wd_i, 1, pfwd)                      # head-on and light: turned
+	em.hit_enemy(wd_i, 2, pfwd * 3.0 + pside)        # a POWER CORE pellet, a little off
+	assert(wd.hp == wd_hp and wd_turned[0] == 2)
+	em.hit_enemy(wd_i, 3, pfwd)                      # BOLT's 3 punches through
+	assert(wd.hp == wd_hp - 3)
+	em.hit_enemy(wd_i, 1, pside)                     # from the flank...
+	em.hit_enemy(wd_i, 1, -pfwd)                     # ...from behind...
+	em.hit_enemy(wd_i, 1)                            # ...a blast...
+	em.splash_damage(wd.node.position, 10.0, 1)      # ...and missile splash all land
+	assert(wd.hp == wd_hp - 7 and wd_turned[0] == 2)
+	wd_hp = wd.hp
+	wd.node.position = game.player.position + pfwd * 8.0
+	game.shot_mgr.fire_player(game.weapons[0])       # a NEUTRON pair, head-on
+	for f in 20:
+		game.shot_mgr.update_shots(dt)
+	assert(wd.hp == wd_hp and game.shot_mgr._pshots.is_empty())   # both stopped
+	var wd_blue := 0
+	for sp in game.shot_mgr._sparks:
+		if sp.cell == ShotManager.SPARK_DODGE:
+			wd_blue += 1
+	assert(wd_blue >= 3)                             # blue sparks, and one ping
+	GameState.weapon_index = 2
+	game.shot_mgr.fire_player(game.weapons[2])       # BOLT
+	for f in 20:
+		game.shot_mgr.update_shots(dt)
+	assert(wd.hp == wd_hp - 3)
+	GameState.weapon_index = 0
+	wd_hp = wd.hp
+	var wd_stray := {"pos": wd.node.position, "vel": pfwd * 20.0, "src": null}
+	assert(game.shot_mgr._infight(wd_stray) and wd.hp == wd_hp)   # infighting: turned too
+	em.deflected.disconnect(count_turned)
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	# CARRIER: launches its own drones (CARRIER_LIVE at most) until its first BAY_HP of
+	# damage blows the bays: a big blast and a line on the HUD
+	em.spawn(pring + 6, -1, "carrier")
+	var cr: Dictionary = em.enemies.back()
+	cr.node.position = game.player.position + pfwd * 60.0
+	assert(cr.bays)
+	for tick in 5:
+		cr.launch_t = 0.0
+		em.update_enemies(dt)
+	assert(em._count_tagged("parent", cr.node) == EnemyManager.CARRIER_LIVE)
+	var cr_said: Array[String] = []
+	var hear := func(text: String) -> void:
+		cr_said.append(text)
+	em.announced.connect(hear)
+	em.hit_enemy(em.enemies.find(cr), EnemyManager.BAY_HP - 1)
+	assert(cr.bays and cr_said.is_empty())
+	em.hit_enemy(em.enemies.find(cr), 1)
+	assert(not cr.bays and cr_said.size() == 1 and cr_said[0] == "CARRIER BAYS DOWN")
+	assert(game.hud._msg.text == "CARRIER BAYS DOWN")
+	em.announced.disconnect(hear)
+	em.remove_where(func(en: Dictionary) -> bool: return en.get("parent") == cr.node)
+	for tick in 3:
+		cr.launch_t = 0.0
+		em.update_enemies(dt)
+	assert(em._count_tagged("parent", cr.node) == 0)   # the bays are gone: no launches
+	em.clear_all()
+	em.spawn(pring + 6, -1, "carrier")               # its drones are its own until it dies
+	cr = em.enemies.back()
+	cr.node.position = game.player.position + pfwd * 60.0
+	cr.launch_t = 0.0
+	em.update_enemies(dt)
+	var cr_node: Node3D = cr.node
+	assert(em._count_tagged("parent", cr_node) == 1)
+	em.hit_enemy(em.enemies.find(cr), 999)
+	assert(em._count_tagged("parent", cr_node) == 0)
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	# Heavies: the base type's sprite set (no bake rows of their own) with a tint folded
+	# into the sector light, more hull, the same rule
+	for hv_id in ["rammer_hv", "splitter_hv", "warden_hv"]:
+		var hv_def: Dictionary = EnemyManager.TYPES[hv_id]
+		var hv_base := EnemyManager.base_type(hv_id)
+		assert(hv_base == hv_def.model and not SpriteModels.ENEMIES.has(hv_id))
+		assert(EnemyManager.TYPES[hv_base].behavior == hv_def.behavior)
+		em.spawn(pring + 5, -1, hv_base)
+		var hv_b: Dictionary = em.enemies.back()
+		em.spawn(pring + 5, -1, hv_id)
+		var hv: Dictionary = em.enemies.back()
+		assert(is_same(hv.skin, hv_b.skin) and hv.max_hp > hv_b.max_hp)
+		assert(hv.tint == hv_def.tint and hv.node.modulate.is_equal_approx(em._lit(hv)))
+		assert(not hv.node.modulate.is_equal_approx(em._light_for(hv.ring)))
+		hv.lit_ring = -1                                 # the ring re-light keeps it
+		em.update_enemies(dt)
+		assert(hv.node.modulate.is_equal_approx(em._lit(hv)))
+		assert(hv.shielded == (hv_base == "warden"))
+		em.clear_all()
+	em.spawn(pring + 3, -1, "splitter_hv")           # a heavy splitter: still 3 drones
+	em.hit_enemy(em.enemies.size() - 1, 999)
+	em.update_enemies(dt)
+	assert(em.enemies.size() == 3)
+	for hv_brood in em.enemies:
+		assert(hv_brood.type == "drone")
+	em.clear_all()
+	em.spawn(pring + 6, -1, "rammer_hv")             # its flare clears back to its tint
+	var hv_ram: Dictionary = em.enemies.back()
+	hv_ram.node.position = game.player.position + pfwd * 60.0
+	hv_ram.mode_t = 0.0
+	for f in 90:
+		em.update_enemies(dt)
+		if hv_ram.mode == "charge":
+			break
+	assert(hv_ram.mode == "charge" and hv_ram.node.modulate.is_equal_approx(em._lit(hv_ram)))
+	em.clear_all()
+	game.shot_mgr.clear_all()
+	em.enemy_fired.disconnect(count_roster_shots)
+	GameState.shields = pw_full
+	GameState.is_dead = was_dead
+	for id in ["wraith", "crawler", "warden", "carrier", "rammer_hv", "splitter_hv", "warden_hv"]:
+		assert(EnemyManager.POWER_DROP.has(id) and EnemyManager.TYPES[id].has("salvage"))
+	# the gauntlet: wraith and crawler from tier 5, the rest of part 2 from tier 6
+	game._apply_gauntlet_tier(4)
+	assert(not "wraith" in game._gauntlet_def.enemy_types)
+	assert(not "crawler" in game._gauntlet_def.enemy_types)
+	game._apply_gauntlet_tier(5)
+	assert("wraith" in game._gauntlet_def.enemy_types and "crawler" in game._gauntlet_def.enemy_types)
+	for id in ["warden", "carrier", "rammer_hv", "splitter_hv", "warden_hv"]:
+		assert(not id in game._gauntlet_def.enemy_types)
+	game._apply_gauntlet_tier(0)
+	# L7's and L8's newcomers: met alone in plain tunnel, in order, and never rolled
+	# before their ring; a heavy waits for its base type's (L8's heavy warden), and the
+	# other heavies don't wait at all
+	for lvi in [6, 7]:
+		var lvd: LevelDef = game.levels[lvi]
+		var lv_path := PathGen.new()
+		lv_path.generate(lvd.rings, lvd.level_seed, lvd.spawn_arena, false)
+		game.path = lv_path
+		var lv_plan: Dictionary = game._plan_intros(lvd)
+		game.path = held_path
+		var lv_first: String = lvd.intro_types[0]
+		var lv_second: String = lvd.intro_types[1]
+		assert(lv_plan.size() == 2 and lv_plan[lv_first] < lv_plan[lv_second])
+		assert(lv_plan[lv_first] >= 21)
+		for id in lv_plan:
+			for r in range(lv_plan[id] - 4, lv_plan[id] + 5):
+				assert(not lv_path.rings[r].arena)
+		game._intro_rings = lv_plan
+		var lv_early := {}
+		for roll in 400:
+			var early: String = game._pick_enemy_type(lvd, lv_plan[lv_first] - 1)
+			lv_early[early] = true
+			assert(EnemyManager.base_type(early) != lv_first)
+			assert(EnemyManager.base_type(early) != lv_second)
+		assert(lv_early.has("rammer_hv") and lv_early.has("splitter_hv"))
+		var lv_seen := {}
+		for roll in 800:
+			lv_seen[game._pick_enemy_type(lvd, lv_plan[lv_second])] = true
+		for id in lvd.enemy_types:
+			assert(lv_seen.has(id))
+		game._intro_rings = {}
+	assert("warden_hv" in game.levels[7].enemy_types and "warden" in game.levels[7].intro_types)
+	print("ROSTER2 ok — wraith cloak + shimmer (a steady fade under REDUCE FLASH), crawler on its wall, warden shield (light front hits turned; BOLT, flank, blasts land), carrier bays at BAY_HP + HUD line, heavies tinted on their base sets; L7/L8 intros + hold-back")
 	# --- v4b SOAK: every type runs 10 s beside a fixed, immortal ship ---
 	GameState.is_dead = false
 	game.player.reset_to_start()
@@ -883,6 +1132,8 @@ func _run() -> void:
 	assert(AudioSys._intensity >= 2.0)   # boss forces FRENZY
 	GameState.boss_active = false
 	GameState.arena_locked = false
+	GameState.combo = 0   # (the kill streak the roster and soak sections built up)
+	game.shot_mgr.clear_all()
 	AudioSys._ramp_floor = 0.0
 	AudioSys._intensity = 2.0
 	for _calm_step in 100:

@@ -42,6 +42,8 @@ func _draw() -> void:
 	var rx := -fz
 	var rz := fx
 	for e in enemy_mgr.enemies:
+		if e.get("cloaked", false):
+			continue   # v4b: a cloaked wraith leaves no blip
 		var dx: float = e.node.position.x - player.position.x
 		var dz: float = e.node.position.z - player.position.z
 		var lat := dx * rx + dz * rz

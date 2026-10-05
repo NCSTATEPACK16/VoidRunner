@@ -8,9 +8,11 @@ class_name SpriteModels
 
 const STUDIO := preload("res://shaders/studio.gdshader")
 
-## enemy id -> builder name; ids match EnemyManager.TYPES and LevelDef.boss_model
+## enemy id -> builder name; ids match EnemyManager.TYPES and LevelDef.boss_model.
+## v4b heavies (rammer_hv and the rest) have no model of their own: they wear their
+## base type's set with a tint (EnemyManager.TYPES model + tint).
 const ENEMIES := ["drone", "weaver", "hulk", "turret", "stinger", "spinner", "mine",
-	"layer", "rammer", "mender", "splitter"]
+	"layer", "rammer", "mender", "splitter", "wraith", "crawler", "warden", "carrier"]
 const BOSSES := ["sentinel", "brood", "maw"]
 const PICKUPS := ["shield", "energy", "missile", "bomb", "salvage", "overdrive", "phase",
 	"powercore"]
@@ -32,6 +34,10 @@ static func build(id: String, frame: int) -> Node3D:
 		"rammer": _rammer(root, frame)
 		"mender": _mender(root, frame)
 		"splitter": _splitter(root, frame)
+		"wraith": _wraith(root, frame)
+		"crawler": _crawler(root, frame)
+		"warden": _warden(root, frame)
+		"carrier": _carrier(root, frame)
 		"sentinel": _sentinel(root, frame)
 		"brood": _brood(root, frame)
 		"maw": _maw(root, frame)
@@ -521,6 +527,85 @@ static func _splitter(root: Node3D, f: int) -> void:
 		part(root, torus(0.26, 0.36), m("4a5468", 0.25), at + Vector3(0, -0.03, 0))
 		part(root, sphere(0.1), glow("ff3020", f), at + at.normalized() * 0.3)
 	part(root, box(0.36, 0.08, 0.1), glow("c8fcff", f), Vector3(0, -0.18, r * 0.92))   # a mouth slit
+
+
+## Wraith: a violet stealth dart. Forward-swept wings with glowing leading edges, a
+## magenta eye slit and twin canted tail fins: dark enough to vanish, edged bright
+## enough that its shimmer reads.
+static func _wraith(root: Node3D, f: int) -> void:
+	var skin := m("3c1886", 0.6, 0.0, 40.0, 1.0)
+	part(root, taper(0.5, 0.32, 0.12, 0.1, 1.9), skin, Vector3.ZERO)
+	part(root, box(0.3, 0.06, 0.1), glow("ff40c0", f), Vector3(0, 0.08, 0.88))
+	pair(root, fin(0.95, 0.75, 0.22, -0.4, 0.05), m("5a3aa0", 0.5), Vector3(0.2, 0, -0.3))
+	pair(root, box(0.95, 0.03, 0.04), glow("e03cb0", f), Vector3(0.67, 0.03, 0.14),
+		Vector3(0, -8, 0))
+	pair(root, fin(0.4, 0.4, 0.12, 0.2, 0.04), skin, Vector3(0.12, 0.15, -0.75), Vector3(0, 0, 70))
+	part(root, sphere(0.12 if f == 0 else 0.15), glow("8a5ae8", f), Vector3(0, 0, -0.98))
+
+
+## Crawler: a wall-walking gun crab. Its back is to the wall (-Z) and its gun eye
+## looks across the tunnel (+Z); three legs a side grip the wall and step between
+## frames.
+static func _crawler(root: Node3D, f: int) -> void:
+	var shell := painted("c86a30", "panel", 0.35, Vector2(2, 2))
+	var dark := m("2a2420", 0.25)
+	var leg := m("4a3a30", 0.3)
+	part(root, sphere(0.72), shell, Vector3(0, 0, -0.1), Vector3.ZERO, Vector3(1.15, 0.85, 0.5))
+	part(root, box(1.5, 0.16, 0.2), painted("ffffff", "hazard", 0.2, Vector2(3, 1)),
+		Vector3(0, 0.3, 0.1))
+	part(root, cyl(0.24, 0.3, 0.3), dark, Vector3(0, 0, 0.32), Vector3(90, 0, 0))
+	part(root, cyl(0.07, 0.07, 0.55), m("3a4458", 0.3), Vector3(0, -0.05, 0.6), Vector3(90, 0, 0))
+	part(root, sphere(0.06), glow("ff8a20", f), Vector3(0, -0.05, 0.88))
+	part(root, sphere(0.11), glow("ff2020", f), Vector3(0, 0.15, 0.48))
+	for s in [-1.0, 1.0]:
+		for i in 3:
+			var y := 0.38 - i * 0.38
+			var lift := 0.09 if (i + f + (1 if s > 0.0 else 0)) % 2 == 0 else -0.09
+			var hip := Vector3(s * 0.7, y + lift, -0.05)
+			var knee := Vector3(s * 1.02, y * 1.2 + lift, 0.12)
+			pipe(root, hip, knee, 0.07, leg)
+			pipe(root, knee, Vector3(s * 1.1, y * 1.35 + lift, -0.4), 0.06, leg)
+
+
+## Warden: a gunship behind a big cyan shield. The shield fills the front view, twin
+## guns peek round its rim, and swept fins and an engine glow show from the sides and
+## back, so the way round it reads at a glance.
+static func _warden(root: Node3D, f: int) -> void:
+	var hull := painted("d8dce6", "panel", 0.4, Vector2(2, 1))
+	var dark := m("2a303c", 0.25)
+	part(root, taper(0.95, 0.65, 0.7, 0.5, 1.3), hull, Vector3(0, 0, -0.25))
+	pod(root, Vector3(0, 0, -0.95), 0.22, 0.45, dark, "ff9020", f)
+	var sw := 0.92
+	part(root, sphere(sw, sw * 2.0), m("38d0f0", 0.6, 0.55, 40.0, 1.2), Vector3(0, 0.05, 0.62),
+		Vector3.ZERO, Vector3(1.0, 0.85, 0.22))
+	part(root, torus(sw * 0.9, sw * 1.0), glow("8af4ff" if f == 1 else "40e0ff", f),
+		Vector3(0, 0.05, 0.66), Vector3(90, 0, 0), Vector3(1.0, 1.0, 0.85))
+	for s in [-1.0, 1.0]:
+		part(root, cyl(0.07, 0.07, 0.7), m("3a4458", 0.3), Vector3(s * (sw + 0.04), -0.05, 0.4),
+			Vector3(90, 0, 0))
+		part(root, sphere(0.07), glow("ff8a20", f), Vector3(s * (sw + 0.04), -0.05, 0.76))
+	pair(root, fin(0.55, 0.6, 0.2, 0.35, 0.06), hull, Vector3(0.42, 0.18, -0.35), Vector3(0, 0, 18))
+
+
+## Carrier: a long capital ship, seen broadside. A command tower with masts, two
+## launch bays down each flank glowing orange inside their hazard frames, twin engines.
+static func _carrier(root: Node3D, f: int) -> void:
+	var hull := painted("4a5a8a", "panel", 0.35, Vector2(3, 1))
+	var dark := m("1e2230", 0.2)
+	part(root, taper(0.75, 0.45, 0.45, 0.32, 2.2, -0.04), hull, Vector3(0, -0.05, 0))
+	part(root, taper(0.55, 0.22, 0.35, 0.16, 1.6), hull, Vector3(0, -0.32, 0.05))   # keel
+	part(root, box(0.32, 0.36, 0.4), hull, Vector3(0, 0.36, -0.35))
+	part(root, box(0.36, 0.1, 0.12), glow("40c8f0", f), Vector3(0, 0.46, -0.16))   # bridge
+	antenna(root, Vector3(0.08, 0.54, -0.45), 0.4, f)
+	antenna(root, Vector3(-0.1, 0.54, -0.3), 0.28, f, "ffc040")
+	var frame := painted("ffffff", "hazard", 0.2)
+	for z: float in [0.45, -0.25]:
+		var hw := 0.375 - 0.15 * (z + 1.1) / 2.2   # the hull's half-width there
+		pair(root, box(0.06, 0.26, 0.42), frame, Vector3(hw + 0.02, -0.04, z))
+		pair(root, box(0.05, 0.18, 0.32), dark, Vector3(hw + 0.04, -0.04, z))
+		pair(root, box(0.04, 0.12, 0.24), glow("ff9020", f), Vector3(hw + 0.06, -0.04, z))
+	for s in [-1.0, 1.0]:
+		pod(root, Vector3(s * 0.26, -0.04, -1.0), 0.15, 0.4, dark, "ff9020", f)
 
 
 # ---------------------------------------------------------------- bosses
