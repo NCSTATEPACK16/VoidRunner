@@ -58,3 +58,9 @@ directory up**, outside this repo, in the parent `RadixRemix/` folder:
 - **Tooling gotchas:** new `class_name` scripts need `godot --headless --import` before tests
   can see them. GDScript's `:=` can't infer from Dictionary or Variant access, so type those
   explicitly. Headless `--script` mode has no autoloads.
+
+## Current work
+
+v4 is half done: v4c (hubs, keys, objectives) and v4d (tally, episodes, message log, menus)
+remain, then Step 7 gets queued. Start with `docs/revamp/2026-10-06-v4-handoff.md`. Delete this
+section when v4d lands.
