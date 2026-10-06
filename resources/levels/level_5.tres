@@ -18,3 +18,7 @@ level_seed = 404
 enemy_types = PackedStringArray("drone", "weaver", "hulk", "hulk", "turret", "stinger", "spinner", "mine", "layer", "rammer", "mender", "splitter")
 intro_types = PackedStringArray("mender", "splitter")
 spur_count = 2
+miniboss_model = "tender"
+miniboss_name = "SPORE TENDER"
+miniboss_hp = 100
+miniboss_size = 12.0

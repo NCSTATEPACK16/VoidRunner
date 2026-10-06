@@ -12,8 +12,8 @@ shooter before the public launch in Step 8.*
 | v4a palette tricks | Done (PR #11) |
 | Perf groundwork | Done (PR #12) |
 | v4b part 1: parts kit; LAYER, RAMMER, MENDER, SPLITTER (sectors 3–5) | Done (PR #13) |
-| v4b part 2: WRAITH, CRAWLER, WARDEN, CARRIER (sectors 7–8); heavy variants; mini-bosses | Next, two commits |
-| v4c hubs, keys and objectives | Queued, two commits: hubs with keycards and switches; objectives |
+| v4b part 2: WRAITH, CRAWLER, WARDEN, CARRIER (sectors 7–8); heavy variants; mini-bosses | Done (PR #14) |
+| v4c hubs, keys and objectives | Next, two commits: hubs with keycards and switches; objectives |
 | v4d tally, episodes and menu feel | Queued, one commit |
 
 **How v4a landed, and where it differs from the plan below:**
@@ -147,13 +147,48 @@ for sectors 3–5 here; the other four, the heavy variants and the mini-bosses n
     models are busier than 3.0's.
   - Dense arena: peak draw calls 83–87 (gate about 105); headless worst steps at most 5.5 ms.
 
-**Next, v4b part 2 (two commits):**
-- WRAITH, CRAWLER, WARDEN and CARRIER;
-- heavy RAMMER, SPLITTER and WARDEN as tints of their base sprite sets;
-- the HAULER, SPORE TENDER and GATE WARDEN mini-bosses.
+**How v4b part 2 landed (PR #14, two commits):**
+- **Four more enemies, one rule each:**
 
-The bake budget decides the optional extra angle ring for large ships. Then v4c and v4d, each
-with the gates in *Order and gates*.
+  | Enemy | Rule | Debut |
+  |---|---|---|
+  | WRAITH | cloaked it has no blip, no lock and no hit radius (a blast still finds it); it shimmers in with a warning tone, fires a fan of 3, and stays hittable until `WRAITH_SHOW` (1 s) after; under REDUCE FLASH the shimmer is a steady fade up from dark | L7 |
+  | CRAWLER | pinned to one wall, creeps along its stretch of tunnel (never through a mouth or a bulkhead) and fires bursts of 3 across it | L7 |
+  | WARDEN | a front shield that turns slowly: a hit inside its 55° front arc doing under 3 is absorbed (`hit_enemy(j, dmg, from_dir)`), so NEUTRON, SCATTER and stray bolts bounce off with blue sparks and a ping, while BOLT, flank hits and any blast land | L8 |
+  | CARRIER | turns broadside and launches a drone every `LAUNCH_T` (3.5 s), at most 3 of its own, until its first `BAY_HP` (10) of damage blows the bays: a big blast and "CARRIER BAYS DOWN" | L8 |
+- **Heavies.** `rammer_hv`, `splitter_hv` and `warden_hv` are `TYPES` rows with a `model` (their
+  base type's sprite set, so no new bake rows) and a `tint`, which the ring re-light folds into
+  the sector light (`_lit`, generalising the boss tint). More hull, the same rule; the heavy
+  splitter still hatches 3 drones. A heavy waits for its base type's intro ring.
+- **Mini-bosses.** HAULER (L2, 70 HP), SPORE TENDER (L5, 100) and GATE WARDEN (L8, 140) bake with
+  the bosses at 128 px and ride the boss dict (`_boss_dict`, `miniboss` flag):
+  - each holds the kill-locked arena nearest mid-sector (`PathGen.mid_arena()`), with that
+    room's guards cut to 3; the mini-boss counts toward the room's tally;
+  - it sleeps until the ship enters its room (or shoots it), then `miniboss_engaged` brings
+    its name, the boss bar (one tick, at 50%), the music and a WARNING line; its radar blip
+    waits too;
+  - two phases, the second from 50%:
+
+    | Mini-boss | Phase 1 | From 50% |
+    |---|---|---|
+    | HAULER | aimed shots; mines sown from its tail rack | + escort drones |
+    | SPORE TENDER | aimed shots; 6-spore rings; a repair pulse (+1 to each damaged escort within 45 u, every 3 s) | + SPLITTER hatchlings |
+    | GATE WARDEN | aimed shots behind the WARDEN shield (it turns at 0.7 rad/s); drones from its bays | the shield fails ("SHIELD DOWN", the hull runs hot) + a spiral hose |
+  - its death emits `miniboss_killed`, never `boss_killed`, so the exit is untouched; the
+    bulkhead opens with the room's last kill, and that checkpoint's `miniboss_down` keeps it
+    down on a resume (`EnemyManager.remove_boss`);
+  - only main-boss resupply stations (`refill`) come back at phase changes.
+- **The extra angle ring is skipped.** The bake is already 1.58× main's without it (441 →
+  699 ms, median of 8, A/B on software GL), past the 1.5× ceiling set for it. A second ring for
+  the bosses, mini-bosses and the carrier would add about another boss sheet.
+- **Tests:** the smoke ROSTER2 and MINIBOSS blocks (one check per rule, the heavies, the L7 and
+  L8 intros, each mini-boss's room, sleep, phases, patterns, bulkhead and checkpoint); the
+  SOAK block covers all 18 types; `tests/soak_probe.tscn` also wakes and kills all three
+  mini-bosses; the screenshot probe adds `shot_roster2`, `shot_heavies` and `shot_miniboss`.
+
+**Next:** v4c (hubs, keys, switches, objectives) and v4d (tally, episodes, message log, menu
+feel), each with the gates in *Order and gates*. The session handoff with the full spec, the
+gates and the tooling is `docs/revamp/2026-10-06-v4-handoff.md`.
 
 ## Why
 

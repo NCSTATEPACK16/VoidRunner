@@ -310,7 +310,8 @@ func _process(delta: float) -> void:
 			else:
 				_level_speed.text = "LVL %d · VEL %d" % [metric, vel]
 	_threat = shot_mgr != null and shot_mgr.threat_near
-	var boss_live := enemy_mgr != null and not enemy_mgr.boss.is_empty()
+	# (v4b: a mini-boss's name and bar wait until it wakes)
+	var boss_live := enemy_mgr != null and enemy_mgr.boss_visible()
 	_boss_name.visible = boss_live
 	# V2.1: each dynamic layer redraws only on state change
 	# re-audit Step 6: REDUCE FLASH holds the lamp lit instead of blinking it
@@ -522,16 +523,22 @@ func _draw_canopy() -> void:
 		if lit_pip:
 			c.draw_rect(Rect2(W - 59 + i * 8, 5, 2, 2), Color("ffe0a0"))
 	# Phase J: boss health bar under the THREAT panel — chunky rect, white damage
-	# flash, tick marks at the 66%/33% phase gates
-	if enemy_mgr and not enemy_mgr.boss.is_empty():
+	# flash, tick marks at the 66%/33% phase gates (v4b: a mini-boss's one at 50%)
+	if enemy_mgr and enemy_mgr.boss_visible():
 		var b: Dictionary = enemy_mgr.boss
 		c.draw_rect(Rect2(100, 13, 120, 8), PANEL_DARK)
 		c.draw_rect(Rect2(100, 13, 120, 8), PANEL_EDGE, false)
 		var frac: float = b.hp / float(b.max_hp)
 		var fill_col := Color("e8ecf4") if b.flash_t > 0.0 else Color("ff3838")
 		c.draw_rect(Rect2(102, 15, maxf(0.0, 116.0 * frac), 4), fill_col)
-		for gate in [0.66, 0.33]:
+		for gate in boss_gates(b):
 			c.draw_rect(Rect2(102 + int(116 * gate), 14, 1, 6), PANEL_EDGE)
+
+
+## v4b: where the boss bar's phase ticks sit: a mini-boss turns at 50%, a boss at
+## 66% and 33%.
+static func boss_gates(b: Dictionary) -> Array:
+	return [0.5] if b.get("miniboss", false) else [0.66, 0.33]
 
 
 ## Dynamic console layer: weapon slots, MSL digits, EVD lamp, TIME clock, the

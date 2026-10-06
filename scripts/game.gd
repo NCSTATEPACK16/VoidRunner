@@ -45,6 +45,8 @@ var _arena_spawned := {}
 var _arena_kills := {}
 var _boss_arena_start := -1   # Phase J: first ring of the boss room (-1 = no boss)
 var _boss_announced := false
+var _miniboss_arena := -1     # v4b: the room a mini-boss holds (-1 = none this sector)
+var _miniboss_down := false   # ...and whether it has fallen (checkpoints keep this)
 var _last_style := 0   # V2.2 L2c: sting fires on upward grade changes only
 var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
@@ -104,6 +106,7 @@ var _intro_rings := {}
 ## The solo first contacts only happen on a fresh sector start, never on a resume
 var _intros_live := false
 const INTRO_CLEAR := 8   # no random tunnel spawns this many rings either side of one
+const MINIBOSS_GUARDS := 3   # v4b: a mini-boss's room keeps at most this many guards
 
 
 func _ready() -> void:
@@ -222,11 +225,16 @@ func _ready() -> void:
 		func(pos: Vector3) -> void: prop_mgr.splash(pos, PropManager.CHAIN_RADIUS))
 	enemy_mgr.boss_killed.connect(_on_boss_killed)
 	enemy_mgr.boss_phase.connect(_on_boss_phase)
+	enemy_mgr.miniboss_engaged.connect(_on_miniboss_engaged)   # v4b
+	enemy_mgr.miniboss_killed.connect(_on_miniboss_killed)
 	enemy_mgr.gibs_requested.connect(gib_mgr.burst)
 	# v4b: a splitter's brood joins its locked room's tally; a mender's repair sparks
 	enemy_mgr.arena_reinforced.connect(func(arena_id: int, n: int) -> void:
 		_arena_spawned[arena_id] = _arena_spawned.get(arena_id, 0) + n)
 	enemy_mgr.mended.connect(shot_mgr.spawn_mend_sparks)
+	# ...a warden's shield turning a shot, and lines like "CARRIER BAYS DOWN"
+	enemy_mgr.deflected.connect(shot_mgr.spawn_deflect_sparks)
+	enemy_mgr.announced.connect(func(text: String) -> void: hud.show_message(text, 2.0))
 	# V2.2 L1: nearby explosions rattle the camera, scaled by proximity
 	enemy_mgr.exploded.connect(func(pos: Vector3, big: bool) -> void:
 		var d2 := pos.distance_squared_to(player.position)
@@ -454,14 +462,24 @@ func _load_level_world(index: int) -> void:
 	_arena_kills.clear()
 	_door_queue.clear()
 	_spawn_queue.clear()
+	# v4b: a mini-boss holds the kill-locked room nearest mid-sector, with its guards
+	# trimmed to three, and counts toward that room's bulkhead like any guard
+	_miniboss_arena = -1
+	_miniboss_down = false
+	if level.kind == "tunnel" and level.miniboss_model != "" and not _gauntlet:
+		_miniboss_arena = path.mid_arena()
 	for arena in path.arenas:
 		if arena.door_ring < 0:
 			continue
-		for ring_idx in arena.spawn_rings:
+		var guards: Array = arena.spawn_rings
+		if arena.id == _miniboss_arena:
+			guards = guards.slice(0, MINIBOSS_GUARDS)
+			enemy_mgr.spawn_miniboss(arena, level)
+		for ring_idx in guards:
 			enemy_mgr.spawn(ring_idx, arena.id, _pick_enemy_type(level, arena.start))
-		_arena_spawned[arena.id] = arena.spawn_rings.size()
+		_arena_spawned[arena.id] = guards.size() + (1 if arena.id == _miniboss_arena else 0)
 		_arena_kills[arena.id] = 0
-		if arena.spawn_rings.is_empty():
+		if _arena_spawned[arena.id] == 0:
 			world.open_door(arena.id)
 	# V2.2 L5c: 1-2 guards inside each spur. Fresh NEGATIVE arena_id — the kill
 	# handler early-outs on negatives, so spur kills never touch door/lock logic.
@@ -473,7 +491,7 @@ func _load_level_world(index: int) -> void:
 	# exit ring dark until it falls (no bulkheads on boss levels — see PathGen).
 	_boss_arena_start = -1
 	_boss_announced = false
-	hud.set_boss_name(level.boss_name if level.kind == "boss" else "")
+	hud.set_boss_name(level.boss_name if level.kind == "boss" else level.miniboss_name)
 	if level.kind == "boss":
 		var room: Dictionary = path.arenas.back()
 		enemy_mgr.spawn_boss(room.end - 8, level)
@@ -500,7 +518,7 @@ func _place_boss_stations(room: Dictionary, level: LevelDef) -> void:
 	for i in kinds.size():
 		var frac := 0.0 if kinds.size() == 1 \
 			else lerpf(-0.55, 0.55, float(i) / (kinds.size() - 1))
-		pickup_mgr.add_station(ring.p + ring.r * (frac * ring.hw), kinds[i])
+		pickup_mgr.add_station(ring.p + ring.r * (frac * ring.hw), kinds[i], true)
 
 
 ## K3: fuel cells sit low in arenas — cover for the player, bait for chain kills.
@@ -716,6 +734,14 @@ func _apply_gauntlet_tier(tier: int) -> void:
 		pool.append("turret")   # tier 5+ turrets fire seekers (enemy_speed >= 9)
 		pool.append("spinner")
 		pool.append("splitter")
+		pool.append("wraith")
+		pool.append("crawler")
+	if tier >= 6:
+		pool.append("warden")
+		pool.append("carrier")
+		pool.append("rammer_hv")
+		pool.append("splitter_hv")
+		pool.append("warden_hv")
 	_gauntlet_def.enemy_types = pool
 	AudioSys.set_music_intensity(tier / 8.0)
 
@@ -1146,6 +1172,9 @@ func _apply_resume(cp: Dictionary) -> void:
 		_arena_kills[int(id)] = _arena_spawned.get(int(id), 0)
 	enemy_mgr.remove_where(func(e: Dictionary) -> bool:
 		return int(e.arena_id) in cleared or (int(e.arena_id) == -1 and int(e.ring) < ring))
+	if bool(cp.get("miniboss_down", false)) and _miniboss_arena >= 0:
+		enemy_mgr.remove_boss()   # v4b: a mini-boss beaten before the save stays beaten
+		_miniboss_down = true
 	world.skip_spawns_to(ring)
 	player.place_at_ring(ring)
 	player.elapsed = float(cp.elapsed)
@@ -1173,6 +1202,7 @@ func _checkpoint_data(ring: int, cleared: Array) -> Dictionary:
 		"ring": ring,
 		"cleared_arenas": cleared,
 		"difficulty": GameState.difficulty,
+		"miniboss_down": _miniboss_down,   # v4b: a fallen mini-boss stays down
 	}
 
 
@@ -1443,16 +1473,40 @@ func _on_boss_killed() -> void:
 func _on_boss_phase(phase: int) -> void:
 	gib_mgr.hit_stop(90)   # V2.2 L1: phase transitions land with a beat
 	# 3.0: each boss announces its own new trick, so the player knows what's coming
+	# (v4b: a mini-boss has one, at 50%)
 	var msgs := {
 		"sentinel": ["SIGNATURE SHIFTING — VOLLEY PATTERN", "SIGNATURE CRITICAL — STAY MOBILE"],
 		"brood": ["SHE IS LAYING MINES — SHOOT THEM EARLY", "THE BROOD SWARMS — STAY MOBILE"],
 		"maw": ["SPIRAL STORM — KEEP MOVING", "THE MAW RAGES — STAY MOBILE"],
+		"hauler": ["ESCORTS INBOUND — STAY MOBILE"],
+		"tender": ["SPLITTERS HATCHING — CLEAR THEM FAST"],
+		"gatewarden": ["SHIELD DOWN — OPEN FIRE"],
 	}
-	var lines: Array = msgs.get(_current_level().boss_model, msgs.sentinel)
+	var model: String = enemy_mgr.boss.get("model", _current_level().boss_model)
+	var lines: Array = msgs.get(model, msgs.sentinel)
 	if phase >= 2:
-		hud.show_message(lines[mini(phase, 3) - 2], 2.5)
+		hud.show_message(lines[mini(phase - 2, lines.size() - 1)], 2.5)
 	AudioSys.play_overheat()
 	pickup_mgr.replenish_stations()   # back-wall resupply respawns each phase
+
+
+## v4b: the ship entered a mini-boss's room (or shot it from the mouth): name it, and
+## the music climbs as for a boss.
+func _on_miniboss_engaged(boss_name: String) -> void:
+	GameState.boss_active = true
+	hud.show_message("WARNING · %s" % boss_name, 3.0)
+	AudioSys.play_overheat()
+
+
+## v4b: a mini-boss fell. Its room's bulkhead opens with the room's last kill (see
+## _on_enemy_killed); the exit is a separate matter.
+func _on_miniboss_killed() -> void:
+	_miniboss_down = true
+	GameState.boss_active = false   # the music breathes again
+	gib_mgr.hit_stop(200, 0.25, true)
+	hud.show_message("%s DESTROYED" % _current_level().miniboss_name, 2.5)
+	AudioSys.play_powerup()
+	player.shake = 0.5
 
 
 func _on_enemy_killed(arena_id: int) -> void:
@@ -1463,7 +1517,11 @@ func _on_enemy_killed(arena_id: int) -> void:
 	if _arena_kills[arena_id] >= _arena_spawned.get(arena_id, 0) \
 			and not world.is_door_open(arena_id):
 		world.open_door(arena_id)
-		hud.show_message("BULKHEAD OPEN")
+		if arena_id == _miniboss_arena and _miniboss_down:
+			hud.show_message("%s DESTROYED · BULKHEAD OPEN" % _current_level().miniboss_name,
+				2.5)
+		else:
+			hud.show_message("BULKHEAD OPEN")
 		AudioSys.play_select()
 		# re-audit Step 4: a cleared bulkhead is a checkpoint on RECRUIT and RUNNER
 		# (VOIDBORNE saves at sector starts only, the era's way)
@@ -1505,13 +1563,14 @@ func _on_tunnel_spawn(ring_idx: int) -> void:
 
 
 ## I3: weighted pick from a level's enemy_types pool (repeated ids act as weights).
-## v4b: a sector's newcomer is never picked for a ring before its own introduction.
+## v4b: a sector's newcomer is never picked for a ring before its own introduction,
+## and neither is its heavy variant.
 func _pick_enemy_type(level: LevelDef, ring := 1 << 30) -> String:
 	var pool := level.enemy_types
 	if not _intro_rings.is_empty():
 		pool = PackedStringArray()
 		for id in level.enemy_types:
-			if ring >= int(_intro_rings.get(id, -1)):
+			if ring >= int(_intro_rings.get(EnemyManager.base_type(id), -1)):
 				pool.append(id)
 	if pool.is_empty():
 		return "drone"

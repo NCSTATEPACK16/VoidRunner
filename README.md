@@ -20,8 +20,11 @@ and a chunky 320×200 look with light that dies into black shadow.
   optional scanline / CRT filter.
 - **More to fight.** STINGERS that flash and then dive, SPINNERS that throw rings of plasma, and
   proximity MINES that chain-react when shot. LAYERS seed mines on the straights, RAMMERS beep and
-  charge (roll through them), MENDERS repair the swarm and SPLITTERS burst into drones; each new
-  type meets you alone first. Each of the three bosses has its own attack pattern.
+  charge (roll through them), MENDERS repair the swarm and SPLITTERS burst into drones. WRAITHS
+  stay cloaked until they shimmer in to fire, CRAWLERS creep along the walls, WARDENS hide behind
+  a front shield (flank them or use BOLT) and CARRIERS launch drones until their bays are shot
+  out. Each new type meets you alone first, and heavier versions follow later. Three mini-bosses
+  guard mid-sector bulkheads, and each of the three bosses has its own attack pattern.
 - **Power-ups.** OVERDRIVE, POWER CORE and PHASE SHIELD (see below) drop from heavy enemies and
   cleared arenas.
 - **An FM soundtrack.** A 27-second, eight-phrase song with 2-operator FM voices that layers up as
