@@ -18,6 +18,8 @@ extends Node3D
 ## a wall and fires bursts across the tunnel), WARDEN (a front shield turns light
 ## shots: flank it or use BOLT) and CARRIER (launches drones until its bays are shot
 ## out). Heavy rammers, splitters and wardens wear their base sprites with a tint.
+## Three mini-bosses (HAULER, SPORE TENDER, GATE WARDEN) ride the boss machinery in a
+## mid-sector room: two phases each, and their death opens that room's bulkhead.
 
 signal enemy_killed(arena_id: int)
 ## v4b: a locked arena's tally grows by `count` (a splitter burst into its brood),
@@ -38,6 +40,10 @@ signal exploded(pos: Vector3, big: bool)
 signal turret_destroyed(pos: Vector3)   # V2.0: game chains fuel cells off this
 signal boss_killed
 signal boss_phase(phase: int)
+## v4b: a mini-boss woke (the ship entered its room) / went down. Never boss_killed:
+## a mini-boss opens its room's bulkhead, not the exit.
+signal miniboss_engaged(boss_name: String)
+signal miniboss_killed
 signal drop_spawned(pos: Vector3, ring: int, kind: String, value: int)
 signal gibs_requested(pos: Vector3, vel: Vector3, ring: int, count: int, tint: Color)   # V2.2 L1
 
@@ -53,7 +59,11 @@ const BOSS_FIRE_RANGE := 160.0
 const BOSS_SHOT_DMG := 14.0
 const BOSS_CONTACT_DMG := 20.0
 const MAX_SUMMONS := 4
-const MAX_LAID_MINES := 5        # 3.0: brood mother's mine cap
+const MAX_LAID_MINES := 5        # 3.0: brood mother's mine cap (v4b: the hauler's too)
+# v4b mini-boss tuning
+const TENDER_PULSE_T := 3.0      # the spore tender patches its escorts this often...
+const TENDER_PULSE_R := 45.0     # ...within this far of it, +1 each
+const GATEWARDEN_BARE_TINT := Color(1.3, 0.78, 0.7)   # its hull once the shield fails
 
 # 3.0 phase 5 tuning
 const STINGER_STANDOFF := 38.0   # hangs this far off the player's nose
@@ -421,27 +431,70 @@ func _travel_range(ring_idx: int, arena_id: int, back: int, ahead: int) -> Vecto
 ## the level (the mul/add formula tops out single digits), gets a hit radius that
 ## matches its sprite, and runs its own brain in _update_boss.
 func spawn_boss(ring_idx: int, lvl: LevelDef) -> void:
-	var ring: Dictionary = path.rings[ring_idx]
 	# 3.0: each boss is its own baked model (LevelDef.boss_model), not one tinted sprite
-	var st: Dictionary = _sets.get(lvl.boss_model, _sets["sentinel"])
-	var sprite := _acquire_node(st.tex[0], lvl.boss_size)
-	sprite.modulate = lvl.boss_tint
+	boss = _boss_dict(ring_idx, lvl.boss_model, lvl.boss_hp, lvl.boss_size, lvl.boss_tint, lvl)
+	enemies.append(boss)
+
+
+## v4b: a mini-boss in its kill-locked `arena` (LevelDef.miniboss_*), part-way into
+## the room. It shares the boss machinery (the HUD bar, the radar, the big blast) but
+## keeps to its room, sleeps until the ship comes in (or shoots it), fights in two
+## phases (the second from 50%) and counts toward the room's bulkhead (see _kill).
+func spawn_miniboss(arena: Dictionary, lvl: LevelDef) -> void:
+	var ring_idx: int = mini(arena.start + 6, arena.end - 2)
+	boss = _boss_dict(ring_idx, lvl.miniboss_model, lvl.miniboss_hp, lvl.miniboss_size,
+		Color.WHITE, lvl)
+	boss.merge({"miniboss": true, "arena_id": arena.id, "lo": arena.start, "hi": arena.end,
+		"engaged": false, "name": lvl.miniboss_name, "pulse_t": TENDER_PULSE_T}, true)
+	if lvl.miniboss_model == "gatewarden":
+		boss.shielded = true   # phase 1 fights behind the WARDEN rule (see hit_enemy)...
+		boss.turn = 0.7        # ...and it swings round slowly, so a flank works
+	enemies.append(boss)
+
+
+## Phase J: one boss's dict (v4b: shared with the mini-bosses).
+func _boss_dict(ring_idx: int, model: String, hp: int, size: float, tint: Color,
+		lvl: LevelDef) -> Dictionary:
+	var ring: Dictionary = path.rings[ring_idx]
+	var st: Dictionary = _sets.get(model, _sets["sentinel"])
+	var sprite := _acquire_node(st.tex[0], size)
+	sprite.modulate = tint
 	sprite.position = ring.p
-	boss = {
-		"node": sprite, "hp": lvl.boss_hp, "max_hp": lvl.boss_hp,
+	return {
+		"node": sprite, "hp": hp, "max_hp": hp,
 		"fire_t": 2.0, "bob_p": 0.0, "ring": ring_idx, "arena_id": -1,
 		"anim_t": 0.0, "frame": 0, "flash_t": 0.0,
 		"skin": st, "facing": -ring.d, "lit_ring": ring_idx, "speed": lvl.enemy_speed,
-		"fire": lvl.enemy_fire, "score": lvl.boss_hp * 10, "behavior": "boss",
-		"weave_p": 0.0, "hit_r2": pow(lvl.boss_size * 0.42, 2.0),
-		"is_boss": true, "size": lvl.boss_size, "phase": 1,
+		"fire": lvl.enemy_fire, "score": hp * 10, "behavior": "boss",
+		"weave_p": 0.0, "hit_r2": pow(size * 0.42, 2.0),
+		"is_boss": true, "size": size, "phase": 1,
 		"volley_t": 4.0, "summon_t": 6.0, "anchor": ring.p, "home_ring": ring_idx,
 		# 3.0: which attack pattern runs (see _update_boss) and its clocks
-		"model": lvl.boss_model, "lay_t": 3.0, "spin_a": 0.0,
+		"model": model, "lay_t": 3.0, "spin_a": 0.0,
 		"spiral_t": 0.0, "spiral_cd": 0.0, "spiral_a": 0.0,
-		"tint": lvl.boss_tint,   # v4b: the ring re-light folds it in, as for a heavy
+		"tint": tint, "turn": 1.8,   # v4b: the re-light folds the tint in, as for a heavy
 	}
-	enemies.append(boss)
+
+
+## v4b: take the live boss out without a kill (a checkpoint resumed past a mini-boss).
+func remove_boss() -> void:
+	for k in range(enemies.size() - 1, -1, -1):
+		if is_same(enemies[k], boss):
+			_release_node(boss.node)
+			enemies.remove_at(k)
+	boss = {}
+
+
+## v4b: whether the HUD bar and the radar show the boss: a boss always, a mini-boss
+## only once it has woken (until then its room keeps the surprise).
+func boss_visible() -> bool:
+	return not boss.is_empty() and (not boss.get("miniboss", false) or boss.engaged)
+
+
+## v4b: a mini-boss wakes: the HUD names it, the music climbs (game.gd).
+func _wake(e: Dictionary) -> void:
+	e.engaged = true
+	miniboss_engaged.emit(String(e.name))
 
 
 func update_enemies(delta: float) -> void:
@@ -1094,9 +1147,16 @@ func _spiral_shot(origin: Vector3, a: float, arms: int, speed: float) -> void:
 ## contact damage without dying (unlike drones).
 func _update_boss(e: Dictionary, delta: float) -> void:
 	var node: Sprite3D = e.node
+	var mini_boss: bool = e.get("miniboss", false)
+	if mini_boss and not e.engaged:
+		if player.ring_idx < e.lo or player.ring_idx > e.hi:
+			return   # v4b: a mini-boss sleeps until the ship is in its room
+		_wake(e)
 	var phase := 1
 	var frac: float = e.hp / float(e.max_hp)
-	if frac <= 0.33:
+	if mini_boss:
+		phase = 2 if frac <= 0.5 else 1   # v4b: two phases, the second from 50%
+	elif frac <= 0.33:
 		phase = 3
 	elif frac <= 0.66:
 		phase = 2
@@ -1120,10 +1180,15 @@ func _update_boss(e: Dictionary, delta: float) -> void:
 	var dir := target - node.position
 	if dir.length() > 0.5:
 		node.position += dir.normalized() * (e.speed * speed_mul * delta)
-	# 3.0: keep its face on the player, swinging a little with the strafe
-	_turn(e, to_player + dir * 0.35, 1.8, delta)
+	# 3.0: keep its face on the player, swinging a little with the strafe (v4b: the
+	# gate warden swings slowly, so its shield can be flanked)
+	_turn(e, to_player + dir * 0.35, e.turn, delta)
 	node.position.y += sin(e.bob_p) * delta * 1.2
-	e.ring = maxi(path.nearest_ring(node.position, e.ring), e.home_ring - 8)
+	if mini_boss:
+		# v4b: a mini-boss never leaves its room
+		e.ring = clampi(path.nearest_ring(node.position, e.ring), e.lo + 1, e.hi - 1)
+	else:
+		e.ring = maxi(path.nearest_ring(node.position, e.ring), e.home_ring - 8)
 	node.position = path.clamp_to_ring(node.position, e.ring, e.size * 0.5)
 	# --- attacks: 3.0 gives every boss its own pattern (LevelDef.boss_model) ---
 	# Step 3: every pattern clock (aimed shots, volleys, summons, mines, spiral)
@@ -1134,6 +1199,12 @@ func _update_boss(e: Dictionary, delta: float) -> void:
 			_brood_attacks(e, phase, dist, clock)
 		"maw":
 			_maw_attacks(e, phase, dist, clock)
+		"hauler":
+			_hauler_attacks(e, phase, dist, clock)
+		"tender":
+			_tender_attacks(e, phase, dist, clock)
+		"gatewarden":
+			_gatewarden_attacks(e, phase, dist, clock)
 		_:
 			_sentinel_attacks(e, phase, dist, clock)
 	# --- ram ---
@@ -1222,6 +1293,81 @@ func _maw_attacks(e: Dictionary, phase: int, dist: float, delta: float) -> void:
 			_boss_summon(e, "spinner", 1)
 
 
+## v4b HAULER (L2 mini-boss): aimed shots and mines sown from the rack at its tail
+## (they creep at the ship like any mine: shoot them early). From 50% it calls up
+## escort drones as well.
+func _hauler_attacks(e: Dictionary, phase: int, dist: float, delta: float) -> void:
+	var node: Sprite3D = e.node
+	_boss_aimed(e, dist, delta, 1.3)
+	e.lay_t -= delta
+	if e.lay_t <= 0.0:
+		e.lay_t = 3.6 if phase == 1 else 2.8
+		_boss_lay_mine(e, node.position - (e.facing as Vector3) * (e.size * 0.4))
+	if phase == 2:
+		e.summon_t -= delta
+		if e.summon_t <= 0.0:
+			e.summon_t = 5.5
+			_boss_summon(e, "drone", 2)
+
+
+## v4b SPORE TENDER (L5 mini-boss): aimed shots, slow rings of spores (hold your
+## line), and a repair pulse every TENDER_PULSE_T that patches each damaged escort
+## near it, +1 with green sparks: clear the escorts, or burn it down fast. From 50% it
+## hatches SPLITTERS.
+func _tender_attacks(e: Dictionary, phase: int, dist: float, delta: float) -> void:
+	var node: Sprite3D = e.node
+	_boss_aimed(e, dist, delta, 1.5)
+	e.volley_t -= delta
+	if e.volley_t <= 0.0 and dist < BOSS_FIRE_RANGE:
+		e.volley_t = 4.2 if phase == 1 else 3.4
+		_ring_burst(node.position, 6, e.spin_a, 15.0, 4.0, SHOT_DMG)
+		e.spin_a += PI / 6.0
+	e.pulse_t -= delta
+	if e.pulse_t <= 0.0:
+		e.pulse_t = TENDER_PULSE_T
+		for o in enemies:
+			if o.get("is_boss", false) or o.hp >= o.max_hp:
+				continue
+			if o.node.position.distance_squared_to(node.position) \
+					< TENDER_PULSE_R * TENDER_PULSE_R:
+				o.hp += 1
+				mended.emit(o.node.position)
+	if phase == 2:
+		e.summon_t -= delta
+		if e.summon_t <= 0.0:
+			e.summon_t = 6.5
+			_boss_summon(e, "splitter", 1)
+
+
+## v4b GATE WARDEN (L8 mini-boss): in phase 1 it fights behind the WARDEN shield
+## (light shots from the front are turned: flank it, or use BOLT) and launches drones
+## from its bays. At 50% the shield fails ("SHIELD DOWN", game.gd), its hull runs hot,
+## and it adds a wheeling spiral hose that runs 2.4 s and rests 2 s.
+func _gatewarden_attacks(e: Dictionary, phase: int, dist: float, delta: float) -> void:
+	var node: Sprite3D = e.node
+	_boss_aimed(e, dist, delta, 1.4)
+	e.summon_t -= delta
+	if e.summon_t <= 0.0:
+		e.summon_t = 6.0 if phase == 1 else 8.0
+		_boss_summon(e, "drone", 2)
+	if phase < 2:
+		return
+	if e.shielded:
+		e.shielded = false
+		e.tint = GATEWARDEN_BARE_TINT
+		node.modulate = _lit(e)
+		exploded.emit(node.position + (e.facing as Vector3) * (e.size * 0.3), true)
+	e.spiral_t -= delta
+	if e.spiral_t <= -2.0:
+		e.spiral_t = 2.4
+	if e.spiral_t > 0.0 and dist < BOSS_FIRE_RANGE:
+		e.spiral_cd -= delta
+		if e.spiral_cd <= 0.0:
+			e.spiral_cd = 0.13
+			e.spiral_a += 0.55
+			_spiral_shot(node.position, e.spiral_a, 1, 22.0)
+
+
 ## Horizontal fan of shots centered on the line to the player (±0.35 rad).
 func _boss_volley(origin: Vector3, count: int) -> void:
 	var to_player := (player.position - origin).normalized()
@@ -1255,7 +1401,8 @@ func _boss_summon(e: Dictionary, type_id: String, count: int) -> void:
 
 ## Brood mother, phase 2+: drop a mine where she hovers (capped, so the room
 ## never turns into a minefield). They creep toward the ship like any mine.
-func _boss_lay_mine(e: Dictionary) -> void:
+## v4b: `at` puts it somewhere exact (the hauler's tail rack).
+func _boss_lay_mine(e: Dictionary, at := Vector3.INF) -> void:
 	var live := 0
 	for en in enemies:
 		if en.get("laid", false):
@@ -1267,8 +1414,9 @@ func _boss_lay_mine(e: Dictionary) -> void:
 	if enemies.size() > before:
 		var m: Dictionary = enemies[enemies.size() - 1]
 		m["laid"] = true
-		m.node.position = path.clamp_to_ring(e.node.position + Vector3(
-			randf_range(-5.0, 5.0), randf_range(-3.0, 3.0), randf_range(-5.0, 5.0)), e.ring, 2.0)
+		var where: Vector3 = at if at.is_finite() else e.node.position + Vector3(
+			randf_range(-5.0, 5.0), randf_range(-3.0, 3.0), randf_range(-5.0, 5.0))
+		m.node.position = path.clamp_to_ring(where, e.ring, 2.0)
 
 
 ## Damage every enemy within radius of pos (MISSILE splash). Returns kills.
@@ -1329,6 +1477,8 @@ func _hurt(index: int, dmg: int) -> bool:
 	var e: Dictionary = enemies[index]
 	e.hp -= dmg
 	e.flash_t = 0.09
+	if e.get("miniboss", false) and not e.engaged:
+		_wake(e)   # v4b: shot from its room's mouth, a mini-boss wakes up
 	if e.hp <= 0:
 		_kill(index, true)
 		return true
@@ -1343,7 +1493,8 @@ func _hurt(index: int, dmg: int) -> bool:
 func _kill(index: int, scored: bool) -> void:
 	var e: Dictionary = enemies[index]
 	if e.get("is_boss", false):
-		# triple offset blast around the big boom; game.gd wakes the exit ring
+		# triple offset blast around the big boom; game.gd wakes the exit ring (v4b: a
+		# mini-boss's death opens its room's bulkhead instead, through enemy_killed)
 		exploded.emit(e.node.position, true)
 		for i in 3:
 			exploded.emit(e.node.position + Vector3(
@@ -1420,8 +1571,10 @@ func _kill(index: int, scored: bool) -> void:
 			# 3.0: timed power-ups ride a separate roll, so they can come as a bonus
 			if randf() < POWER_DROP.get(type_id, POWER_DROP_BASE):
 				drop_spawned.emit(e.node.position + Vector3.UP * 1.5, e.ring, random_power(), 0)
+	if e.get("miniboss", false):
+		miniboss_killed.emit()   # v4b: first, so a checkpoint its bulkhead saves knows
 	enemy_killed.emit(e.arena_id)
 	_release_node(e.node)
 	enemies.remove_at(index)
-	if e.get("is_boss", false):
+	if e.get("is_boss", false) and not e.get("miniboss", false):
 		boss_killed.emit()

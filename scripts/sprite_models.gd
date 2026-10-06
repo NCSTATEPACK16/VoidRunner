@@ -13,7 +13,8 @@ const STUDIO := preload("res://shaders/studio.gdshader")
 ## base type's set with a tint (EnemyManager.TYPES model + tint).
 const ENEMIES := ["drone", "weaver", "hulk", "turret", "stinger", "spinner", "mine",
 	"layer", "rammer", "mender", "splitter", "wraith", "crawler", "warden", "carrier"]
-const BOSSES := ["sentinel", "brood", "maw"]
+## (v4b: the three mini-bosses bake into the same 128 px boss sheet)
+const BOSSES := ["sentinel", "brood", "maw", "hauler", "tender", "gatewarden"]
 const PICKUPS := ["shield", "energy", "missile", "bomb", "salvage", "overdrive", "phase",
 	"powercore"]
 
@@ -41,6 +42,9 @@ static func build(id: String, frame: int) -> Node3D:
 		"sentinel": _sentinel(root, frame)
 		"brood": _brood(root, frame)
 		"maw": _maw(root, frame)
+		"hauler": _hauler(root, frame)
+		"tender": _tender(root, frame)
+		"gatewarden": _gatewarden(root, frame)
 		"prop": _fuel_cell(root)
 		_: _pickup(root, id)
 	return root
@@ -675,6 +679,86 @@ static func _maw(root: Node3D, f: int) -> void:
 		h.rotation = Vector3(0, 0, a - PI / 2.0)
 	for k in 3:
 		part(root, sphere(0.07), glow("ff40c0", f), Vector3(-0.3 + k * 0.3, 0.9, 0.22))
+
+
+# ---------------------------------------------------------------- v4b mini-bosses
+
+## Hauler (L2): an armed ore hauler. A wedge cab with a lit windshield and a hazard
+## bumper, cargo containers slung down both flanks of its spine, twin engines, and
+## the mine rack at its tail that it sows from, lights blinking in turn.
+static func _hauler(root: Node3D, f: int) -> void:
+	var hull := painted("9a8a62", "panel", 0.4, Vector2(2, 1))
+	var cargo := painted("c0642a", "panel", 0.3)
+	var dark := m("262830", 0.25)
+	part(root, taper(0.9, 0.62, 0.62, 0.44, 0.75, 0.04), hull, Vector3(0, 0.12, 0.62))   # cab
+	part(root, box(0.5, 0.12, 0.06), glow("40c8f0", f), Vector3(0, 0.26, 1.0))   # windshield
+	part(root, box(0.82, 0.14, 0.12), painted("ffffff", "hazard", 0.2, Vector2(3, 1)),
+		Vector3(0, -0.12, 1.02))   # bumper
+	part(root, box(0.34, 0.24, 1.7), dark, Vector3(0, 0.02, -0.3))   # spine
+	for i in 3:
+		var z := 0.18 - i * 0.48
+		pair(root, box(0.38, 0.4, 0.42), cargo, Vector3(0.38, -0.08, z))
+		pair(root, box(0.4, 0.05, 0.44), hull, Vector3(0.38, 0.14, z))   # container lids
+	pair(root, fin(0.35, 0.4, 0.2, 0.2, 0.05), hull, Vector3(0.18, 0.18, -0.95), Vector3(0, 0, 25))
+	for s in [-1.0, 1.0]:
+		pod(root, Vector3(s * 0.32, 0.14, -1.1), 0.15, 0.42, dark, "ff9020", f)
+	for i in 3:
+		var at := Vector3(-0.22 + i * 0.22, -0.24, -1.05)
+		part(root, sphere(0.09), m("4a4a52", 0.45), at)
+		part(root, sphere(0.04), glow("ff2020", 1) if (i + f) % 2 == 0 else m("401010", 0.1),
+			at + Vector3(0, 0.08, 0.02))
+	antenna(root, Vector3(0.18, 0.34, 0.5), 0.35, f)
+
+
+## Spore Tender (L5): the hive's nurse. A domed green carapace over a pale belly, a
+## crown of glowing spore pods (they swell between frames), a green eye that lights
+## its repairs, two tool arms, and tendrils swaying beneath.
+static func _tender(root: Node3D, f: int) -> void:
+	var shell := m("3a7a5a", 0.4, 0.0, 26.0)
+	var belly := m("c8a070", 0.25, 0.0, 16.0, 0.9)
+	var joint := m("2a4a3a", 0.3)
+	part(root, sphere(0.85), shell, Vector3(0, 0.08, 0), Vector3.ZERO, Vector3(1.15, 0.7, 1.0))
+	part(root, sphere(0.62), belly, Vector3(0, -0.2, 0.05), Vector3.ZERO, Vector3(1.1, 0.6, 1.0))
+	for k in 6:
+		var a := k * TAU / 6.0 + 0.3
+		part(root, sphere(0.15 if f == 0 else 0.18), glow("c8f040", f),
+			Vector3(cos(a) * 0.55, 0.52, sin(a) * 0.5))
+	part(root, sphere(0.17), glow("40ff90", f), Vector3(0, 0.06, 0.92))
+	part(root, torus(0.15, 0.24), joint, Vector3(0, 0.06, 0.88), Vector3(90, 0, 0))
+	for s in [-1.0, 1.0]:
+		var tip := Vector3(s * 0.5, -0.3 + (0.08 if f == 1 else 0.0), 1.05)
+		pipe(root, Vector3(s * 0.55, -0.15, 0.55), tip, 0.06, joint)
+		part(root, sphere(0.08), glow("b8ff40", f), tip)
+	for k in 5:
+		var x := -0.5 + k * 0.25
+		var sway := 0.12 if (k + f) % 2 == 0 else -0.12
+		pipe(root, Vector3(x, -0.4, -0.1), Vector3(x * 1.25 + sway, -1.05, -0.25), 0.05, belly)
+
+
+## Gate Warden (L8): the rift gate's keeper. An armoured gunship behind a broad cyan
+## shield, a launch bay down each flank, twin cannons over the shield's rim, a command
+## tower and three engines astern.
+static func _gatewarden(root: Node3D, f: int) -> void:
+	var hull := painted("b8bccc", "panel", 0.45, Vector2(3, 2))
+	var dark := m("232836", 0.25)
+	part(root, taper(1.2, 0.8, 0.85, 0.6, 1.5), hull, Vector3(0, 0, -0.3))
+	part(root, box(0.36, 0.34, 0.4), hull, Vector3(0, 0.52, -0.55))   # tower
+	part(root, box(0.3, 0.08, 0.06), glow("40c8f0", f), Vector3(0, 0.6, -0.34))
+	antenna(root, Vector3(0.1, 0.69, -0.65), 0.4, f)
+	part(root, sphere(1.05, 2.1), m("38d0f0", 0.6, 0.55, 40.0, 1.2), Vector3(0, 0.05, 0.62),
+		Vector3.ZERO, Vector3(1.0, 0.8, 0.2))
+	part(root, torus(0.95, 1.06), glow("8af4ff" if f == 1 else "40e0ff", f),
+		Vector3(0, 0.05, 0.66), Vector3(90, 0, 0), Vector3(1.0, 1.0, 0.8))
+	var frame := painted("ffffff", "hazard", 0.2)
+	pair(root, box(0.06, 0.34, 0.6), frame, Vector3(0.6, -0.05, -0.45))
+	pair(root, box(0.05, 0.24, 0.48), dark, Vector3(0.62, -0.05, -0.45))
+	pair(root, box(0.04, 0.16, 0.36), glow("ff9020", f), Vector3(0.64, -0.05, -0.45))
+	for s in [-1.0, 1.0]:
+		part(root, cyl(0.08, 0.08, 0.8), m("3a4458", 0.3), Vector3(s * 0.5, 0.52, 0.2),
+			Vector3(90, 0, 0))
+		part(root, sphere(0.07), glow("ff8a20", f), Vector3(s * 0.5, 0.52, 0.62))
+	for x in [-0.36, 0.0, 0.36]:
+		pod(root, Vector3(x, -0.05, -1.12), 0.14, 0.34, dark, "ff9020", f)
 
 
 # ---------------------------------------------------------------- pickups + props

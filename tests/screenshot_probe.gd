@@ -295,6 +295,25 @@ func _run() -> void:
 	game.player.pitch = 0.0
 	await _fly(game, 45)
 	await _capture(game, "shot_boss.png", dir)
+	# 3b) v4b mini-boss: L8's GATE WARDEN awake in its room behind its shield, its name
+	# and bar (one tick, at 50%) on the HUD
+	GameState.reset_run()
+	GameState.level_index = 7
+	game._launch_level()
+	await get_tree().process_frame
+	var mroom: Dictionary = game.path.arenas[game._miniboss_arena]
+	for a in game.path.arenas:   # the bulkheads before its room, open (as a resume would)
+		if a.door_ring >= 0 and a.door_ring < mroom.start:
+			game.world.open_door(a.id)
+	var mring_i: int = int(mroom.start) + 1
+	var mring: Dictionary = game.path.rings[mring_i]
+	game.player.ring_idx = mring_i
+	game.player.position = mring.p
+	game.player.yaw = atan2(-mring.d.x, -mring.d.z)
+	game.player.pitch = 0.0
+	game.enemy_mgr.boss.hp = int(game.enemy_mgr.boss.max_hp * 0.7)
+	await _fly(game, 30)
+	await _capture(game, "shot_miniboss.png", dir)
 	# 5) re-audit Step 2: the touch layer's II pause tab over flight, then the menu
 	var touch := TouchControls.new()
 	add_child(touch)

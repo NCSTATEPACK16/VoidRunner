@@ -17,3 +17,7 @@ theme_id = "navy"
 level_seed = 202
 enemy_types = PackedStringArray("drone", "drone", "drone", "weaver", "turret", "mine")
 spur_count = 1
+miniboss_model = "hauler"
+miniboss_name = "HAULER"
+miniboss_hp = 70
+miniboss_size = 11.0

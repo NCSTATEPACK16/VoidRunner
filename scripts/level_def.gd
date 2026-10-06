@@ -44,3 +44,13 @@ extends Resource
 ## Dead-end supply spurs branching off arenas: 0-2 per level. Each holds a cache
 ## chamber; the risky ring-snap entry mechanism lives in spur_manager.gd.
 @export var spur_count := 0
+
+# --- v4b: mini-bosses (tunnel sectors) ---
+## A mini-boss holding the kill-locked arena nearest mid-sector (PathGen.mid_arena),
+## by its model in SpriteModels.BOSSES ("" = none). It sleeps until the ship enters
+## its room, fights in two phases (the second from 50%), and counts toward the room's
+## bulkhead: its death opens that door, never the exit.
+@export var miniboss_model := ""
+@export var miniboss_name := ""
+@export var miniboss_hp := 80          # absolute HP, as for a boss
+@export var miniboss_size := 12.0      # billboard world-size

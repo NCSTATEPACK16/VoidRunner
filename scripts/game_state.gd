@@ -515,6 +515,7 @@ static func normalize_checkpoint(raw: Dictionary, level_count: int) -> Dictionar
 		"ring": maxi(1, int(raw.ring)),
 		"cleared_arenas": cleared,
 		"difficulty": clampi(int(raw.get("difficulty", 1)), 0, DIFFICULTY_NAMES.size() - 1),
+		"miniboss_down": bool(raw.get("miniboss_down", false)),   # v4b, optional
 		"saved_at": float(raw.saved_at),
 		"build": str(raw.get("build", "")),
 	}

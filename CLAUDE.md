@@ -47,7 +47,9 @@ directory up**, outside this repo, in the parent `RadixRemix/` folder:
   `TextureGen.hull_paint` maps), and `SpriteForge.bake()` turntable-renders them at boot
   (8 angles × 2 frames + a flash cut from the bright frame). Each (model, frame) is built once
   and duplicated across its angles, and no bake viewport passes 2048 px. Headless runs fall
-  back to the `SpriteGen` pixel sprites with the same frame layout.
+  back to the `SpriteGen` pixel sprites with the same frame layout. Heavy variants have no
+  model of their own: `EnemyManager.TYPES` gives them their base type's `model` and a `tint`.
+  The mini-bosses bake with the bosses (128 px) and ride the boss machinery (`miniboss` flag).
 - **UI:** `PixelFont.install()` must run first in `game._ready()`. It sets the default theme
   font, so every Control inherits the bitmap face; size 8 is 1×, 16 is 2×. `HudArt` paints the
   console once at boot. The CRT pass is a CanvasLayer at layer 100.

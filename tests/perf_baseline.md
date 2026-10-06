@@ -237,3 +237,33 @@ the same container.
 - Draw calls stay one per enemy sprite. The dense arena now fields 11 types (114 effects at
   its busiest, up from 86) and peaks 9–13 calls above main's 73–74. That is inside the +25%
   gate.
+
+## v4b part 2: WRAITH, CRAWLER, WARDEN, CARRIER, heavies, mini-bosses (2026-10-06)
+
+Same container and method. 15 enemy models in one 1920 px sheet (the heavies have no rows of
+their own), 6 boss models (3 of them the mini-bosses) in one 1536 px sheet, 3 sheets in all.
+
+| Run | `main` (add75bd, PR #13) | This PR |
+|---|---|---|
+| Sprite bake (median of 8, range; 9 alternating rounds, the cold first dropped) | 441 ms (406–516) | 699 ms (652–784) |
+
+| Run | Mode | Result |
+|---|---|---|
+| L8 ×2 | headless | worst 5.7 / 3.6 ms, average 0.53 / 0.47 ms |
+| L9 boss | headless | worst 1.8 ms, average 0.19 ms |
+| Gauntlet ×2 | headless | worst 3.3 / 5.0 ms, average 0.35 / 0.37 ms |
+| Dense arena ×2 | headless | worst 2.5 / 2.9 ms, average 0.87 / 0.83 ms |
+| Dense arena ×4 | rendered | **peak 88 / 93 / 95 / 90 draw calls**, average 76–82; average frame 17.3–18.1 ms |
+| Soak (L1–L9, rail) | headless | worst step 7.0 ms (L8), everything else under 4 ms |
+| Web (SwiftShader) | headless Chromium | bake 2108 ms (PR #13: 1547), first flight 14.7 s (13.7), no script or shader errors |
+
+- One rendered dense run had a single 151.6 ms step at 12 s with nothing built or spawned
+  (42 → 42 enemies). Two more rendered runs of the same seeded scene stayed at 35–39 ms
+  worst (llvmpipe's normal frame spread): container noise.
+- The bake grew 258 ms (1.58×) for 4 enemy models and 3 mini-bosses at 128 px. That is past
+  the 1.5× ceiling the v4 plan set for the optional extra angle ring for large ships, so the
+  ring is skipped: a second ring for the 6 boss models and the carrier would cost about another
+  boss sheet. The bake is measured on real devices in Step 7; if it bites there, the boss
+  class's angles or cell size are the first knobs.
+- Draw calls stay one per enemy sprite, so the dense arena (now 18 types) peaks 88–95, inside
+  the ~105 gate.

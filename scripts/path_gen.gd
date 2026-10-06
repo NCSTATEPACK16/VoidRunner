@@ -243,6 +243,21 @@ func _add_arena(start: int, end: int, is_final: bool, spawn_chance: float) -> vo
 	})
 
 
+## v4b: the kill-locked arena whose centre lies nearest mid-sector, or -1 if there is
+## none: a mini-boss's room (and v4c's hub).
+func mid_arena() -> int:
+	var best := -1
+	var best_gap := 1 << 30
+	for a in arenas:
+		if a.door_ring < 0:
+			continue
+		var gap := absi((a.start + a.end) / 2 - main_ring_count / 2)
+		if gap < best_gap:
+			best_gap = gap
+			best = a.id
+	return best
+
+
 ## V2.2 L5a: branch dead-end supply spurs off non-final arenas. Spur rings APPEND to
 ## the same rings array (indices >= main_ring_count) so clamp_to_ring / corner / world
 ## building work unchanged; each carries a `spur` id. The whole generator cursor is

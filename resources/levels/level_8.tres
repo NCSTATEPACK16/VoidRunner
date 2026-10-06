@@ -18,3 +18,7 @@ level_seed = 505
 enemy_types = PackedStringArray("weaver", "weaver", "hulk", "hulk", "drone", "turret", "turret", "stinger", "stinger", "spinner", "spinner", "mine", "layer", "rammer", "mender", "splitter", "wraith", "crawler", "warden", "carrier", "rammer_hv", "splitter_hv", "warden_hv")
 intro_types = PackedStringArray("warden", "carrier")
 spur_count = 2
+miniboss_model = "gatewarden"
+miniboss_name = "GATE WARDEN"
+miniboss_hp = 140
+miniboss_size = 13.0

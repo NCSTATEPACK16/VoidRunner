@@ -63,16 +63,18 @@ func _spin(node: Sprite3D, kind: String, phase: float) -> void:
 
 ## Boss resupply station: a fixed pickup on the boss room's back wall. Never
 ## expires; collecting it empties the slot until replenish_stations() (called on
-## each boss phase transition) respawns it at its anchor position.
-func add_station(pos: Vector3, kind: String) -> void:
-	var station := {"kind": kind, "pos": pos, "bob_p": randf() * TAU, "node": null}
+## each boss phase transition) respawns it at its anchor position. v4b: only a
+## `refill` station (a main boss's) comes back; any other is collected once.
+func add_station(pos: Vector3, kind: String, refill := false) -> void:
+	var station := {"kind": kind, "pos": pos, "bob_p": randf() * TAU, "node": null,
+		"refill": refill}
 	_stations.append(station)
 	_respawn_station(station)
 
 
 func replenish_stations() -> void:
 	for s in _stations:
-		if s.node == null:
+		if s.node == null and s.refill:
 			_respawn_station(s)
 
 

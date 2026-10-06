@@ -5,6 +5,7 @@ extends Node
 ## the run moves on), and it walks each boss down through its phases. It asserts:
 ##   - every enemy type in EnemyManager.TYPES spawned somewhere in the campaign,
 ##   - every boss reached phase 3 and died,
+##   - every mini-boss (v4b) woke, reached phase 2 and died, and no boss_killed came of it,
 ##   - every sector completed, ending in victory,
 ## and prints each sector's census and worst step. Seeded, so a run is repeatable.
 ## Restores records/settings/checkpoint on exit, like the other probes.
@@ -38,11 +39,13 @@ func _run() -> void:
 	var seen := {}               # every type that spawned, campaign-wide
 	var phases := {}             # level index -> boss phases seen
 	var boss_deaths := [0]
+	var mini_deaths := [0]
 	em.boss_phase.connect(func(p: int) -> void:
 		var got: Array = phases.get(GameState.level_index, [])
 		got.append(p)
 		phases[GameState.level_index] = got)
 	em.boss_killed.connect(func() -> void: boss_deaths[0] += 1)
+	em.miniboss_killed.connect(func() -> void: mini_deaths[0] += 1)
 	var dt := 1.0 / 60.0
 	var completed := 0
 	for li in game.levels.size():
@@ -72,7 +75,8 @@ func _run() -> void:
 					if not e.get("is_boss", false) \
 							and e.node.position.distance_to(game.player.position) < CLEAR_R:
 						em.hit_enemy(k, 999)
-			if not em.boss.is_empty() and f % BOSS_HIT_EVERY == 0 \
+			# (a mini-boss only once it has woken in its room)
+			if em.boss_visible() and f % BOSS_HIT_EVERY == 0 \
 					and em.boss.node.position.distance_to(game.player.position) \
 						< EnemyManager.BOSS_ENGAGE:
 				em.hit_enemy(em.enemies.find(em.boss), maxi(1, int(em.boss.max_hp * BOSS_HIT)))
@@ -101,15 +105,22 @@ func _run() -> void:
 			missing.append(id)
 	print("[soak] types never spawned: %s" % (str(missing) if not missing.is_empty() else "none"))
 	assert(missing.is_empty())
+	var minis := 0
 	for li in game.levels.size():
-		if game.levels[li].kind == "boss":
-			var got: Array = phases.get(li, [])
-			print("[soak] L%d %s phases %s" % [li + 1, game.levels[li].boss_name, str(got)])
+		var lv: LevelDef = game.levels[li]
+		var got: Array = phases.get(li, [])
+		if lv.kind == "boss":
+			print("[soak] L%d %s phases %s" % [li + 1, lv.boss_name, str(got)])
 			assert(got.has(2) and got.has(3))
-	assert(boss_deaths[0] == 3 and completed == game.levels.size())
+		elif lv.miniboss_model != "":
+			print("[soak] L%d mini-boss %s phases %s" % [li + 1, lv.miniboss_name, str(got)])
+			assert(got == [2])
+			minis += 1
+	assert(boss_deaths[0] == 3 and mini_deaths[0] == minis and minis == 3)
+	assert(completed == game.levels.size())
 	assert(game.state == game.State.VICTORY)
-	print("SOAK PROBE COMPLETE — %d sectors, %d types, %d bosses down" % [completed, seen.size(),
-		boss_deaths[0]])
+	print("SOAK PROBE COMPLETE — %d sectors, %d types, %d bosses and %d mini-bosses down" % [
+		completed, seen.size(), boss_deaths[0], mini_deaths[0]])
 	for f in saved:
 		if saved[f] == null:
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(f))

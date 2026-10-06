@@ -1284,6 +1284,214 @@ func _run() -> void:
 	assert(game.enemy_mgr.boss.is_empty())
 	assert(game.world.portal_active)
 	print("boss ok — hp %d -> dead, portal awake, score=%d" % [hp0, GameState.score])
+	# --- v4b: mini-bosses hold the kill-locked room nearest mid-sector (L2, L5, L8) ---
+	var mb_em: EnemyManager = game.enemy_mgr
+	for mb_li in [1, 4, 7]:
+		GameState.reset_run()
+		GameState.level_index = mb_li
+		game._launch_level()
+		await get_tree().process_frame
+		var mb_lv: LevelDef = game.levels[mb_li]
+		var mb_b: Dictionary = mb_em.boss
+		assert(not mb_b.is_empty() and mb_b.miniboss and mb_b.model == mb_lv.miniboss_model)
+		assert(mb_b.max_hp == mb_lv.miniboss_hp and not mb_b.engaged and mb_b.phase == 1)
+		assert(not mb_em.boss_visible())                 # a surprise until it wakes
+		assert(game.hud._boss_name.text == mb_lv.miniboss_name)
+		var mb_mid: int = game.path.mid_arena()
+		assert(mb_mid >= 0 and mb_mid == game._miniboss_arena and int(mb_b.arena_id) == mb_mid)
+		var mb_room: Dictionary = game.path.arenas[mb_mid]
+		var mb_half: int = game.path.main_ring_count / 2
+		for a in game.path.arenas:
+			if a.door_ring >= 0:
+				assert(absi((a.start + a.end) / 2 - mb_half)
+					>= absi((mb_room.start + mb_room.end) / 2 - mb_half))
+		assert(int(mb_b.ring) >= int(mb_room.start) and int(mb_b.ring) <= int(mb_room.end))
+		var mb_guards := 0                               # its guards trimmed to three...
+		for en in mb_em.enemies:
+			if not en.get("is_boss", false) and int(en.arena_id) == mb_mid:
+				mb_guards += 1
+		assert(mb_guards == mini(game.MINIBOSS_GUARDS, mb_room.spawn_rings.size()))
+		assert(game._arena_spawned[mb_mid] == mb_guards + 1)   # ...and it counts for the door
+	# L8's GATE WARDEN fights behind the WARDEN shield in phase 1
+	assert(mb_em.boss.shielded and mb_em.boss.turn < 1.0)
+	# L2's HAULER, start to finish: asleep until the ship is in its room...
+	GameState.reset_run()
+	GameState.level_index = 1
+	game._launch_level()
+	await get_tree().process_frame
+	var hl: Dictionary = mb_em.boss
+	var hl_room: Dictionary = game.path.arenas[game._miniboss_arena]
+	var hl_woke: Array[String] = []
+	var hear_wake := func(n: String) -> void:
+		hl_woke.append(n)
+	mb_em.miniboss_engaged.connect(hear_wake)
+	var mb_shots := [0]
+	var count_mb_shots := func(_o: Vector3, _v: Vector3, _d: float, _s: float, _k: bool,
+			_src: Node3D) -> void:
+		mb_shots[0] += 1
+	mb_em.enemy_fired.connect(count_mb_shots)
+	game.player.place_at_ring(int(hl_room.start) - 3)
+	mb_em.update_enemies(dt)
+	assert(not hl.engaged and hl_woke.is_empty())
+	game.player.place_at_ring(int(hl_room.start) + 1)
+	GameState.shields = pw_full
+	mb_em.update_enemies(dt)
+	assert(hl.engaged and hl_woke.size() == 1 and hl_woke[0] == "HAULER")
+	assert(mb_em.boss_visible() and GameState.boss_active)
+	assert(game.hud._msg.text == "WARNING · HAULER")
+	assert(game.hud.boss_gates(hl) == [0.5])         # one phase tick, at 50%
+	# ...it sows mines from the rack at its tail...
+	var hl_mines := func() -> int:
+		var n := 0
+		for en in mb_em.enemies:
+			if en.get("laid", false):
+				n += 1
+		return n
+	hl.lay_t = 0.0
+	mb_em.update_enemies(dt)
+	assert(hl_mines.call() == 1)
+	for en in mb_em.enemies:
+		if en.get("laid", false):
+			assert((en.node.position - hl.node.position).dot(hl.facing) < 0.0)   # behind it
+	# ...and at 50% it turns (one phase change, its line) and calls escort drones
+	var mb_phases: Array[int] = []
+	var hear_phase := func(p: int) -> void:
+		mb_phases.append(p)
+	mb_em.boss_phase.connect(hear_phase)
+	hl.hp = int(hl.max_hp * 0.6)
+	mb_em.update_enemies(dt)
+	assert(mb_phases.is_empty())
+	hl.hp = int(hl.max_hp * 0.5)
+	hl.summon_t = 0.0
+	mb_em.update_enemies(dt)
+	assert(mb_phases.size() == 1 and mb_phases[0] == 2 and hl.phase == 2)
+	assert(game.hud._msg.text == "ESCORTS INBOUND — STAY MOBILE")
+	var hl_escorts := 0
+	for en in mb_em.enemies:
+		if en.get("summoned", false):
+			hl_escorts += 1
+	assert(hl_escorts == 2)
+	# it never leaves its room, and it falls like a boss but opens only its bulkhead:
+	# miniboss_killed, never boss_killed (the exit is none of its business)
+	for f in 120:
+		GameState.shields = pw_full
+		mb_em.update_enemies(dt)
+		assert(int(hl.ring) > int(hl_room.start) and int(hl.ring) < int(hl_room.end))
+	var hl_boss_deaths := [0]
+	var hear_boss := func() -> void:
+		hl_boss_deaths[0] += 1
+	mb_em.boss_killed.connect(hear_boss)
+	for k in range(mb_em.enemies.size() - 1, -1, -1):   # its guards first...
+		var en: Dictionary = mb_em.enemies[k]
+		if not en.get("is_boss", false) and int(en.arena_id) == int(hl_room.id):
+			mb_em.hit_enemy(k, 999)
+	assert(not game.world.is_door_open(hl_room.id))   # ...the door still waits for it
+	var hl_score := GameState.score
+	GameState.difficulty = 1
+	GameState.clear_checkpoint()
+	mb_em.hit_enemy(mb_em.enemies.find(hl), 9999)
+	assert(mb_em.boss.is_empty() and game._miniboss_down and not GameState.boss_active)
+	assert(game.world.is_door_open(hl_room.id) and hl_boss_deaths[0] == 0)
+	assert(GameState.score > hl_score)
+	assert(game.hud._msg.text == "HAULER DESTROYED · BULKHEAD OPEN")
+	mb_em.boss_killed.disconnect(hear_boss)
+	mb_em.boss_phase.disconnect(hear_phase)
+	# the bulkhead's checkpoint knows it fell, so a resume past it doesn't bring it back
+	var hl_cp := GameState.load_checkpoint(game.levels.size())
+	assert(int(hl_cp.ring) == int(hl_room.door_ring) + 2 and bool(hl_cp.miniboss_down))
+	game._begin_resume(hl_cp)
+	game._on_launch()
+	await get_tree().process_frame
+	assert(game.state == game.State.PLAYING and game._miniboss_down)
+	assert(mb_em.boss.is_empty() and game.world.is_door_open(hl_room.id))
+	for en in mb_em.enemies:
+		assert(not en.get("is_boss", false))
+	# a checkpoint from before it fell brings it back, asleep
+	var hl_early := GameState.save_checkpoint(game._checkpoint_data(int(hl_room.start) - 6, []))
+	hl_early.miniboss_down = false
+	GameState.save_checkpoint(hl_early)
+	game._begin_resume(GameState.load_checkpoint(game.levels.size()))
+	game._on_launch()
+	await get_tree().process_frame
+	assert(not mb_em.boss.is_empty() and mb_em.boss.miniboss and not mb_em.boss.engaged)
+	assert(not game._miniboss_down)
+	mb_em.miniboss_engaged.disconnect(hear_wake)
+	# SPORE TENDER: rings of spores, a repair pulse on its escorts (green sparks), and
+	# SPLITTER hatchlings from 50%
+	mb_em.clear_all()
+	game.shot_mgr.clear_all()
+	game.player.place_at_ring(int(hl_room.start) + 1)
+	mb_em.spawn_miniboss(hl_room, game.levels[4])
+	var tn: Dictionary = mb_em.boss
+	tn.engaged = true
+	mb_em.spawn(int(hl_room.start) + 4, int(hl_room.id), "drone")
+	var tn_esc: Dictionary = mb_em.enemies.back()
+	tn_esc.node.position = tn.node.position + Vector3(10, 0, 0)
+	tn_esc.max_hp = 5
+	tn_esc.hp = 3
+	tn_esc.fire_t = 99.0
+	var tn_mends := [0]
+	var count_tn := func(_p: Vector3) -> void:
+		tn_mends[0] += 1
+	mb_em.mended.connect(count_tn)
+	tn.pulse_t = 0.0
+	tn.volley_t = 0.0
+	tn.fire_t = 99.0
+	mb_shots[0] = 0
+	mb_em.update_enemies(dt)
+	assert(tn_esc.hp == 4 and tn_mends[0] == 1 and mb_shots[0] == 6)   # +1, and a six-spore ring
+	tn.hp = tn.max_hp / 2
+	tn.summon_t = 0.0
+	mb_em.update_enemies(dt)
+	var tn_hatch := 0
+	for en in mb_em.enemies:
+		if en.get("summoned", false) and en.type == "splitter":
+			tn_hatch += 1
+	assert(tn.phase == 2 and tn_hatch == 1)
+	mb_em.mended.disconnect(count_tn)
+	# GATE WARDEN: phase 1 turns light front hits (BOLT lands) and launches drones; at
+	# 50% the shield fails, its hull runs hot, and the spiral hose starts
+	mb_em.clear_all()
+	game.shot_mgr.clear_all()
+	mb_em.spawn_miniboss(hl_room, game.levels[7])
+	var gw: Dictionary = mb_em.boss
+	gw.engaged = true
+	gw.fire_t = 99.0
+	var gw_fwd: Vector3 = game.player.forward()
+	gw.facing = -gw_fwd
+	var gw_hp: int = gw.hp
+	mb_em.hit_enemy(mb_em.enemies.find(gw), 1, gw_fwd)
+	assert(gw.hp == gw_hp)
+	mb_em.hit_enemy(mb_em.enemies.find(gw), 3, gw_fwd)
+	assert(gw.hp == gw_hp - 3)
+	gw.summon_t = 0.0
+	mb_em.update_enemies(dt)
+	var gw_bay := 0
+	for en in mb_em.enemies:
+		if en.get("summoned", false):
+			gw_bay += 1
+	assert(gw_bay == 2)
+	gw.hp = gw.max_hp / 2
+	mb_em.update_enemies(dt)
+	assert(gw.phase == 2 and not gw.shielded and gw.tint == EnemyManager.GATEWARDEN_BARE_TINT)
+	assert(game.hud._msg.text == "SHIELD DOWN — OPEN FIRE")
+	gw_hp = gw.hp
+	gw.facing = -gw_fwd
+	mb_em.hit_enemy(mb_em.enemies.find(gw), 1, gw_fwd)
+	assert(gw.hp == gw_hp - 1)                       # nothing turns it now
+	gw.spiral_t = 1.0
+	gw.spiral_cd = 0.0
+	gw.summon_t = 99.0
+	mb_shots[0] = 0
+	for f in 30:
+		mb_em.update_enemies(dt)
+	assert(mb_shots[0] >= 4)                         # ~0.5 s of the hose at 0.13 s a step
+	mb_em.enemy_fired.disconnect(count_mb_shots)
+	mb_em.clear_all()
+	game.shot_mgr.clear_all()
+	GameState.shields = pw_full
+	GameState.boss_active = false
+	print("MINIBOSS ok — L2/L5/L8 mid rooms (3 guards + it), asleep till entered, 2 phases, hauler mines/escorts, tender spores/repairs/splitters, gate warden shield/bays/spiral, bulkhead not portal, checkpoint keeps it down")
 	# --- K5: Void Gauntlet — endless path grows, arenas stream in, chunks stay bounded ---
 	GameState.reset_run()
 	GameState.weapon_marks = [2, 2, 2, 2]   # a prior campaign's marks must not leak in
