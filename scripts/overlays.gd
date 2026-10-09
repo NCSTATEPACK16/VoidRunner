@@ -12,6 +12,12 @@ extends CanvasLayer
 ## highlight bar under the mouse or keyboard focus (arrows + ENTER navigate every
 ## screen), all in PixelFont. The start screen is translucent over the attract-
 ## mode flythrough game.gd runs behind it, under a chrome LogoGen title.
+##
+## Title redesign (option B, "PRESS START"): the title opens as pure attract mode —
+## the big two-line logo, a blinking PRESS ENTER and a scrolling ticker (records +
+## the story line). A press slides the logo up and raises one row of cards:
+## CONTINUE / NEW GAME / GAUNTLET / SETUP. Sector, difficulty and the manual moved
+## behind NEW GAME, into their own small window.
 
 signal launch_requested       # from start screen or a briefing's LAUNCH
 signal gauntlet_requested     # K5: endless mode from the start screen
@@ -67,7 +73,25 @@ var _sector := 0
 var _sector_names: Array[String] = []
 var _sector_label: Label
 var _high_label: Label
-var _difficulty_btn: Button   # Step 3: main-menu row, shows the current preset
+var _difficulty_btn: Button   # Step 3: NEW GAME row, shows the current preset
+# title option B: attract state, then a card row
+const START_SUBS := ["settings", "help", "difficulty", "new_game"]   # BACK returns open
+const CARD_Y := 142.0
+const LOGO_LIFT := 24.0
+const TICKER_SPEED := 28.0   # px/s
+var _shown := ""                 # the panel show_only() last made visible
+var _start_open := false         # false: attract (PRESS ENTER); true: the card row
+var _start_card := 0             # last focused card, refocused on returning
+var _press_btn: Button           # full-screen, invisible: any press opens the menu
+var _press_label: Label
+var _logo_root: Control
+var _strip: Control
+var _cards: Array[Button] = []   # CONTINUE, NEW GAME, GAUNTLET, SETUP
+var _card_sub: Label
+var _ticker: Label
+var _ticker_w := 0.0
+var _blink_t := 0.0
+var _start_tween: Tween
 ## Re-audit Step 5: set by game.gd in touch mode; the FLIGHT MANUAL then shows the
 ## touch layout instead of keys
 var touch_mode := false
@@ -109,7 +133,13 @@ func show_only(panel_name: String) -> void:
 	for key in _panels:
 		_panels[key].visible = key == panel_name
 	if panel_name == "start":
+		# fresh arrivals (boot, the notice, quit to title) get attract mode; BACK from
+		# one of the title's own sub-panels lands on the card row it left
+		if not (_shown in START_SUBS):
+			_start_open = false
 		_refresh_start()
+		_apply_start_state(false)
+	_shown = panel_name
 	# D11: beforeinstallprompt fires asynchronously and may not have arrived yet when
 	# these panels were first built at boot (Overlays._ready() runs as early as
 	# anything in the pipeline) — re-check live every time a panel that can show the
@@ -124,7 +154,7 @@ func show_only(panel_name: String) -> void:
 			if GameState.gamepad_enabled else ""
 	if panel_name == "help" and _help_start:
 		# from pause the manual is reference only: no START, BACK returns to pause
-		_help_start.visible = _help_return == "start"
+		_help_start.visible = _help_return in ["start", "new_game"]
 		_focus["help"] = _help_start if _help_start.visible else _help_back
 	if panel_name == "pause":
 		_disarm_quit()
@@ -194,19 +224,132 @@ func _refresh_start() -> void:
 	if _difficulty_btn:
 		_difficulty_btn.text = "DIFFICULTY: %s" % GameState.difficulty_name()
 	if _continue_btn:
+		# no save, no card: the row re-centres on the three that work, and the
+		# default focus moves to NEW GAME
 		var has_save := _continue_tag != ""
 		_continue_btn.disabled = not has_save
+		_continue_btn.visible = has_save
 		_continue_btn.focus_mode = Control.FOCUS_ALL if has_save else Control.FOCUS_NONE
-		_continue_btn.text = "CONTINUE · %s · %s" % [_continue_tag,
-			GameState.difficulty_name()] if has_save else "CONTINUE · NO SAVE"
-		_focus["start"] = _continue_btn if has_save else _new_btn
+		_layout_cards()
 	var records := ""
 	if GameState.high_score > 0:
 		records = "HIGH SCORE %d" % GameState.high_score
 	if GameState.gauntlet_best_dist > 0:
 		records += ("  ·  " if records != "" else "") \
-			+ "GAUNTLET %dm" % GameState.gauntlet_best_dist
+			+ "GAUNTLET BEST %dm" % GameState.gauntlet_best_dist
 	_high_label.text = records
+	_ticker.text = (records + "  ·  " if records != "" else "") + Lore.story(0) + "  ·  "
+	_ticker_w = _ticker.text.length() * PixelFont.ADVANCE
+	_ticker.size = Vector2(_ticker_w, 9)
+	_press_label.text = "TAP TO START" if touch_mode else "PRESS ENTER"
+	_card_sub.text = _card_text(_start_card)
+
+
+## The one-line caption under the card row, for whichever card has focus.
+func _card_text(i: int) -> String:
+	match i:
+		0:
+			var li := clampi(_continue_tag.trim_prefix("L").to_int() - 1, 0,
+				maxi(_sector_names.size() - 1, 0))
+			if _continue_tag == "" or _sector_names.is_empty():
+				return "NO SAVED RUN YET"
+			return "%s · %s" % [_sector_names[li], GameState.difficulty_name()]
+		1:
+			return "PICK A SECTOR AND DIFFICULTY"
+		2:
+			if GameState.gauntlet_best_dist > 0:
+				return "ENDLESS RUN · BEST %dm" % GameState.gauntlet_best_dist
+			return "ENDLESS RUN · HOW FAR CAN YOU GO?"
+		_:
+			return "SOUND · CONTROLS · DISPLAY"
+
+
+## Centres the visible cards as one row; a card is its label plus 6 px each side.
+func _layout_cards() -> void:
+	var shown: Array[Button] = []
+	for c in _cards:
+		if c.visible:
+			shown.append(c)
+	var total := -4.0
+	for c in shown:
+		total += c.text.length() * PixelFont.ADVANCE + 12 + 4
+	var x := roundf(160.0 - total * 0.5)
+	for c in shown:
+		var w := float(c.text.length() * PixelFont.ADVANCE + 12)
+		c.position = Vector2(x, CARD_Y)
+		c.size = Vector2(w, 13)
+		x += w + 4
+	if _start_card == 0 and not _continue_btn.visible:
+		_start_card = 1
+
+
+## Attract mode <-> card row. Animated on a press; instant when the panel is (re)shown.
+func _apply_start_state(animate: bool) -> void:
+	if _logo_root == null:
+		return
+	_press_btn.visible = not _start_open
+	_press_label.visible = not _start_open
+	# closed, the row is hidden outright (not just parked off-screen), so arrow keys
+	# in attract mode can't walk focus onto an invisible card
+	_strip.visible = _start_open
+	var logo_y := -LOGO_LIFT if _start_open else 0.0
+	var strip_y := 0.0 if _start_open else 64.0
+	if _start_tween:
+		_start_tween.kill()
+	if animate:
+		# stepped, like a '95 menu wipe: 6 whole-pixel jumps, not a smooth glide
+		_start_tween = create_tween().set_parallel()
+		_start_tween.tween_method(func(v: float) -> void:
+			_logo_root.position.y = snappedf(v, LOGO_LIFT / 6.0),
+			_logo_root.position.y, logo_y, 0.3)
+		_start_tween.tween_method(func(v: float) -> void:
+			_strip.position.y = snappedf(v, 64.0 / 6.0),
+			_strip.position.y, strip_y, 0.3)
+	else:
+		_logo_root.position.y = logo_y
+		_strip.position.y = strip_y
+	if _start_open:
+		var c: Button = _cards[_start_card]
+		_focus["start"] = c if c.visible else _new_btn
+	else:
+		_focus["start"] = _press_btn
+	var fb: Button = _focus["start"]
+	if _panels.start.visible and fb.is_inside_tree():
+		fb.grab_focus.call_deferred()
+
+
+func _open_start_menu() -> void:
+	AudioSys.unlock()   # the first press doubles as the browser audio gesture
+	_start_open = true
+	_apply_start_state(true)
+
+
+func _close_start_menu() -> void:
+	_start_open = false
+	_apply_start_state(true)
+
+
+## Leaves the title for one of its sub-panels, remembering the card for BACK.
+func _start_sub(card: int, panel_name: String) -> void:
+	_start_card = card
+	show_only(panel_name)
+
+
+func _process(delta: float) -> void:
+	if _logo_root == null or not _panels.start.visible:
+		return
+	_ticker.position.x -= TICKER_SPEED * delta
+	if _ticker.position.x < -_ticker_w:
+		_ticker.position.x += _ticker_w + 320.0
+	_blink_t += delta
+	_press_label.modulate.a = 1.0 if GameState.reduce_flashing \
+		or fmod(_blink_t, 1.0) < 0.6 else 0.0
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if _start_open and _panels.start.visible and event.is_action_pressed("ui_cancel"):
+		_close_start_menu()
+		get_viewport().set_input_as_handled()
 
 
 func hide_all() -> void:
@@ -306,55 +449,135 @@ func _panel(panel_name: String, bg := BG) -> Control:
 
 func _build_start() -> void:
 	var p := _panel("start", START_BG)
-	# darker bands behind the logo and the lower windows so text stays readable
-	# over the brightest stretch of the flythrough
-	_shade(p, Rect2(0, 0, 320, 56), 0.55)
-	_center(p, 3, "BEYOND THE", TITLE_COL)
-	var logo := TextureRect.new()
-	logo.texture = LogoGen.chrome("VOID RUNNER")
-	logo.position = Vector2(roundf(160.0 - logo.texture.get_width() * 0.5), 13)
-	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	p.add_child(logo)
-	_center(p, 44, "RUN. SURVIVE. ESCAPE THE VOID.", Color("5fb6d8"))
-	# main menu
-	_window(p, Rect2(44, 58, 232, 82), "MAIN MENU")
-	# re-audit Step 4: CONTINUE is always the first row, greyed out until there is a
-	# checkpoint, so the menu never shifts under a returning player's cursor. Six
-	# rows at 11 px keep the window clear of the records line and the transmission.
-	_continue_btn = _menu_button(p, Rect2(58, 71, 204, 11), "CONTINUE", func() -> void:
+	# attract mode: one invisible button over everything, so ENTER, a pad's A, a
+	# click or a tap anywhere all open the menu the same way
+	_press_btn = Button.new()
+	_press_btn.flat = true
+	_press_btn.focus_mode = Control.FOCUS_ALL
+	var none := StyleBoxEmpty.new()
+	for state in ["normal", "hover", "pressed", "focus", "hover_pressed"]:
+		_press_btn.add_theme_stylebox_override(state, none)
+	_press_btn.pressed.connect(_open_start_menu)
+	_press_btn.pressed.connect(AudioSys.play_select)
+	p.add_child(_press_btn)
+	_press_btn.position = Vector2.ZERO
+	_press_btn.size = Vector2(320, 200)
+	_focus["start"] = _press_btn
+	# the big two-line chrome logo; slides up when the menu opens
+	_logo_root = Control.new()
+	_logo_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_logo_root.size = Vector2(320, 200)
+	p.add_child(_logo_root)
+	_shade(_logo_root, Rect2(0, 34, 320, 92), 0.35)
+	_center(_logo_root, 40, "B E Y O N D   T H E", Color("9fb4ff"))
+	var y := 52.0
+	for word in ["VOID", "RUNNER"]:
+		var logo := TextureRect.new()
+		logo.texture = LogoGen.chrome(word, 4)
+		logo.position = Vector2(roundf(160.0 - logo.texture.get_width() * 0.5), y)
+		logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_logo_root.add_child(logo)
+		y += 36.0
+	_press_label = _center(p, 150, "PRESS ENTER", KEY_COL)
+	# the ticker: records and the story line, scrolling like a demo-scene scroller
+	var tick := Control.new()
+	tick.clip_contents = true
+	tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tick.size = Vector2(320, 10)
+	p.add_child(tick)
+	_shade(tick, Rect2(0, 0, 320, 10), 0.7)
+	_ticker = _text(tick, Vector2(320, 1), "", Color("5dff8a"))
+	# the card row, on a dark band that rises from the bottom edge
+	_strip = Control.new()
+	_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_strip.size = Vector2(320, 200)
+	p.add_child(_strip)
+	_shade(_strip, Rect2(0, CARD_Y - 10, 320, 210 - CARD_Y), 0.6)
+	_continue_btn = _card_button(_strip, "CONTINUE", 0, func() -> void:
 		AudioSys.unlock()
 		continue_requested.emit())
-	_new_btn = _menu_button(p, Rect2(58, 82, 204, 11), "NEW CAMPAIGN", func() -> void:
-		AudioSys.unlock()
-		launch_requested.emit())
-	_focus["start"] = _new_btn
-	# M1.5: the sector label is centred on the window and the arrows sit at the
-	# window's edges, outside the span of even the longest sector name.
-	_menu_button(p, Rect2(48, 93, 12, 11), "<", func() -> void: _adjust_sector(-1),
-		KEY_COL, true)
-	_sector_label = _center(p, 95, "", KEY_COL)
-	_menu_button(p, Rect2(260, 93, 12, 11), ">", func() -> void: _adjust_sector(1),
-		KEY_COL, true)
-	# Step 3: the preset rides on its own row; manual + settings share the last one
-	_difficulty_btn = _menu_button(p, Rect2(58, 104, 204, 11), "", func() -> void:
-		open_difficulty("start"), KEY_COL)
+	_new_btn = _card_button(_strip, "NEW GAME", 1, func() -> void:
+		_start_sub(1, "new_game"))
 	# K5: endless survival mode — the button doubles as the audio-unlock gesture
-	_menu_button(p, Rect2(58, 115, 204, 11), "VOID GAUNTLET", func() -> void:
+	_card_button(_strip, "GAUNTLET", 2, func() -> void:
 		AudioSys.unlock()
 		gauntlet_requested.emit())
-	_menu_button(p, Rect2(58, 126, 100, 11), "FLIGHT MANUAL", func() -> void:
-		_help_return = "start"
-		show_only("help"))
-	_menu_button(p, Rect2(162, 126, 100, 11), "SETTINGS", func() -> void:
+	_card_button(_strip, "SETUP", 3, func() -> void:
 		_settings_return = "start"
-		show_only("settings"), ORANGE_COL)
-	_high_label = _center(p, 143, "", KEY_COL)
-	# the backstory, as a received transmission
-	_window(p, Rect2(8, 157, 304, 39), "TRANSMISSION · SECTOR ALPHA", WIN_EDGE_DIM)
-	_wrap(p, Rect2(14, 164, 292, 30), Lore.story(0), TEXT_COL)
+		_start_sub(3, "settings"))
+	_card_sub = _center(_strip, CARD_Y + 18, "", Color("55e0ff"))
+	_layout_cards()
+	_high_label = _center(_strip, CARD_Y + 30, "", DIM_COL)
+	_high_label.visible = false   # the records ride the ticker; kept for tests/reuse
 	# M1.4: build stamp, so a bug report can name the build it came from
-	_text(p, Vector2(2, 1), BuildInfo.label(), Color("3d4a63"))
-	_install_button(p, Vector2(252, 1))   # D11: quiet, opposite the build stamp
+	_text(p, Vector2(8, 189), BuildInfo.label(), Color("3d4a63"))
+	_install_button(p, Vector2(246, 187))   # D11: quiet, opposite the build stamp
+	_build_new_game()
+	_apply_start_state(false)
+
+
+## Title option B: NEW GAME's own window — the sector picker, the preset, the
+## manual and LAUNCH, all of which used to crowd the main menu.
+func _build_new_game() -> void:
+	var p := _panel("new_game", START_BG)
+	_shade(p, Rect2(0, 44, 320, 102), 0.5)
+	_window(p, Rect2(36, 56, 248, 78), "NEW GAME")
+	# M1.5: the sector label is centred on the window and the arrows sit at the
+	# window's edges, outside the span of even the longest sector name.
+	_menu_button(p, Rect2(40, 70, 12, 11), "<", func() -> void: _adjust_sector(-1),
+		KEY_COL, true)
+	_sector_label = _center(p, 72, "", KEY_COL)
+	_menu_button(p, Rect2(268, 70, 12, 11), ">", func() -> void: _adjust_sector(1),
+		KEY_COL, true)
+	_difficulty_btn = _menu_button(p, Rect2(58, 86, 204, 11), "", func() -> void:
+		open_difficulty("new_game"), KEY_COL)
+	_menu_button(p, Rect2(58, 98, 204, 11), "FLIGHT MANUAL", func() -> void:
+		_help_return = "new_game"
+		show_only("help"))
+	var launch := _menu_button(p, Rect2(58, 116, 100, 11), "> LAUNCH", func() -> void:
+		AudioSys.unlock()
+		launch_requested.emit(), TITLE_COL, true)
+	_menu_button(p, Rect2(162, 116, 100, 11), "< BACK", func() -> void:
+		show_only("start"), TEXT_COL, true)
+	_focus["new_game"] = launch
+
+
+## A title card: a framed label that lights cyan under focus or the mouse, and
+## names itself in the caption line below the row.
+func _card_button(p: Control, text: String, idx: int, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.add_theme_font_size_override("font_size", 8)
+	b.add_theme_color_override("font_color", Color("7f8bb8"))
+	for state in ["font_hover_color", "font_focus_color", "font_pressed_color",
+			"font_hover_pressed_color"]:
+		b.add_theme_color_override(state, Color.WHITE)
+	b.add_theme_color_override("font_disabled_color", DIM_COL)
+	for state in ["normal", "hover", "pressed", "focus", "disabled", "hover_pressed"]:
+		var sb := StyleBoxFlat.new()
+		sb.content_margin_left = 6.0
+		sb.content_margin_right = 6.0
+		sb.content_margin_top = 3.0
+		sb.content_margin_bottom = 2.0
+		sb.set_border_width_all(1)
+		sb.bg_color = Color(0.027, 0.04, 0.11, 0.92)
+		sb.border_color = Color("2a3560")
+		if state in ["hover", "focus", "hover_pressed", "pressed"]:
+			sb.bg_color = Color("0a2a40")
+			sb.border_color = WIN_EDGE
+		b.add_theme_stylebox_override(state, sb)
+	b.pressed.connect(on_press)
+	b.pressed.connect(AudioSys.play_select)
+	b.mouse_entered.connect(func() -> void:
+		if not b.disabled:
+			b.grab_focus())
+	b.focus_entered.connect(func() -> void:
+		_start_card = idx
+		_card_sub.text = _card_text(idx))
+	p.add_child(b)
+	_cards.append(b)
+	return b
 
 
 func _build_help() -> void:
