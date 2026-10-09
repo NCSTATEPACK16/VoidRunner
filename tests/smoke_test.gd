@@ -1853,7 +1853,7 @@ func _run() -> void:
 	# centred across the 320 px canvas, so its painted span is measured from the
 	# text width (times the label's scale), not the node's box.
 	var arrows: Array[Button] = []
-	for child in game.overlays._panels.start.get_children():
+	for child in game.overlays._panels.new_game.get_children():   # title option B
 		if child is Button and (child as Button).text in ["<", ">"]:
 			arrows.append(child as Button)
 	assert(arrows.size() == 2)
@@ -1871,6 +1871,54 @@ func _run() -> void:
 		var a_r: float = a.position.x + maxf(a.size.x, 8.0)
 		assert(a_r <= label_left or a_l >= label_right)
 	print("M1/M2 ok — settings round-trip, flash + roll + invert, stamp, arrows clear")
+	# --- title option B: attract mode, then the card row; NEW GAME owns the pickers
+	var ov = game.overlays
+	ov.set_continue("")
+	ov.show_only("start")
+	assert(not ov._start_open and ov._press_btn.visible and not ov._strip.visible)
+	assert(ov._focus["start"] == ov._press_btn)
+	assert(ov._press_label.text == "PRESS ENTER")
+	assert(Lore.story(0) in ov._ticker.text)
+	ov._press_btn.pressed.emit()
+	assert(ov._start_open and ov._strip.visible and not ov._press_btn.visible)
+	assert(not ov._continue_btn.visible)              # no save: three cards
+	assert(ov._focus["start"] == ov._new_btn)
+	var row_l := 320.0
+	var row_r := 0.0
+	for c in ov._cards:
+		if c.visible:
+			row_l = minf(row_l, c.position.x)
+			row_r = maxf(row_r, c.position.x + c.size.x)
+	assert(absf((row_l + row_r) * 0.5 - 160.0) <= 1.0 and row_l >= 0.0 and row_r <= 320.0)
+	ov.set_continue("L4")
+	assert(ov._continue_btn.visible and ov._card_text(0).begins_with("L4 · "))
+	for c in ov._cards:
+		var cap: String = ov._card_text(ov._cards.find(c))
+		assert(cap.length() * PixelFont.ADVANCE <= 316)   # captions fit the screen
+	ov._new_btn.pressed.emit()
+	assert(ov._panels.new_game.visible and ov._focus["new_game"].text == "> LAUNCH")
+	assert(ov._sector_label.text.begins_with("SECTOR: L"))
+	ov._difficulty_btn.pressed.emit()
+	assert(ov._panels.difficulty.visible)
+	(ov._focus["difficulty"] as Button).pressed.emit()   # BACK -> NEW GAME
+	assert(ov._panels.new_game.visible)
+	for child in ov._panels.new_game.get_children():
+		if child is Button and (child as Button).text == "< BACK":
+			(child as Button).pressed.emit()
+	assert(ov._panels.start.visible and ov._start_open)   # back on the card row
+	assert(ov._start_card == 1)
+	ov._cards[3].pressed.emit()                            # SETUP -> settings
+	assert(ov._panels.settings.visible)
+	ov.show_only("start")
+	assert(ov._start_open and ov._start_card == 3)
+	ov._close_start_menu()
+	assert(not ov._start_open and not ov._strip.visible)
+	ov._open_start_menu()
+	ov.show_only("pause")                                  # anything else -> attract
+	ov.show_only("start")
+	assert(not ov._start_open)
+	ov.set_continue("")
+	print("TITLE ok — attract, card row, NEW GAME window, BACK returns to the row")
 	# --- M3: feedback path + anonymous counters ---
 	# the five questions are the single source shared by the form, the post and the
 	# in-game prompt; drift between them makes answers incomparable
@@ -2560,8 +2608,8 @@ func _run() -> void:
 	assert(game.overlays._go_retry.text == "@ RETRY LEVEL" and not game.overlays._go_restart.visible)
 	# the title's CONTINUE row follows the save
 	game._refresh_continue()
-	assert(not game.overlays._continue_btn.disabled)
-	assert(game.overlays._continue_btn.text.begins_with("CONTINUE · L1"))
+	assert(not game.overlays._continue_btn.disabled and game.overlays._continue_btn.visible)
+	assert(game.overlays._card_text(0).begins_with("L1 · "))
 	# a sector clear saves the next sector's start; the campaign's end clears it
 	game._level_complete()
 	var next_cp := GameState.load_checkpoint(lc)

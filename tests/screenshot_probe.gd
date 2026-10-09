@@ -79,7 +79,13 @@ func _run() -> void:
 	for i in 150:   # 3.0: let the attract-mode flythrough get going behind the title
 		await get_tree().process_frame
 	game.overlays.set_continue("L4")   # re-audit Step 4: the CONTINUE row lit
-	await _capture_root("shot_start.png", dir)
+	await _capture_root("shot_start.png", dir)   # title option B: attract mode
+	game.overlays._open_start_menu()
+	for i in 30:   # past the stepped slide
+		await get_tree().process_frame
+	await _capture_root("shot_start_menu.png", dir)
+	game.overlays._new_btn.pressed.emit()
+	await _capture_root("shot_new_game.png", dir)
 	# M1/M2: the two panels this session changed most — the settings grid now packs
 	# ten controls into 320x200, and the photosensitivity notice is brand new.
 	game.overlays.show_only("warning")
