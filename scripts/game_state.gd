@@ -47,21 +47,28 @@ var ship_ranks := {"shield": 0, "heat": 0, "energy": 0, "rack": 0, "magnet": 0, 
 
 var shields := MAX_SHIELDS:
 	set(value):
-		shields = clampf(value, 0.0, max_shields())
-		shields_changed.emit(shields)
+		var v := clampf(value, 0.0, max_shields())
+		var moved := v != shields
+		shields = v
+		if moved:   # regen/drain write every frame; listeners only care about change
+			shields_changed.emit(shields)
 		if shields <= 0.0 and not is_dead:
 			is_dead = true
 			player_died.emit()
 
 var energy := MAX_ENERGY:
 	set(value):
-		energy = clampf(value, 0.0, max_energy())
-		energy_changed.emit(energy)
+		var v := clampf(value, 0.0, max_energy())
+		if v != energy:
+			energy = v
+			energy_changed.emit(energy)
 
 var heat := 0.0:
 	set(value):
-		heat = clampf(value, 0.0, MAX_HEAT)
-		heat_changed.emit(heat)
+		var v := clampf(value, 0.0, MAX_HEAT)
+		if v != heat:   # cooling writes 0 every frame at rest
+			heat = v
+			heat_changed.emit(heat)
 
 var score := 0:
 	set(value):
@@ -516,9 +523,21 @@ static func normalize_checkpoint(raw: Dictionary, level_count: int) -> Dictionar
 		"cleared_arenas": cleared,
 		"difficulty": clampi(int(raw.get("difficulty", 1)), 0, DIFFICULTY_NAMES.size() - 1),
 		"miniboss_down": bool(raw.get("miniboss_down", false)),   # v4b, optional
+		# what the run already claimed (optional; JSON floats -> ints)
+		"secrets_found": _int_list(raw.get("secrets_found", [])),
+		"caches": _int_list(raw.get("caches", [])),
+		"props_gone": _int_list(raw.get("props_gone", [])),
 		"saved_at": float(raw.saved_at),
 		"build": str(raw.get("build", "")),
 	}
+
+
+static func _int_list(v: Variant) -> Array:
+	var out := []
+	if v is Array:
+		for x in v:
+			out.append(int(x))
+	return out
 
 
 ## Restores a checkpoint's run state (CONTINUE / RETRY FROM CHECKPOINT). Shields

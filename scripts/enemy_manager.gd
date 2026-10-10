@@ -236,6 +236,7 @@ func remove_where(pick: Callable) -> int:
 		var e: Dictionary = enemies[k]
 		if e.get("is_boss", false) or not pick.call(e):
 			continue
+		_disown(e)
 		_release_node(e.node)
 		enemies.remove_at(k)
 		removed += 1
@@ -614,10 +615,22 @@ func update_enemies(delta: float) -> void:
 func _despawn_far(k: int, e: Dictionary) -> bool:
 	if e.arena_id < 0 and player.ring_idx > 20 \
 			and e.node.position.distance_squared_to(player.position) > 90000.0:
+		_disown(e)   # the node is pooled: a reuser must not inherit these mines/drones
 		_release_node(e.node)
 		enemies.remove_at(k)
 		return true
 	return false
+
+
+## v4b: a layer's or carrier's node goes back to the pool, so its mines (or its
+## drones) stop counting as its own.
+func _disown(e: Dictionary) -> void:
+	if e.behavior != "lay" and e.behavior != "carry":
+		return
+	var tag := "laid_by" if e.behavior == "lay" else "parent"
+	for o in enemies:
+		if o.get(tag) == e.node:
+			o.erase(tag)
 
 
 ## 3.0 STINGER: hangs off the player's nose, then telegraphs — freezes, flickers
@@ -1507,13 +1520,8 @@ func _kill(index: int, scored: bool) -> void:
 			_pending_blasts.append(e.node.position)   # chains next frame (see top of update)
 	if e.get("type", "") == "turret":
 		turret_destroyed.emit(e.node.position)   # V2.0: chains nearby fuel cells
-	elif e.behavior == "lay" or e.behavior == "carry":
-		# v4b: its node goes back to the pool, so its mines (or its drones) stop
-		# counting as its own
-		var tag := "laid_by" if e.behavior == "lay" else "parent"
-		for o in enemies:
-			if o.get(tag) == e.node:
-				o.erase(tag)
+	else:
+		_disown(e)
 	var tdef: Dictionary = TYPES.get(e.get("type", ""), {})
 	# v4b: a splitter bursts into its brood next frame (see _hatch_splits). The brood
 	# counts toward ENEMY_CAP: only the slots free now (this one leaves the list below)

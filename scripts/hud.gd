@@ -74,6 +74,8 @@ var _console_draw: Control
 # 3.0 phase 4: lit LED counts (shield, energy, heat) and the low-shield blink
 # phase (-1 = steady) — the console redraws only when one of them changes
 var _led := Vector3i(-1, -1, -1)
+var _shield_shown := -1    # the number and ramp last written to _shield_num
+var _shield_ramp := -1
 var _led_blink := -1
 var _kills := 0
 var _kill_target := 0
@@ -624,10 +626,16 @@ func _update_bars() -> void:
 		ceili(clampf(GameState.shields / GameState.max_shields(), 0.0, 1.0) * LED_N),
 		ceili(clampf(GameState.energy / GameState.max_energy(), 0.0, 1.0) * LED_N),
 		ceili(clampf(GameState.heat / GameState.MAX_HEAT, 0.0, 1.0) * LED_N))
-	_shield_num.text = str(int(GameState.shields))
+	# text and theme writes relayout the Label: only touch them when they change
+	var shown := int(GameState.shields)
+	if shown != _shield_shown:
+		_shield_shown = shown
+		_shield_num.text = str(shown)
 	var sf := GameState.shields / GameState.max_shields()
 	var ramp := Palette.GREEN if sf > 0.5 else (Palette.GOLD if sf > 0.25 else Palette.RED)
-	_shield_num.add_theme_color_override("font_color", Palette.ramp(ramp, 13))
+	if ramp != _shield_ramp:
+		_shield_ramp = ramp
+		_shield_num.add_theme_color_override("font_color", Palette.ramp(ramp, 13))
 	if led != _led:
 		_led = led
 		_console_draw.queue_redraw()

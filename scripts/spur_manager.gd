@@ -44,6 +44,22 @@ func setup(path, player, pickups, hatch_mat: Material) -> void:
 		_spill_cache(sp)
 
 
+## Checkpoints: the spur ids whose caches were already collected.
+func collected_ids() -> Array:
+	var out := []
+	for s in _spurs:
+		if s.collected:
+			out.append(int(s.def.id))
+	return out
+
+
+## A resume marks those caches collected, so they don't pay out twice.
+func mark_collected(ids: Array) -> void:
+	for s in _spurs:
+		if int(s.def.id) in ids:
+			s.collected = true
+
+
 func _clear() -> void:
 	for s in _spurs:
 		if is_instance_valid(s.hatch):

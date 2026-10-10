@@ -83,6 +83,11 @@ static var _cache: Array[AudioStreamWAV] = []
 
 var _bytes: Array[PackedByteArray] = []
 var _step := 0
+var _sub := 0          # samples of step _step already rendered (budget can split a step)
+const SLICE := 256     # samples rendered between budget checks
+var _pf0 := 0.0        # this step's pad phase increments (set at the step boundary)
+var _pf1 := 0.0
+var _pf2 := 0.0
 var _rng := RandomNumberGenerator.new()
 # voice state (phases in cycles, envelopes as per-sample multipliers)
 var _bass_f := 0.0
@@ -130,10 +135,19 @@ static func total_steps() -> int:
 
 ## Render steps until `budget_usec` is spent; true once the whole song is done.
 func step(budget_usec: int) -> bool:
+	# the budget is checked every SLICE samples, not per 16th step: one whole step
+	# (2362 samples x 3 voices + kit) costs ~10 ms on a fast desktop and far more
+	# on an iPad, which used to blow every frame's budget until the song was done
 	var t_end := Time.get_ticks_usec() + budget_usec
 	while _step < total_steps():
-		_render_step(_step)
-		_step += 1
+		if _sub == 0:
+			_step_events(_step)
+		var n := mini(SLICE, SPS - _sub)
+		_render_samples(_step, _sub, _sub + n)
+		_sub += n
+		if _sub >= SPS:
+			_sub = 0
+			_step += 1
 		if Time.get_ticks_usec() >= t_end:
 			break
 	return _step >= total_steps()
@@ -167,7 +181,8 @@ static func render_loop(stem := 0) -> AudioStreamWAV:
 	return _cache[clampi(stem, 0, 2)]
 
 
-func _render_step(s: int) -> void:
+## Note and drum events at the start of 16th step `s`.
+func _step_events(s: int) -> void:
 	var phrase: int = SONG[s / STEPS]
 	var ps := s % STEPS
 	var bar_step := s % 16
@@ -192,9 +207,9 @@ func _render_step(s: int) -> void:
 	_arp_f = E5 * pow(2.0, (root + arp_shape[s % 4]) / 12.0)
 	_arp_amp = 0.05
 	_arp_idx = 2.4
-	var pf0 := E3 * pow(2.0, root / 12.0) / RATE
-	var pf1 := E3 * pow(2.0, (root + 7) / 12.0) / RATE
-	var pf2 := E3 * pow(2.0, (root + third) / 12.0) / RATE
+	_pf0 = E3 * pow(2.0, root / 12.0) / RATE
+	_pf1 = E3 * pow(2.0, (root + 7) / 12.0) / RATE
+	_pf2 = E3 * pow(2.0, (root + third) / 12.0) / RATE
 	# drums — the breakdown keeps only its downbeat kick; the build rolls in
 	var brk := phrase == PHRASE_BREAK
 	if bar_step == 0 or (bar_step == 8 and not brk):
@@ -212,7 +227,10 @@ func _render_step(s: int) -> void:
 			_trigger_hat(2 if bar_step == 14 else 1, 0.045, 18.0 if bar_step == 14 else 90.0)
 		elif bar_step % 2 == 1:
 			_trigger_hat(2, 0.022, 110.0)
-	# --- samples ---
+
+
+## Samples [i0, i1) of step `s` (its events already fired).
+func _render_samples(s: int, i0: int, i1: int) -> void:
 	var base_i := s * SPS
 	var bass_dec := exp(-6.0 / RATE)
 	var bass_idx_dec := exp(-30.0 / RATE)
@@ -224,7 +242,10 @@ func _render_step(s: int) -> void:
 	var b1 := _bytes[1]
 	var b2 := _bytes[2]
 	var loop_n := total_steps() * SPS
-	for i in SPS:
+	var pf0 := _pf0
+	var pf1 := _pf1
+	var pf2 := _pf2
+	for i in range(i0, i1):
 		var v0 := 0.0
 		var v1 := 0.0
 		var v2 := 0.0
