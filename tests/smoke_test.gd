@@ -1415,6 +1415,15 @@ func _run() -> void:
 	await get_tree().process_frame
 	assert(not mb_em.boss.is_empty() and mb_em.boss.miniboss and not mb_em.boss.engaged)
 	assert(not game._miniboss_down)
+	# review fix: fallen, but its room not cleared when the save landed — the door's
+	# tally counts the mini-boss as killed, so its guards alone can still open it
+	var hl_mid := GameState.save_checkpoint(game._checkpoint_data(int(hl_room.start) + 2, []))
+	hl_mid.miniboss_down = true
+	GameState.save_checkpoint(hl_mid)
+	game._begin_resume(GameState.load_checkpoint(game.levels.size()))
+	game._on_launch()
+	await get_tree().process_frame
+	assert(mb_em.boss.is_empty() and int(game._arena_kills.get(hl_room.id, 0)) == 1)
 	mb_em.miniboss_engaged.disconnect(hear_wake)
 	# SPORE TENDER: rings of spores, a repair pulse on its escorts (green sparks), and
 	# SPLITTER hatchlings from 50%
@@ -2577,6 +2586,26 @@ func _run() -> void:
 	GameState.difficulty = 1
 	# resume: the ship on the checkpoint ring, cleared doors open and their guards gone,
 	# nothing spawned behind, the run's numbers back
+	# review fix: what the run already claimed stays claimed across a resume
+	var cl_ring := -1
+	if not game._secrets.is_empty():
+		var cl_s: Dictionary = game._secrets[0]
+		cl_s.found = true
+		cl_s.node.queue_free()
+		GameState.level_secrets = 1
+		cl_ring = int(cl_s.ring)
+	var cl_prop := -1
+	var cl_props_total := GameState.level_props_total
+	if not game.prop_mgr.props.is_empty():
+		cl_prop = int(game.prop_mgr.props[0].id)
+		game.prop_mgr.props[0].fuse = 0.0
+		game.prop_mgr.update_props(0.0)
+	var cl_spur := -1
+	if not game.path.spurs.is_empty():
+		cl_spur = int(game.path.spurs[0].id)
+		game.spur_mgr.mark_collected([cl_spur])
+		game.spur_mgr.caches_found = 1
+	var cl_props_done := GameState.level_props
 	GameState.score = 4321
 	GameState.level_kills = 17
 	var saved_cp := GameState.save_checkpoint(game._checkpoint_data(int(mid.ring), [arena0.id]))
@@ -2592,13 +2621,26 @@ func _run() -> void:
 	assert(game.player.ring_idx == rr)
 	assert(not game._intros_live)   # v4b: no solo first contacts on a resume
 	var rring: Dictionary = game.path.rings[rr]
-	assert(game.player.position.distance_to(rring.p) < 1.5)   # one frame of flight since the launch
+	# one frame of flight since the launch; that frame's real delta can be long right
+	# after a level rebuild, so allow what it could actually carry the ship
+	assert(game.player.position.distance_to(rring.p)
+		< 1.5 + PlayerShip.BASE_SPEED * 1.5 * get_process_delta_time())
 	assert(game.player.forward().dot(rring.d) > 0.97)
 	assert(game.world.is_door_open(arena0.id))
 	for e in game.enemy_mgr.enemies:
 		assert(int(e.arena_id) != int(arena0.id))
 		assert(not (int(e.arena_id) == -1 and int(e.ring) < rr))
 	assert(GameState.score == 4321 and GameState.level_kills == 17)
+	assert(cl_ring >= 0 and cl_prop >= 0)   # L1 has secrets and fuel cells to claim
+	for s in game._secrets:
+		assert(bool(s.found) == (int(s.ring) == cl_ring))
+	assert(GameState.level_secrets == 1)
+	for p in game.prop_mgr.props:
+		assert(int(p.id) != cl_prop)
+	assert(GameState.level_props_total == cl_props_total)
+	assert(game.prop_mgr.props.size() == cl_props_total - cl_props_done)
+	if cl_spur >= 0:
+		assert(cl_spur in game.spur_mgr.collected_ids() and game.spur_mgr.caches_found == 1)
 	assert(int(GameState.load_checkpoint(lc).ring) == rr)   # a resume doesn't re-save ring 1
 	assert(game.overlays._briefing_launch.text == "> LAUNCH")
 	# game over offers the checkpoint first, then a full restart
@@ -2620,6 +2662,58 @@ func _run() -> void:
 	assert(GameState.load_checkpoint(lc).is_empty())
 	assert(game.overlays._continue_btn.disabled)
 	print("CHECKPOINT ok — round trip, corrupt/oor ignored, newer wins, bulkhead saves, resume, UI")
+	# --- code-review fixes ---
+	# the portal never clears a sector for a ship that died this frame
+	GameState.reset_run()
+	GameState.level_index = 0
+	game._launch_level()
+	await get_tree().process_frame
+	game.world.portal_active = true
+	game.player.position = game.world.portal_position
+	game.state = game.State.GAME_OVER
+	var rv_lvl_before := GameState.level_index
+	game._check_portal()
+	assert(game.state == game.State.GAME_OVER and GameState.level_index == rv_lvl_before)
+	game.state = game.State.PLAYING
+	game.world.portal_active = false
+	# attract mode keeps every chunk (it loops back to ring 1); flight still frees
+	var rv_chunks0: int = game.world._chunks.size()
+	game.world.update_streaming(game.path.rings.size() - 1, false)
+	assert(game.world._chunks.size() == rv_chunks0)
+	# the stat signals only fire on a change (they used to fire every frame)
+	var rv_emits := [0]
+	var rv_count_emit := func(_v: float) -> void:
+		rv_emits[0] += 1
+	GameState.heat_changed.connect(rv_count_emit)
+	GameState.heat = 0.0
+	GameState.heat = 0.0
+	assert(rv_emits[0] == 0)
+	GameState.heat = 5.0
+	assert(rv_emits[0] == 1)
+	GameState.heat = 0.0
+	GameState.heat_changed.disconnect(rv_count_emit)
+	# every weapon's shot sound is synthesized at boot, not on its first shot
+	for w in game.weapons:
+		assert(AudioSys._laser_cache.has(w.freq))
+	# the music job checks its budget inside a 16th step, not after it
+	var rv_mg := MusicGen.new()
+	rv_mg.step(0)
+	assert(rv_mg._step == 0 and rv_mg._sub == MusicGen.SLICE)
+	# a far-despawned layer's pooled node no longer owns its mines
+	var rv_em: EnemyManager = game.enemy_mgr
+	rv_em.clear_all()
+	game.player.place_at_ring(40)
+	rv_em.spawn(42, -1, "layer")
+	var rv_ly: Dictionary = rv_em.enemies[-1]
+	rv_em.spawn(44, -1, "mine")
+	var rv_mn: Dictionary = rv_em.enemies[-1]
+	rv_mn["laid_by"] = rv_ly.node
+	rv_ly.node.position = game.player.position + Vector3(0, 0, 400)
+	assert(rv_em._despawn_far(rv_em.enemies.find(rv_ly), rv_ly))
+	assert(not rv_mn.has("laid_by"))
+	rv_em.clear_all()
+	print("REVIEW FIXES ok — portal after death, attract chunks, quiet stat signals, "
+		+ "prerendered shots, music slices, despawn disowns")
 	# --- re-audit Step 5 (M5d): the first 90 seconds — callouts, first contact, manual ---
 	GameState.seen_flight_tips = false
 	GameState.reset_run()

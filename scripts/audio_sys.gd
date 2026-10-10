@@ -199,9 +199,15 @@ func _process(delta: float) -> void:
 
 
 func play_laser(freq: float) -> void:
+	prerender_laser(freq)
+	_play(_laser_cache[freq])
+
+
+## Synthesizes a weapon's shot sound ahead of time (boot, under the loading
+## overlay), so a weapon's first shot never runs the synth loop mid-combat.
+func prerender_laser(freq: float) -> void:
 	if not _laser_cache.has(freq):
 		_laser_cache[freq] = _render_laser(freq)
-	_play(_laser_cache[freq])
 
 
 func play_boom(big: bool) -> void:

@@ -129,6 +129,7 @@ func _ready() -> void:
 			+ " console.log('[vr] sprite bake %d ms gpu=%s');" % [SpriteForge.bake_ms, gpu], true)
 	for w in ["neutron", "scatter", "bolt", "missile"]:
 		weapons.append(load("res://resources/weapons/%s.tres" % w))
+		AudioSys.prerender_laser(weapons[-1].freq)   # no synth hitch on a first shot
 	# Phase J: probe rather than hardcode the count — adding level_N.tres extends
 	# the campaign. ResourceLoader.exists also matches the .remap files a web export
 	# converts .tres references into.
@@ -310,7 +311,8 @@ func _ready() -> void:
 		JavaScriptBridge.eval("window.vrDiag && window.vrDiag('WARMING SHADERS');", true)
 		for i in WARM_FRAMES:
 			await get_tree().process_frame
-		_web_hide_loading()
+		if not _warming:   # a launch during these frames owns the overlay now
+			_web_hide_loading()
 
 
 ## Phase I4: the whole game frame (3D world + in-flight HUD + dither) renders in a
@@ -1175,11 +1177,27 @@ func _apply_resume(cp: Dictionary) -> void:
 	if bool(cp.get("miniboss_down", false)) and _miniboss_arena >= 0:
 		enemy_mgr.remove_boss()   # v4b: a mini-boss beaten before the save stays beaten
 		_miniboss_down = true
+		if not (_miniboss_arena in cleared):
+			# its room's door still counts it among the kills it waits for
+			_arena_kills[_miniboss_arena] = int(_arena_kills.get(_miniboss_arena, 0)) + 1
 	world.skip_spawns_to(ring)
 	player.place_at_ring(ring)
 	player.elapsed = float(cp.elapsed)
+	# what the run already claimed stays claimed: found secrets stay open, collected
+	# caches stay empty, blown fuel cells stay gone (older saves lack these keys)
+	var found: Array = cp.get("secrets_found", [])
+	for s in _secrets:
+		if int(s.ring) in found and not s.found:
+			s.found = true
+			s.node.queue_free()
+	spur_mgr.mark_collected(cp.get("caches", []))
+	prop_mgr.remove_ids(cp.get("props_gone", []))
 	var stats: Array = cp.stats
 	spur_mgr.caches_found = int(stats[6])
+	# belt and braces for pre-fix saves: a tally can never pass its total
+	GameState.level_secrets = mini(GameState.level_secrets, GameState.level_secrets_total)
+	GameState.level_props = mini(GameState.level_props, GameState.level_props_total)
+	spur_mgr.caches_found = mini(spur_mgr.caches_found, path.spurs.size())
 
 
 ## Re-audit Step 4: the run as it stands, as a checkpoint at `ring`.
@@ -1203,6 +1221,10 @@ func _checkpoint_data(ring: int, cleared: Array) -> Dictionary:
 		"cleared_arenas": cleared,
 		"difficulty": GameState.difficulty,
 		"miniboss_down": _miniboss_down,   # v4b: a fallen mini-boss stays down
+		"secrets_found": _secrets.filter(func(s: Dictionary) -> bool: return s.found) \
+			.map(func(s: Dictionary) -> int: return int(s.ring)),
+		"caches": spur_mgr.collected_ids(),
+		"props_gone": prop_mgr.gone_ids(),
 	}
 
 
@@ -1299,7 +1321,13 @@ func _process(delta: float) -> void:
 	shot_mgr.sync_batches()
 	gib_mgr.sync_batch()
 	_update_lights(delta)
-	if world.portal_active \
+	_check_portal()
+
+
+## A ship that died earlier this frame (bolt, mine, splash) must not still clear the
+## sector on its way through the portal: GAME_OVER wins.
+func _check_portal() -> void:
+	if state == State.PLAYING and world.portal_active \
 			and player.position.distance_squared_to(world.portal_position) < PORTAL_TRIGGER_SQ:
 		_level_complete()
 
@@ -1324,7 +1352,9 @@ func _attract(delta: float) -> void:
 	player.position += player.forward() * (PlayerShip.BASE_SPEED * delta)
 	player.ring_idx = path.nearest_ring(player.position, player.ring_idx)
 	player.position = path.clamp_to_ring(player.position, player.ring_idx, 2.5)
-	world.update_streaming(player.ring_idx)
+	# keep every chunk: the loop below jumps back to ring 1, and chunks freed
+	# behind the camera are never rebuilt (the second lap flew through black)
+	world.update_streaming(player.ring_idx, false)
 	if player.ring_idx >= last - 10:
 		player.reset_to_start()
 

@@ -204,7 +204,8 @@ func skip_spawns_to(ring_idx: int) -> void:
 	_spawn_cursor = maxi(_spawn_cursor, ring_idx)
 
 
-func update_streaming(player_ring: int) -> void:
+## `free_behind` false keeps chunks behind the camera (attract mode loops back).
+func update_streaming(player_ring: int, free_behind := true) -> void:
 	var last := path.rings.size() - 1
 	# endless mode still streams geometry ahead (finite levels are prebuilt) —
 	# one chunk at a time, STREAM_RINGS_PER_FRAME rings of it per frame
@@ -214,7 +215,7 @@ func update_streaming(player_ring: int) -> void:
 		_finish_chunk(_job)
 		_built_up_to = _job.e
 		_job = {}
-	while not _chunks.is_empty() and _chunks[0].end < player_ring - FREE_BEHIND:
+	while free_behind and not _chunks.is_empty() and _chunks[0].end < player_ring - FREE_BEHIND:
 		_chunks[0].node.queue_free()
 		_chunks.pop_front()
 	# tunnel-spawn dice roll just ahead of the player, not at build time: a

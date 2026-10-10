@@ -21,8 +21,9 @@ var player: PlayerShip
 var enemy_mgr: EnemyManager
 var shot_mgr: ShotManager
 
-var props: Array[Dictionary] = []   # {node, hp, fuse (-1 = idle)}
+var props: Array[Dictionary] = []   # {node, hp, fuse (-1 = idle), id}
 var _tex: ImageTexture
+var _spawned := 0   # ids are spawn order, stable for a level's seed (checkpoints)
 
 
 func _ready() -> void:
@@ -33,6 +34,7 @@ func clear_all() -> void:
 	for p in props:
 		p.node.queue_free()
 	props.clear()
+	_spawned = 0
 
 
 func warmup_textures() -> Array:
@@ -43,7 +45,29 @@ func spawn_prop(pos: Vector3) -> void:
 	var sprite := SpriteGen.make_sprite(_tex, 3.0)
 	sprite.position = pos
 	add_child(sprite)
-	props.append({"node": sprite, "hp": 2, "fuse": -1.0})
+	props.append({"node": sprite, "hp": 2, "fuse": -1.0, "id": _spawned})
+	_spawned += 1
+
+
+## Checkpoints: the ids of cells already blown (or fused) this level.
+func gone_ids() -> Array:
+	var live := {}
+	for p in props:
+		if p.fuse < 0.0:
+			live[p.id] = true
+	var out := []
+	for i in _spawned:
+		if not live.has(i):
+			out.append(i)
+	return out
+
+
+## A resume removes the cells the checkpoint had already blown, without a blast.
+func remove_ids(ids: Array) -> void:
+	for i in range(props.size() - 1, -1, -1):
+		if int(props[i].id) in ids:
+			props[i].node.queue_free()
+			props.remove_at(i)
 
 
 ## Direct hit from a player shot (wired into shot_manager's collision loop).
