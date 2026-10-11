@@ -6,7 +6,7 @@
 script = ExtResource("1")
 display_name = "L4 · REACTOR MAZE"
 briefing = "BOLT one-shots a drone; mind your heat. STINGERS flash, then dive: sidestep. RAMMERS beep, then charge: roll through!"
-objective = "CROSS THE REACTOR GALLERIES"
+objective = "DESTROY THE REACTOR, THEN ESCAPE"
 rings = 155
 spawn_tunnel = 0.1
 spawn_arena = 0.42
@@ -19,3 +19,5 @@ enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk", "turret", "
 intro_types = PackedStringArray("rammer")
 spur_count = 1
 hub = true
+objective_kind = "reactor"
+objective_count = 1

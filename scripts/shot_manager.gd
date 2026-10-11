@@ -310,7 +310,7 @@ func detonate(pos: Vector3, radius: float, dmg: int) -> void:
 	spawn_explosion(pos, true)
 	enemy_mgr.splash_damage(pos, radius, dmg)
 	if prop_mgr:
-		prop_mgr.splash(pos, radius)
+		prop_mgr.splash(pos, radius, float(dmg))
 	if pos.distance_squared_to(player.position) < 400.0:
 		player.shake = minf(0.6, player.shake + 0.25)
 
@@ -444,7 +444,7 @@ func update_shots(delta: float) -> void:
 			var k := prop_mgr.props.size() - 1
 			while k >= 0:
 				if s.pos.distance_squared_to(prop_mgr.props[k].node.position) \
-						< PropManager.HIT_R2:
+						< float(prop_mgr.props[k].hit_r2):
 					prop_mgr.damage_prop(k, s.dmg)
 					GameState.level_hits += 1
 					if s.splash > 0.0:

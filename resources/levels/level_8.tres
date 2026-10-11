@@ -6,7 +6,7 @@
 script = ExtResource("1")
 display_name = "L8 · THE RIFT GATE"
 briefing = "WARDENS shield their nose: flank them or use BOLT. CARRIERS launch drones until you shoot out their bays. Breach the gate!"
-objective = "BREACH THE RIFT GATE"
+objective = "DESTROY THE RIFT ANCHOR, THEN ESCAPE"
 rings = 210
 spawn_tunnel = 0.14
 spawn_arena = 0.55
@@ -23,3 +23,5 @@ miniboss_name = "GATE WARDEN"
 miniboss_hp = 140
 miniboss_size = 13.0
 hub = true
+objective_kind = "anchor"
+objective_count = 1

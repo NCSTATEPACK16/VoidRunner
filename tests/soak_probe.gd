@@ -10,12 +10,11 @@ extends Node
 ## and prints each sector's census and worst step. Seeded, so a run is repeatable.
 ## Restores records/settings/checkpoint on exit, like the other probes.
 
-const SOAK_SEED := 4040
+const RailAssist := preload("res://tests/rail_assist.gd")
+## v4c: 4040 stopped rolling a WARDEN heavy once objectives changed the random draws
+## (a 1-in-23 pick on L8); 4041 and 4042 both see every type. VR_SOAK_SEED overrides it.
+const SOAK_SEED := 4041
 const MAX_STEPS := 60 * 300       # per sector: five minutes of flight is a stuck run
-const CLEAR_EVERY := 45           # steps between clears of the regular enemies...
-const CLEAR_R := 45.0             # ...within this far of the ship
-const BOSS_HIT_EVERY := 60        # steps between the soak's hits on an engaged boss
-const BOSS_HIT := 0.12            # each takes this share of its max HP
 
 
 func _ready() -> void:
@@ -30,7 +29,8 @@ func _run() -> void:
 	add_child(game)
 	await get_tree().process_frame
 	await get_tree().process_frame
-	seed(SOAK_SEED)
+	var seed_env := OS.get_environment("VR_SOAK_SEED")
+	seed(int(seed_env) if seed_env != "" else SOAK_SEED)
 	GameState.reset_run()
 	GameState.unlocked_level = 8
 	GameState.level_index = 0
@@ -62,24 +62,7 @@ func _run() -> void:
 		for f in MAX_STEPS:
 			GameState.shields = 100.0
 			GameState.is_dead = false
-			# steer for the centreline a few rings ahead, as attract mode does, so a drift
-			# off-centre always closes and the ship meets the exit portal square on
-			var ahead: Vector3 = game.path.rings[mini(game.player.ring_idx + 3,
-				game.path.main_ring_count - 1)].p
-			var to: Vector3 = (ahead - game.player.position).normalized()
-			game.player.yaw = atan2(-to.x, -to.z)
-			game.player.pitch = clampf(asin(clampf(to.y, -1.0, 1.0)), -0.6, 0.6)
-			if f % CLEAR_EVERY == 0:
-				for k in range(em.enemies.size() - 1, -1, -1):
-					var e: Dictionary = em.enemies[k]
-					if not e.get("is_boss", false) \
-							and e.node.position.distance_to(game.player.position) < CLEAR_R:
-						em.hit_enemy(k, 999)
-			# (a mini-boss only once it has woken in its room)
-			if em.boss_visible() and f % BOSS_HIT_EVERY == 0 \
-					and em.boss.node.position.distance_to(game.player.position) \
-						< EnemyManager.BOSS_ENGAGE:
-				em.hit_enemy(em.enemies.find(em.boss), maxi(1, int(em.boss.max_hp * BOSS_HIT)))
+			RailAssist.step(game, f, true)   # steer, clear guards, key, objectives, boss hits
 			var t0 := Time.get_ticks_usec()
 			game._process(dt)
 			worst_us = maxi(worst_us, Time.get_ticks_usec() - t0)

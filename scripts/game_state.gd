@@ -533,9 +533,20 @@ static func normalize_checkpoint(raw: Dictionary, level_count: int) -> Dictionar
 		"has_key": bool(raw.get("has_key", false)),
 		"switch_on": bool(raw.get("switch_on", false)),
 		"vault_found": bool(raw.get("vault_found", false)),
+		# v4c, optional: objective progress (done pod / prop ids) and the escape clock
+		"objective": _normalize_objective(raw.get("objective", {})),
 		"saved_at": float(raw.saved_at),
 		"build": str(raw.get("build", "")),
 	}
+
+
+static func _normalize_objective(v: Variant) -> Dictionary:
+	var d: Dictionary = v if v is Dictionary else {}
+	var left: float = -1.0
+	var raw_left: Variant = d.get("escape_left", -1.0)
+	if raw_left is float or raw_left is int:
+		left = float(raw_left)
+	return {"done": _int_list(d.get("done", [])), "escape_left": left if left >= 0.0 else -1.0}
 
 
 static func _int_list(v: Variant) -> Array:

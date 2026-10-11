@@ -288,7 +288,7 @@ func mark_door(arena_id: int, color: Color) -> void:
 	if not _doors.has(arena_id):
 		return
 	var d: Dictionary = _doors[arena_id]
-	var mat := prop_material("door", 1.0, color.lerp(Color.WHITE, 0.5), color * 0.35)
+	var mat := prop_material("door", 1.0, color.lerp(Color.WHITE, 0.2), color * 0.5)
 	mat.set_shader_parameter("cycle_speed", TextureGen.DOOR_CYCLE)
 	for n: MeshInstance3D in d.nodes:
 		n.material_override = mat
@@ -705,8 +705,13 @@ func _portal_material(solid: bool) -> ShaderMaterial:
 	return m
 
 
+## The ring the exit portal stands on (game.gd keeps a resume ship before it).
+func portal_ring() -> int:
+	return maxi(_main_last() - 5, 0)
+
+
 func _spawn_portal() -> void:
-	var ring: Dictionary = path.rings[maxi(_main_last() - 5, 0)]
+	var ring: Dictionary = path.rings[portal_ring()]
 	_portal = Node3D.new()
 	_portal_ring = MeshInstance3D.new()
 	var torus := TorusMesh.new()

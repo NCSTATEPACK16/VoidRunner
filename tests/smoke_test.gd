@@ -1843,6 +1843,415 @@ func _run() -> void:
 	GameState.clear_checkpoint()
 	GameState.difficulty = hb_diff
 	print("HUB ok — locked door, keycard, switch, vault, checkpoint fields")
+	# --- v4c A2: objectives — pods, generators, the reactor and anchor, the escape ---
+	var ob_diff := GameState.difficulty
+	var ob_lc: int = game.levels.size()
+	var ob_ring_of := func(pos: Vector3) -> int:       # nearest main-path ring to a point
+		var best := 0
+		var best_d := INF
+		for ri in int(game.path.main_ring_count):
+			var d2: float = (game.path.rings[ri].p as Vector3).distance_squared_to(pos)
+			if d2 < best_d:
+				best_d = d2
+				best = ri
+		return best
+	assert(is_equal_approx(game.escape_time(100), 108.0))      # 100 rings x 12 / 18 x 1.5 + 8
+	assert(is_equal_approx(game.escape_time(40, 20), 68.0))
+	var ob_expect := {1: ["rescue", 3], 3: ["reactor", 1], 4: ["generators", 4],
+		6: ["rescue", 4], 7: ["anchor", 1]}
+	for li in game.levels.size():                       # only those five sectors have one
+		var ob_def: LevelDef = game.levels[li]
+		if ob_expect.has(li):
+			assert(ob_def.objective_kind == ob_expect[li][0] and ob_def.objective_count == ob_expect[li][1])
+			assert(ob_def.hub and ob_def.kind == "tunnel")
+		else:
+			assert(ob_def.objective_kind == "" and ob_def.objective_count == 0)
+	assert(game.levels[1].objective == "RESCUE 3 STRANDED PODS")
+	assert(game.levels[3].objective == "DESTROY THE REACTOR, THEN ESCAPE")
+	assert(game.levels[4].objective == "SHUT DOWN 4 GENERATORS")
+	assert(game.levels[6].objective == "RESCUE 4 STRANDED PODS")
+	assert(game.levels[7].objective == "DESTROY THE RIFT ANCHOR, THEN ESCAPE")
+	GameState.clear_checkpoint()
+	# a sector without an objective keeps its exit lit and no counter
+	GameState.reset_run()
+	GameState.difficulty = 1
+	GameState.level_index = 0
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game._obj_kind == "" and game.world.portal_active and not game.hud._obj_label.visible)
+	# ---- rescue (L2): 3 pods on plain tunnel, spread out, the exit dark until all are safe
+	GameState.reset_run()
+	GameState.difficulty = 1
+	GameState.level_index = 1
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game._obj_kind == "rescue" and game._obj_total == 3 and game._obj_done == 0)
+	assert(not game.world.portal_active)
+	assert(game.hud._obj_label.visible and game.hud._obj_label.text == "PODS 0/3")
+	var rs_pods: Array = game.pickup_mgr.live_stations("pod")
+	assert(rs_pods.size() == 3)
+	var rs_rings := []
+	for pod in rs_pods:
+		var rs_ri: int = ob_ring_of.call(pod.pos)
+		rs_rings.append(rs_ri)
+		assert(game.path.rings[rs_ri].arena_id < 0 and rs_ri >= 23 and rs_ri <= game.path.main_ring_count - 23)
+		for a in game.path.arenas:                      # clear of every room and its bulkhead
+			assert(rs_ri < int(a.start) - 2 or rs_ri > maxi(int(a.end), int(a.door_ring)) + 3)
+		for t in game.hazard_mgr._traps:
+			assert(absi(rs_ri - int(t.ring)) >= 3)
+		for sc in game._secrets:
+			assert(absi(rs_ri - int(sc.ring)) >= 3)
+	assert(rs_rings[0] < rs_rings[1] and rs_rings[1] < rs_rings[2] and rs_rings[1] - rs_rings[0] >= 8 and rs_rings[2] - rs_rings[1] >= 8)
+	# the same seed places the same pods (ids and positions stay stable for checkpoints)
+	game._load_level_world(1)
+	var rs_again: Array = game.pickup_mgr.live_stations("pod")
+	assert(rs_again.size() == 3)
+	for k in 3:
+		assert(rs_again[k].id == rs_pods[k].id and rs_again[k].pos.is_equal_approx(rs_pods[k].pos))
+	assert(not game.world.portal_active and game.hud._obj_label.text == "PODS 0/3")
+	# a wide fly-through: 7 u off is a miss, 5.5 u a rescue; each pod counts once
+	game.player.position = rs_pods[0].pos + Vector3(0, 7.0, 0)
+	game.pickup_mgr.update_pickups(0.0)
+	assert(game._obj_done == 0)
+	game.player.position = rs_pods[0].pos + Vector3(0, 5.5, 0)
+	var rs_score := GameState.score
+	game.pickup_mgr.update_pickups(0.0)
+	game.pickup_mgr.update_pickups(0.0)
+	assert(game._obj_done == 1 and game.hud._msg.text == "POD RESCUED 1/3")
+	assert(game.hud._obj_label.text == "PODS 1/3" and not game.world.portal_active)
+	assert(GameState.score == rs_score and GameState.missiles == GameState.missile_cap())
+	game.player.position = rs_pods[1].pos
+	game.pickup_mgr.update_pickups(0.0)
+	assert(game._obj_done == 2 and game.hud._msg.text == "POD RESCUED 2/3")
+	# a checkpoint with two pods safe: a resume has them gone, the third waiting, the exit dark
+	var rs_cp := GameState.save_checkpoint(game._checkpoint_data(40, []))
+	assert(rs_cp.objective.done.size() == 2 and float(rs_cp.objective.escape_left) == -1.0)
+	game.player.position = rs_pods[2].pos
+	game.pickup_mgr.update_pickups(0.0)
+	assert(game._obj_done == 3 and game.world.portal_active)
+	assert(game.hud._msg.text == "ALL PODS SAFE · EXIT OPEN" and game.hud._obj_label.text == "PODS 3/3")
+	assert(game.pickup_mgr.live_stations("pod").is_empty())
+	var rs_full := GameState.save_checkpoint(game._checkpoint_data(60, []))
+	assert(rs_full.objective.done.size() == 3)
+	game._begin_resume(GameState.normalize_checkpoint(rs_cp, ob_lc))
+	game._on_launch()
+	await get_tree().process_frame
+	assert(game._obj_done == 2 and not game.world.portal_active and game._escape_left < 0.0)
+	assert(game.pickup_mgr.live_stations("pod").size() == 1 and game.hud._obj_label.text == "PODS 2/3")
+	game.player.position = game.pickup_mgr.live_stations("pod")[0].pos
+	game.pickup_mgr.update_pickups(0.0)
+	assert(game._obj_done == 3 and game.world.portal_active)
+	game._begin_resume(GameState.normalize_checkpoint(rs_full, ob_lc))
+	game._on_launch()
+	await get_tree().process_frame
+	assert(game._obj_done == 3 and game.world.portal_active and game.pickup_mgr.live_stations("pod").is_empty())
+	assert(game.hud._obj_label.text == "PODS 3/3")
+	# the automap marks the pods still out there (a P each), none once they are safe
+	assert(game._automap_extras().filter(func(m: Dictionary) -> bool:
+		return m.get("glyph", "") == "P").is_empty())
+	game._begin_resume(GameState.normalize_checkpoint(rs_cp, ob_lc))
+	game._on_launch()
+	await get_tree().process_frame
+	var rs_marks: Array = game._automap_extras().filter(func(m: Dictionary) -> bool:
+		return m.get("glyph", "") == "P")
+	assert(rs_marks.size() == 1)
+	# clearing the sector: the exit pays out and the tally names the pods
+	game.pickup_mgr.mark_stations_collected("pod", [0, 1, 2, 3, 4, 5])
+	game._obj_done = 3
+	game._objective_complete("x")
+	GameState.peak_style = 0
+	rs_score = GameState.score
+	game.player.position = game.world.portal_position
+	game._check_portal()
+	assert(game.state == game.State.LEVEL_CLEAR and GameState.score == rs_score + 500 + 1 * 250)
+	var rs_body: String = (game.overlays._panels.level_clear.get_node("Body") as Label).text
+	assert("PODS 3/3" in rs_body and not ("ESCAPE" in rs_body))
+	var rs_next := GameState.load_checkpoint(ob_lc)       # the next sector starts fresh
+	assert(int(rs_next.level_index) == 2 and rs_next.objective.done.is_empty())
+	assert(rs_next.props_gone.is_empty() and rs_next.secrets_found.is_empty() and not rs_next.has_key)
+	print("RESCUE ok — 3 pods on plain tunnel, wide radius, exit lights at 3/3, resume, tally")
+	# ---- generators (L5): 4 of them, the exit dark until all four are down
+	GameState.reset_run()
+	GameState.difficulty = 1
+	GameState.level_index = 4
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game._obj_kind == "generators" and game._obj_total == 4 and not game.world.portal_active)
+	assert(game.hud._obj_label.text == "GENERATORS 0/4")
+	var ob_cells: int = game.prop_mgr.cell_count()
+	assert(ob_cells > 0 and ob_cells == GameState.level_props_total)
+	assert(game.prop_mgr.objectives_left("generator") == 4 and game.prop_mgr.objectives_left() == 4)
+	assert(game.prop_mgr.props.size() == ob_cells + 4 and game._obj_ids.size() == 4)
+	var ob_gen_pos := []
+	var ob_gen_rooms := {}
+	for g in game.prop_mgr.objective_positions():
+		var ob_gri: int = ob_ring_of.call(g.pos)
+		var ob_ring: Dictionary = game.path.rings[ob_gri]
+		assert(ob_ring.arena_id >= 0 and game.path.arenas[ob_ring.arena_id].door_ring >= 0)
+		ob_gen_rooms[ob_ring.arena_id] = true
+		assert(absf((g.pos - ob_ring.p as Vector3).dot(ob_ring.r)) > 0.45 * float(ob_ring.hw))   # off the line
+		ob_gen_pos.append(g.pos)
+	assert(ob_gen_rooms.size() >= mini(4, game.path.arenas.size() - 1))
+	var ob_ids: Array = game._obj_ids.duplicate()
+	game._load_level_world(4)                         # same seed, same objectives, same ids
+	assert(game._obj_ids == ob_ids and game.prop_mgr.cell_count() == ob_cells)
+	for k in 4:
+		assert(game.prop_mgr.objective_positions()[k].pos.is_equal_approx(ob_gen_pos[k]))
+	assert(game._automap_extras().filter(func(m: Dictionary) -> bool:
+		return m.get("glyph", "") == "G").size() == 4)
+	game.world.set_portal_active(false)
+	game.player.position = ob_gen_pos[0] + Vector3(0, 30, 0)
+	# one dies to shots, one to a missile's splash, the rest to shots: each counts once
+	game.prop_mgr.damage_prop(game.prop_mgr.props.size() - 1, 5.0)    # hurt, not dead
+	assert(game._obj_done == 0)
+	var ob_flash: int = game.prop_mgr.props.size() - 1
+	assert(game.prop_mgr.props[ob_flash].hp < 30.0 and game.prop_mgr.props[ob_flash].flash_t > 0.0)
+	game.prop_mgr.splash(ob_gen_pos[3], 12.0, 100.0)
+	game.prop_mgr.update_props(0.0)
+	assert(game._obj_done == 1 and game.hud._msg.text == "GENERATOR DOWN 1/4")
+	assert(game.hud._obj_label.text == "GENERATORS 1/4")
+	for k in 2:
+		for pi in game.prop_mgr.props.size():
+			if game.prop_mgr.props[pi].kind == "generator":
+				game.prop_mgr.damage_prop(pi, 99.0)
+				break
+		game.prop_mgr.update_props(0.0)
+		assert(game._obj_done == 2 + k)
+	assert(not game.world.portal_active and game.hud._msg.text == "GENERATOR DOWN 3/4")
+	var ob_cp: Dictionary = game._checkpoint_data(30, [])                        # 3 down: saved as such
+	assert(ob_cp.objective.done.size() == 3)
+	for pi in game.prop_mgr.props.size():
+		if game.prop_mgr.props[pi].kind == "generator":
+			game.prop_mgr.damage_prop(pi, 99.0)
+			break
+	game.prop_mgr.update_props(0.0)
+	assert(game._obj_done == 4 and game.world.portal_active and game._escape_left < 0.0)
+	assert(game.hud._msg.text == "ALL GENERATORS DOWN · EXIT OPEN" and game.hud._obj_label.text == "GENERATORS 4/4")
+	assert(GameState.level_props_total == ob_cells and game.prop_mgr.cell_count() <= ob_cells)
+	assert(game.prop_mgr.objectives_left() == 0)
+	# a resume with three down: that generator stays down and the other waits
+	game._begin_resume(GameState.normalize_checkpoint(GameState.save_checkpoint(ob_cp), ob_lc))
+	game._on_launch()
+	await get_tree().process_frame
+	assert(game._obj_done == 3 and game.prop_mgr.objectives_left("generator") == 1)
+	assert(not game.world.portal_active and game.hud._obj_label.text == "GENERATORS 3/4")
+	assert(game.prop_mgr.cell_count() == ob_cells and GameState.level_props_total == ob_cells)
+	print("GENERATORS ok — 4 off the flight line, shots + splash, exit at 4/4, cells total unchanged")
+	# ---- reactor (L4): the escape clock, the countdown, the bonus, the slow burn
+	var es_hub_prop := func() -> Dictionary:
+		for pp in game.prop_mgr.props:
+			if pp.kind != "cell":
+				return pp
+		return {}
+	var es_boom := func() -> void:
+		var pi: int = -1
+		for k in game.prop_mgr.props.size():
+			if game.prop_mgr.props[k].kind != "cell":
+				pi = k
+		game.prop_mgr.damage_prop(pi, 999.0)
+		game.prop_mgr.update_props(0.0)
+	GameState.reset_run()
+	GameState.difficulty = 1
+	GameState.level_index = 3
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game._obj_kind == "reactor" and game._obj_total == 1 and not game.world.portal_active)
+	assert(game.hud._obj_label.text == "REACTOR 0/1" and game._escape_left < 0.0)
+	var es_hub: int = game._hub_arena
+	var es_room: Dictionary = game.path.arenas[es_hub]
+	var es_r: Dictionary = es_hub_prop.call()
+	assert(not es_r.is_empty() and es_r.kind == "reactor")
+	var es_ri: int = ob_ring_of.call(es_r.node.position)
+	assert(es_ri >= int(es_room.start) and es_ri <= int(es_room.end))
+	var es_rr: Dictionary = game.path.rings[es_ri]
+	assert(absf((es_r.node.position - es_rr.p as Vector3).dot(es_rr.r)) > 0.3 * float(es_rr.hw))
+	assert(game._automap_extras().filter(func(m: Dictionary) -> bool:
+		return m.get("glyph", "") == "R").size() == 1)
+	# destroyed in the hub, keycard still out: the key branch's round trip is on the clock
+	game.player.place_at_ring(es_ri)
+	var es_key: Dictionary = game.path.spur_of("key")
+	var es_detour := 2 * (int(es_key.cache) - int(es_key.start) + 1)
+	var es_rings := int(game.path.main_ring_count) - 1 - es_ri
+	GameState.score = 0
+	es_boom.call()
+	assert(game.world.portal_active and game._obj_done == 1)
+	assert(is_equal_approx(game._escape_left, game.escape_time(es_rings, es_detour)))
+	assert(game.hud._msg.text == "REACTOR DOWN · ESCAPE!" and game.hud._obj_label.text == "REACTOR 1/1")
+	assert(is_equal_approx(game.hud._escape_left, game._escape_left) and game.hud._time_label.text == "EXIT")
+	assert(GameState.score >= 1200)                                    # the reactor pays
+	var es_total: float = game._escape_left
+	var es_sh0: float = GameState.shields
+	game._update_escape(2.0)                                           # the clock counts down
+	assert(is_equal_approx(game._escape_left, es_total - 2.0) and GameState.shields == es_sh0)
+	game.hud._process(0.0)
+	assert(game.hud._c_esc == ceili(es_total - 2.0) * 2 or game.hud._c_esc == ceili(es_total - 2.0) * 2 + 1)
+	# the same hub with the card already held: no detour
+	GameState.reset_run()
+	GameState.difficulty = 1
+	GameState.level_index = 3
+	game._launch_level()
+	await get_tree().process_frame
+	game._on_pickup_collected("keycard")
+	game.player.place_at_ring(es_ri)
+	es_boom.call()
+	assert(is_equal_approx(game._escape_left, game.escape_time(es_rings)))
+	# beating the clock: +1000 and 10 a second, on the tally
+	game._update_escape(5.0)
+	var es_left: float = game._escape_left
+	GameState.peak_style = 0
+	GameState.level_props = 0
+	GameState.score = 0
+	game.player.position = game.world.portal_position
+	game._check_portal()
+	assert(game.state == game.State.LEVEL_CLEAR and game._escape_left < 0.0)
+	var es_bonus := 1000 + 10 * int(es_left)
+	assert(GameState.score == 500 + 3 * 250 + es_bonus)
+	var es_body: String = (game.overlays._panels.level_clear.get_node("Body") as Label).text
+	assert(("ESCAPE BONUS +%d" % es_bonus) in es_body and "REACTOR DESTROYED" in es_body)
+	assert(not game.hud._time_label.text == "EXIT" and game.hud._escape_left < 0.0)
+	# missing it: no instant fail, the shields drain 4 a second times the damage-taken multiplier
+	for es_d in [1, 2]:
+		GameState.reset_run()
+		GameState.difficulty = es_d
+		GameState.level_index = 3
+		game._launch_level()
+		await get_tree().process_frame
+		game.player.place_at_ring(es_ri)
+		es_boom.call()
+		game._escape_left = 0.4
+		game._update_escape(0.5)
+		assert(game._escape_left == 0.0 and game.hud._msg.text == "OUT OF TIME · SHIELDS DRAINING — RUN!")
+		assert(game.state == game.State.PLAYING and not GameState.is_dead)
+		var es_sh: float = GameState.shields
+		game._update_escape(1.0)
+		assert(is_equal_approx(es_sh - GameState.shields, 4.0 * GameState.damage_taken_mult()))
+		assert(game.state == game.State.PLAYING and not GameState.is_dead and game._escape_left == 0.0)
+		assert(game.hud._escape_left == 0.0)
+		if es_d == 2:
+			assert(is_equal_approx(GameState.damage_taken_mult(), 1.3))
+	GameState.score = 0                                 # late, but through the door: no bonus, no fail
+	GameState.peak_style = 0
+	game.player.position = game.world.portal_position
+	game._check_portal()
+	assert(game.state == game.State.LEVEL_CLEAR and GameState.score == 500 + 3 * 250)
+	es_body = (game.overlays._panels.level_clear.get_node("Body") as Label).text
+	assert(not ("ESCAPE BONUS" in es_body))
+	print("REACTOR ok — clock %.0f s (rings x 12/18 x 1.5 + 8), detour if no key, bonus, drain" % es_total)
+	# ---- anchor (L8): the mini-boss's room holds it, same escape path
+	GameState.reset_run()
+	GameState.difficulty = 1
+	GameState.level_index = 7
+	game._launch_level()
+	await get_tree().process_frame
+	assert(game._obj_kind == "anchor" and game._miniboss_arena == game._hub_arena)
+	assert(game.hud._obj_label.text == "ANCHOR 0/1" and not game.world.portal_active)
+	var es_a: Dictionary = es_hub_prop.call()
+	assert(es_a.kind == "anchor")
+	var es_aring: int = ob_ring_of.call(es_a.node.position)
+	assert(game.path.rings[es_aring].arena_id == game._hub_arena)
+	game.player.place_at_ring(es_aring)
+	es_boom.call()
+	assert(game.world.portal_active and game._escape_left > 8.0 and game.hud._msg.text == "ANCHOR DOWN · ESCAPE!")
+	assert(game.prop_mgr.objectives_left() == 0)
+	print("ANCHOR ok — in the mini-boss room, same escape")
+	# ---- L4: resume from each checkpoint it can save, with the reactor standing and gone
+	for es_run in 2:
+		GameState.clear_checkpoint()
+		GameState.reset_run()
+		GameState.difficulty = 1
+		GameState.level_index = 3
+		game._launch_level()
+		await get_tree().process_frame
+		es_hub = game._hub_arena
+		var es_cps: Array = [GameState.load_checkpoint(ob_lc)]        # the sector start
+		for a in game.path.arenas:
+			if a.door_ring < 0:
+				continue
+			if int(a.id) == es_hub:
+				if es_run == 1:                                        # the reactor goes in the hub
+					game.player.place_at_ring(int(a.start) + 3)
+					es_boom.call()
+					game._escape_left = 33.0
+				game._on_pickup_collected("keycard")
+			for k in int(game._arena_spawned[a.id]) - int(game._arena_kills.get(a.id, 0)):
+				game._on_enemy_killed(int(a.id))
+			assert(game.world.is_door_open(int(a.id)))
+			es_cps.append(GameState.load_checkpoint(ob_lc))
+		assert(es_cps.size() >= 3)
+		for k in es_cps.size():
+			assert(not es_cps[k].is_empty() and int(es_cps[k].level_index) == 3)
+			if k > 0:
+				assert(int(es_cps[k].ring) > int(es_cps[k - 1].ring))
+		var es_json = JSON.parse_string(JSON.stringify(es_cps.back()))    # web: a JSON round trip
+		var es_norm := GameState.normalize_checkpoint(es_json, ob_lc)
+		assert(es_norm.objective.done == es_cps.back().objective.done)
+		for es_cp in es_cps:
+			var es_done: Array = es_cp.objective.done
+			assert(es_done.size() == (1 if es_run == 1 and bool(es_cp.has_key) else 0))
+			assert((float(es_cp.objective.escape_left) > 0.0) == (es_done.size() == 1))
+			game._begin_resume(es_cp)
+			game._on_launch()
+			await get_tree().process_frame
+			assert(game.state == game.State.PLAYING)
+			for a in game.path.arenas:
+				if a.door_ring >= 0:
+					assert(game.world.is_door_open(int(a.id)) == (int(a.id) in es_cp.cleared_arenas))
+			assert(GameState.has_key == bool(es_cp.has_key))
+			assert(game._obj_done == es_done.size() and game.world.portal_active == (es_done.size() == 1))
+			assert(game.prop_mgr.objectives_left("reactor") == 1 - es_done.size())
+			assert(game.hud._obj_label.text == "REACTOR %d/1" % es_done.size())
+			if es_done.size() == 1:                     # the clock runs on, never under the floor
+				assert(game._escape_left >= game.ESCAPE_RESUME_MIN - 5.0 and game._escape_left >= 33.0 - 5.0 and game._escape_left <= 33.0)
+				assert(game.hud._time_label.text == "EXIT")
+			else:
+				assert(game._escape_left < 0.0 and game.hud._time_label.text == "TIME")
+			# the sector can still be finished: open what a resume leaves shut, destroy the
+			# reactor if it still stands, and fly out through the exit
+			for a in game.path.arenas:
+				if a.door_ring >= 0:
+					game.world.open_door(int(a.id))
+			if es_done.is_empty():
+				game.player.place_at_ring(es_ri)
+				es_boom.call()
+				assert(game.world.portal_active and game._escape_left > 0.0)
+			GameState.peak_style = 0
+			game.player.position = game.world.portal_position
+			game._check_portal()
+			assert(game.state == game.State.LEVEL_CLEAR)
+		# a resume with the clock nearly out gets the minimum, not an instant drain
+		var es_low: Dictionary = es_cps.back().duplicate(true)
+		if es_run == 1:
+			es_low.objective.escape_left = 2.0
+			game._begin_resume(es_low)
+			game._on_launch()
+			await get_tree().process_frame
+			assert(absf(game._escape_left - game.ESCAPE_RESUME_MIN) < 5.0)
+	GameState.clear_checkpoint()
+	GameState.difficulty = ob_diff
+	# a resume never starts at or past the exit portal, and never past an undone objective
+	GameState.clear_checkpoint()
+	GameState.reset_run()
+	GameState.difficulty = 1
+	GameState.level_index = 3
+	game._launch_level()
+	await get_tree().process_frame
+	var rz_portal: int = game.world.portal_ring()
+	assert(rz_portal == game.path.main_ring_count - 6)
+	assert(game._resume_ring(40) <= 40)
+	var rz_reactor: Vector3 = game.prop_mgr.objective_positions()[0].pos
+	var rz_rr: int = ob_ring_of.call(rz_reactor)
+	var rz_back: int = game._resume_ring(rz_rr + 20)       # the reactor still stands behind it
+	assert(rz_back <= rz_rr - 4 and rz_back >= 1)
+	game.prop_mgr.remove_ids([game.prop_mgr.objective_positions()[0].id])
+	assert(game._resume_ring(rz_rr + 20) == rz_rr + 20)    # once it is down, the saved ring stands
+	assert(game._resume_ring(game.path.main_ring_count - 1) == rz_portal - 2)   # never past the exit
+	var rz_cp: Dictionary = game._checkpoint_data(game.path.main_ring_count - 1, [0, 1, 2, 3, 4])
+	game._load_level_world(3)
+	game._begin_resume(GameState.normalize_checkpoint(GameState.save_checkpoint(rz_cp), ob_lc))
+	game._on_launch()
+	await get_tree().process_frame
+	assert(game.player.ring_idx <= rz_portal - 2 + 3)
+	print("L4 RESUME ok — every checkpoint (sector start + each cleared bulkhead), reactor standing or gone")
 	# --- V2.2 story pass: lore coverage + the briefing bands never overlap ---
 	for lidx in 9:
 		assert(Lore.story(lidx).length() > 20)            # every sector has a story

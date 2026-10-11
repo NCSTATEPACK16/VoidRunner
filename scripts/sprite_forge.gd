@@ -38,6 +38,8 @@ static var gpu_baked := false   # true when the GPU turntable path produced the 
 static var bake_ms := 0         # v4b: how long bake() took, either path
 static var boss_bake_ms := 0    # the deferred boss sheet's bake (see bake_bosses)
 static var _bosses_baked := false
+static var objects_bake_ms := 0   # v4c: the deferred OBJECTS sheet's bake (see bake_objects)
+static var _objects_baked := false
 static var _host: Node = null   # bake()'s host, reused by the deferred boss bake
 static var sheet_count := 0     # v4b: bake viewports used (0 on the pixel fallback)
 ## Bake-only RenderingServer instances (the angle copies), freed after readback.
@@ -78,10 +80,31 @@ static func bake_bosses() -> void:
 	boss_bake_ms = Time.get_ticks_msec() - t0
 
 
+## v4c: the mission-object sheet (generator, reactor, rift anchor; 64 px cells). Same
+## deal as the bosses: it bakes on the first sprite_set() of an OBJECTS id, while a
+## level loads, so the boot bake stays as short as it was. Safe to call any time.
+static func bake_objects() -> void:
+	if _objects_baked:
+		return
+	_objects_baked = true
+	if not gpu_baked:
+		return   # the pixel fallback already packed the objects
+	var host := _host
+	if host == null or not is_instance_valid(host) or not host.is_inside_tree():
+		host = (Engine.get_main_loop() as SceneTree).root
+	var t0 := Time.get_ticks_msec()
+	if not _bake_classes(host, [{"cell": 64, "angles": ANGLES, "anim": ANIM,
+			"pitch": 14.0, "ids": SpriteModels.OBJECTS}]):
+		push_warning("SpriteForge: object atlas readback failed; using pixel fallback objects")
+		_fallback_objects()
+	objects_bake_ms = Time.get_ticks_msec() - t0
+
+
 static func _bake(host: Node) -> void:
 	if DisplayServer.get_name() == "headless":
 		_fallback()
 		_bosses_baked = true
+		_objects_baked = true
 		return
 	if _bake_classes(host, [
 		{"cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0, "ids": SpriteModels.ENEMIES},
@@ -96,6 +119,7 @@ static func _bake(host: Node) -> void:
 		_prop.clear()
 		_fallback()
 		_bosses_baked = true
+		_objects_baked = true
 
 
 ## Renders and slices the given sprite classes in one synchronous GPU pass. False
@@ -135,12 +159,19 @@ static func sprite_set(id: String) -> Dictionary:
 	_ensure()
 	if not _bosses_baked and SpriteModels.BOSSES.has(id):
 		bake_bosses()
+	if not _objects_baked and SpriteModels.OBJECTS.has(id):
+		bake_objects()
 	return _sets.get(id, _sets["drone"])
 
 
 ## True once the boss sheet exists (warm-up lists include it only then).
 static func bosses_ready() -> bool:
 	return _bosses_baked
+
+
+## True once the objects sheet exists (warm-up lists include it only then).
+static func objects_ready() -> bool:
+	return _objects_baked
 
 
 static func pickup_frames(kind: String) -> Array:
@@ -180,6 +211,7 @@ static func _ensure() -> void:
 		_baked = true
 		_fallback()
 		_bosses_baked = true
+		_objects_baked = true
 
 
 static func _build_sheet(host: Node, sh: Dictionary) -> SubViewport:
@@ -310,6 +342,7 @@ static func _fallback() -> void:
 		var fr: Array = legacy.get(id, legacy["drone"])
 		_sets[id] = {"angles": 1, "anim": 2, "tex": [fr[0], fr[1]], "flash": [fr[2]]}
 	_fallback_bosses()
+	_fallback_objects()
 	for kind in SpriteModels.PICKUPS:
 		_pickups[kind] = [SpriteGen.pickup_texture(kind)]
 	_prop = [SpriteGen.prop_texture()]
@@ -319,3 +352,9 @@ static func _fallback_bosses() -> void:
 	var boss := SpriteGen.boss_frames()
 	for id in SpriteModels.BOSSES:
 		_sets[id] = {"angles": 1, "anim": 2, "tex": [boss[0], boss[1]], "flash": [boss[2]]}
+
+
+static func _fallback_objects() -> void:
+	for id in SpriteModels.OBJECTS:
+		var fr := SpriteGen.object_frames(id)
+		_sets[id] = {"angles": 1, "anim": 2, "tex": [fr[0], fr[1]], "flash": [fr[2]]}

@@ -17,7 +17,9 @@ func _ready() -> void:
 		SpriteForge.bake_ms, SpriteForge.sheet_count, SpriteForge.gpu_baked])
 	SpriteForge.bake_bosses()   # deferred to the first boss in the game; forced here
 	print("[forge] boss sheet baked in %d ms (deferred from boot)" % SpriteForge.boss_bake_ms)
-	for group in [SpriteModels.ENEMIES, SpriteModels.BOSSES]:
+	SpriteForge.bake_objects()   # deferred to the first mission object; forced here
+	print("[forge] objects sheet baked in %d ms (deferred from boot)" % SpriteForge.objects_bake_ms)
+	for group in [SpriteModels.ENEMIES, SpriteModels.BOSSES, SpriteModels.OBJECTS]:
 		var cell: int = (SpriteForge.sprite_set(group[0]).tex[0] as Texture2D).get_width()
 		var sheet := Image.create(cell * 8, cell * 3 * group.size(), false, Image.FORMAT_RGBA8)
 		sheet.fill(Color(0.16, 0.16, 0.2))
@@ -29,7 +31,11 @@ func _ready() -> void:
 					sheet.blend_rect(img, Rect2i(0, 0, cell, cell), Vector2i(a * cell, (gi * 3 + f) * cell))
 				var fl: Image = (st.flash[a] as ImageTexture).get_image()
 				sheet.blend_rect(fl, Rect2i(0, 0, cell, cell), Vector2i(a * cell, (gi * 3 + 2) * cell))
-		var name := "forge_enemies.png" if group == SpriteModels.ENEMIES else "forge_bosses.png"
+		var name := "forge_enemies.png"
+		if group == SpriteModels.BOSSES:
+			name = "forge_bosses.png"
+		elif group == SpriteModels.OBJECTS:
+			name = "forge_objects.png"
 		sheet.save_png(dir + "/" + name)
 	var pk := Image.create(32 * 8, 32 * (SpriteModels.PICKUPS.size() + 1), false, Image.FORMAT_RGBA8)
 	pk.fill(Color(0.16, 0.16, 0.2))

@@ -60,3 +60,10 @@ extends Resource
 ## room where there is one) grows a keycard branch and a switch branch. Its bulkhead
 ## needs the room's kills AND the keycard; the switch opens a vault beyond it.
 @export var hub := false
+
+# --- v4c: objectives ---
+## What must be done before the exit lights: "rescue" N stranded pods, shut down N
+## "generators", destroy the "reactor" or the "anchor" (both in the hub room, and
+## each starts the escape clock). "" = no objective: the portal is lit from the start.
+@export var objective_kind := ""
+@export var objective_count := 0

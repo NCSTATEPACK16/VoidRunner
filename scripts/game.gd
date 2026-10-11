@@ -50,7 +50,21 @@ var _miniboss_down := false   # ...and whether it has fallen (checkpoints keep t
 var _hub_arena := -1          # v4c: the hub room (its door needs the keycard), or -1
 var _vault := {}              # v4c: the secret beyond the hub that the switch unlocks
 var _vault_light := -1
-const KEY_GOLD := Color(1.0, 0.78, 0.25)
+var KEY_GOLD: Color = Palette.ramp(Palette.GOLD, 12)   # a ramp entry, so it survives quantization
+## v4c objectives: what the sector wants before its exit lights, and the escape clock
+## the reactor and the anchor start. Time = rings left x SEG / BASE_SPEED x slack + base.
+const ESCAPE_SLACK := 1.5
+const ESCAPE_BASE := 8.0
+const ESCAPE_BONUS := 1000
+const ESCAPE_BONUS_PER_SEC := 10
+const ESCAPE_DRAIN := 4.0     # shields per second once the clock is out (x damage taken)
+const ESCAPE_RESUME_MIN := 15.0   # a resume never restarts an escape with less than this
+const OBJ_ORANGE := Color("ffa040")
+var _obj_kind := ""           # "" | rescue | generators | reactor | anchor (from the LevelDef)
+var _obj_total := 0
+var _obj_done := 0
+var _obj_ids: Array = []      # PropManager ids of this sector's generators / reactor / anchor
+var _escape_left := -1.0      # seconds left on the escape clock; -1 = not running, 0 = out
 var _last_style := 0   # V2.2 L2c: sting fires on upward grade changes only
 var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
@@ -257,6 +271,8 @@ func _ready() -> void:
 	prop_mgr.shot_mgr = shot_mgr
 	shot_mgr.prop_mgr = prop_mgr
 	prop_mgr.cell_destroyed.connect(_on_cell_destroyed)
+	prop_mgr.objective_destroyed.connect(_on_objective_destroyed)   # v4c
+	pickup_mgr.station_collected.connect(_on_station_collected)
 	hazard_mgr.player = player
 	# V2.2 L1e: shield hits also flash a directional arc toward the shooter
 	shot_mgr.player_hit.connect(func(dmg: float, from_pos: Vector3) -> void:
@@ -468,6 +484,7 @@ func _load_level_world(index: int) -> void:
 	_place_props(level)
 	_place_hazards(level)
 	_place_secrets(level)
+	_place_objectives(level)   # v4c: after the cells, traps and secrets it keeps clear of
 	spur_mgr.setup(path, player, pickup_mgr,   # V2.2 L5 (v4c: and the hub's branches)
 		world.prop_material("wall_c", 1.0, Color(1.0, 0.9, 0.7), theme.accent2 * 0.2),
 		world.light_rig)
@@ -555,7 +572,114 @@ func _place_props(level: LevelDef) -> void:
 				+ ring.r * (rng.randf_range(-0.7, 0.7) * ring.hw) \
 				+ ring.u * (-(ring.hh - ring.fo) + 1.4)
 			prop_mgr.spawn_prop(pos)
-	GameState.level_props_total = prop_mgr.props.size()
+	GameState.level_props_total = prop_mgr.cell_count()
+
+
+## v4c: the sector's objective, placed after the cells (so their ids never shift) and
+## deterministic per level seed. The exit starts dark and lights when it is done.
+##  - rescue: pods on plain tunnel, one per equal slice of the sector;
+##  - generators: one in each of the kill-locked rooms in turn (spread through the
+##    sector), by the wall, off the flight line;
+##  - reactor / anchor: in the hub room, off the flight line (the mini-boss's room).
+func _place_objectives(level: LevelDef) -> void:
+	_obj_kind = level.objective_kind if level.kind == "tunnel" and not _gauntlet else ""
+	_obj_total = level.objective_count if _obj_kind != "" else 0
+	_obj_done = 0
+	_obj_ids = []
+	_escape_left = -1.0
+	hud.set_escape(-1.0)
+	if _obj_kind == "":
+		hud.set_objective("")
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = level.level_seed + 1313
+	match _obj_kind:
+		"rescue":
+			var sites := _pod_sites()
+			for i in _obj_total:
+				var ri := _pod_ring(sites, i)
+				var ring: Dictionary = path.rings[ri]
+				var pos: Vector3 = ring.p + ring.r * rng.randf_range(-4.5, 4.5) \
+					+ ring.u * ((ring.fo - ring.co) * 0.5)
+				pickup_mgr.add_station(pos, "pod", false, PickupManager.POD_RADIUS)
+		"generators":
+			var rooms: Array[int] = []
+			for a in path.arenas:
+				if a.door_ring >= 0:
+					rooms.append(a.id)
+			if rooms.is_empty():
+				rooms.append(0)
+			for i in _obj_total:
+				var pick: int = (i * rooms.size()) / _obj_total if rooms.size() >= _obj_total \
+					else i % rooms.size()
+				var room: Dictionary = path.arenas[rooms[pick]]
+				var ri := rng.randi_range(room.start + 2, maxi(room.start + 2, room.end - 2))
+				_obj_ids.append(prop_mgr.spawn_objective(
+					_wall_spot(ri, rng.randf_range(0.5, 0.75) * (1.0 if i % 2 == 0 else -1.0),
+						"generator"), "generator"))
+		_:
+			var room: Dictionary = path.arenas[_hub_arena if _hub_arena >= 0 else path.mid_arena()]
+			var ri: int = room.start + int((room.end - room.start) * 0.7)
+			_obj_ids.append(prop_mgr.spawn_objective(
+				_wall_spot(ri, 0.42 * (1.0 if rng.randf() < 0.5 else -1.0), _obj_kind), _obj_kind))
+	world.set_portal_active(false)
+	_refresh_objective_hud()
+
+
+## A spot on the floor of ring `ri`, `frac` of the half-width off the centre line (sign =
+## side), sitting on the floor with room for an objective prop's size.
+func _wall_spot(ri: int, frac: float, kind: String) -> Vector3:
+	var ring: Dictionary = path.rings[ri]
+	return ring.p + ring.r * (frac * ring.hw) \
+		+ ring.u * (-(ring.hh - ring.fo) + float(PropManager.OBJECTIVE[kind].size) * 0.5 + 0.4)
+
+
+## Pod `i` of the sector's pods: the middle of the i-th equal slice of the allowed sites,
+## so they spread over the free tunnel however little of it a short sector has.
+func _pod_ring(sites: Array[int], i: int) -> int:
+	return sites[clampi(((2 * i + 1) * sites.size()) / (2 * _obj_total), 0, sites.size() - 1)]
+
+
+## Rings a pod may sit on, in order: plain tunnel clear of every room and its door,
+## crushers and secrets. The pods take the middle of each equal slice of this list, so
+## they spread over the free tunnel.
+func _pod_sites() -> Array[int]:
+	var out: Array[int] = []
+	for ri in range(24, path.main_ring_count - 24):
+		if _plain_site_ok(ri):
+			out.append(ri)
+	if out.is_empty():
+		out.append(30)
+	return out
+
+
+func _plain_site_ok(ri: int) -> bool:
+	for a in path.arenas:
+		if ri >= a.start - 3 and ri <= maxi(a.end, a.door_ring) + 4:
+			return false
+	for t in hazard_mgr._traps:
+		if absi(ri - t.ring) < 4:
+			return false
+	for sc in _secrets:
+		if absi(ri - int(sc.ring)) < 4:
+			return false
+	return true
+
+
+## v4c: the console's objective counter, in words that fit above the weapons well.
+func _refresh_objective_hud() -> void:
+	var label := ""
+	match _obj_kind:
+		"rescue":
+			label = "PODS %d/%d"
+		"generators":
+			label = "GENERATORS %d/%d"
+		"reactor":
+			label = "REACTOR %d/%d"
+		"anchor":
+			label = "ANCHOR %d/%d"
+	hud.set_objective("" if label == "" else label % [_obj_done, _obj_total],
+		_obj_kind != "" and _obj_done >= _obj_total)
 
 
 ## K3: crushers go in plain tunnel stretches — never in arenas, never adjacent to
@@ -589,6 +713,139 @@ func _place_hazards(level: LevelDef) -> void:
 		hazard_mgr.spawn_trap(ri, side)
 		side = -side
 		placed.append(ri)
+
+
+## v4c: a rescue pod was flown through.
+func _on_station_collected(kind: String, _id: int) -> void:
+	if kind != "pod" or _obj_kind != "rescue":
+		return
+	_obj_done += 1
+	_refresh_objective_hud()
+	AudioSys.play_powerup()
+	hud.flash_tint(Color(0.35, 0.95, 1.0), 0.14)
+	if _obj_done >= _obj_total:
+		_objective_complete("ALL PODS SAFE · EXIT OPEN")
+	else:
+		hud.show_message("POD RESCUED %d/%d" % [_obj_done, _obj_total], 2.0)
+
+
+## v4c: a generator, the reactor or the anchor went down (it has already blown up and
+## paid its score; the blast's own HUD lines came before this signal).
+func _on_objective_destroyed(kind: String, _id: int, _pos: Vector3) -> void:
+	if _obj_kind == "":
+		return
+	_obj_done = mini(_obj_done + 1, _obj_total)
+	_refresh_objective_hud()
+	AudioSys.play_powerup()
+	player.shake = maxf(player.shake, 0.5)
+	if kind == "generator":
+		if _obj_done >= _obj_total:
+			_objective_complete("ALL GENERATORS DOWN · EXIT OPEN")
+		else:
+			hud.show_message("GENERATOR DOWN %d/%d" % [_obj_done, _obj_total], 2.0)
+	else:
+		gib_mgr.hit_stop(160, 0.25, true)
+		_objective_complete("%s DOWN · ESCAPE!" % kind.to_upper())
+		_start_escape()
+
+
+## v4c: the objective is done: the exit lights.
+func _objective_complete(msg: String) -> void:
+	world.set_portal_active(true)
+	AudioSys.play_portal()
+	hud.show_message(msg, 3.0)
+
+
+## v4c: seconds to reach the exit from `rings_left` rings away (plus `extra_rings` of
+## detour): rings x 12 m at cruise speed (18 m/s), x1.5 slack, + 8 s.
+static func escape_time(rings_left: int, extra_rings := 0) -> float:
+	return float(rings_left + extra_rings) * PathGen.SEG / PlayerShip.BASE_SPEED \
+		* ESCAPE_SLACK + ESCAPE_BASE
+
+
+## v4c: rings from the ship to the sector's end along the main path (a ship inside a
+## branch counts from the branch mouth).
+func _rings_to_exit() -> int:
+	var ri := player.ring_idx
+	if ri >= path.main_ring_count:
+		var sid: int = path.rings[ri].get("spur", -1)
+		ri = int(path.spurs[sid].entry) if sid >= 0 else path.main_ring_count - 1
+	return maxi(0, path.main_ring_count - 1 - ri)
+
+
+## v4c: the reactor or anchor fell: the exit is lit, and the clock starts. A keycard
+## still out in its branch adds that branch's round trip, since the hub door needs it.
+func _start_escape() -> void:
+	var detour := 0
+	if _hub_arena >= 0 and not GameState.has_key:
+		var sp: Dictionary = path.spur_of("key")
+		if not sp.is_empty():
+			detour = 2 * (int(sp.cache) - int(sp.start) + 1)
+	_escape_left = escape_time(_rings_to_exit(), detour)
+	hud.set_escape(_escape_left)
+
+
+## v4c: the escape clock. Out of time is not a fail: the shields drain instead (4/s
+## times the damage-taken multiplier) until the ship is through the exit.
+func _update_escape(delta: float) -> void:
+	if _escape_left < 0.0:
+		return
+	if _escape_left > 0.0:
+		_escape_left = maxf(0.0, _escape_left - delta)
+		if _escape_left == 0.0:
+			hud.show_message("OUT OF TIME · SHIELDS DRAINING — RUN!", 3.0)
+			AudioSys.play_overheat()
+	if _escape_left == 0.0:
+		GameState.shields -= ESCAPE_DRAIN * GameState.damage_taken_mult() * delta
+		player.last_damage = player.elapsed   # no shield regen while the core burns
+	hud.set_escape(_escape_left)
+
+
+## v4c: the objective's line in the level-clear tally ("" when the sector has none).
+func _objective_summary() -> String:
+	match _obj_kind:
+		"rescue":
+			return "PODS %d/%d" % [_obj_done, _obj_total]
+		"generators":
+			return "GENERATORS %d/%d" % [_obj_done, _obj_total]
+		"reactor":
+			return "REACTOR DESTROYED"
+		"anchor":
+			return "ANCHOR DESTROYED"
+	return ""
+
+
+## v4c: the objective's checkpoint entry: what is done and the escape clock.
+func _objective_data() -> Dictionary:
+	var done: Array = []
+	if _obj_kind == "rescue":
+		done = pickup_mgr.station_ids_collected("pod")
+	elif _obj_kind != "":
+		var gone: Array = prop_mgr.gone_ids()
+		done = _obj_ids.filter(func(i: int) -> bool: return i in gone)
+	return {"done": done, "escape_left": _escape_left}
+
+
+## v4c: a resume puts the objective back as the checkpoint had it: done pods and props
+## gone without a blast, the exit lit if that finished it, and a running escape clock
+## resumed (never with less than ESCAPE_RESUME_MIN, so a retry after running out of time
+## is not an instant drain).
+func _apply_objective(ob: Dictionary) -> void:
+	if _obj_kind == "":
+		return
+	var done: Array = ob.get("done", [])
+	if _obj_kind == "rescue":
+		pickup_mgr.mark_stations_collected("pod", done)
+	else:
+		prop_mgr.remove_ids(done)
+	_obj_done = mini(done.size(), _obj_total)
+	var left := float(ob.get("escape_left", -1.0))
+	if left >= 0.0 and _obj_done >= _obj_total:
+		_escape_left = maxf(left, ESCAPE_RESUME_MIN)
+		hud.set_escape(_escape_left)
+	if _obj_done >= _obj_total:
+		world.set_portal_active(true)
+	_refresh_objective_hud()
 
 
 func _on_cell_destroyed() -> void:
@@ -950,6 +1207,14 @@ func _level_complete() -> void:
 		and GameState.level_props >= GameState.level_props_total
 	if secondary_done:
 		bonus += 400
+	# v4c: the objective's tally line, and the escape bonus for beating the clock
+	var objective_line := _objective_summary()
+	var escape_bonus := 0
+	if _escape_left > 0.0:
+		escape_bonus = ESCAPE_BONUS + ESCAPE_BONUS_PER_SEC * int(_escape_left)
+		bonus += escape_bonus
+	_escape_left = -1.0
+	hud.set_escape(-1.0)
 	bonus += GameState.peak_style * 100   # V2.2 L2c: style pays
 	GameState.score += bonus
 	# Phase J: rank the run, remember progress
@@ -984,13 +1249,23 @@ func _level_complete() -> void:
 		next.salvage_run = 0
 		next.stats = [0, 0, 0, 0, 0, 0, 0]
 		next.elapsed = 0.0
+		# nothing this sector claimed carries into the next one's start
+		next.cleared_arenas = []
+		next.miniboss_down = false
+		next.secrets_found = []
+		next.caches = []
+		next.props_gone = []
+		next.has_key = false
+		next.switch_on = false
+		next.vault_found = false
+		next.objective = {"done": [], "escape_left": -1.0}
 		_store_checkpoint(next)
 		state = State.LEVEL_CLEAR
 		overlays.set_level_clear(
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
 			GameState.level_kills, acc, player.elapsed, rank, secondary_done,
 			GameState.level_secrets, GameState.level_secrets_total, GameState.peak_style, earned,
-			spur_mgr.caches_found, spur_mgr.supply_count())
+			spur_mgr.caches_found, spur_mgr.supply_count(), objective_line, escape_bonus)
 		overlays.show_only("level_clear")
 
 
@@ -1225,7 +1500,8 @@ func _begin_resume(cp: Dictionary) -> void:
 ## checkpoint had already done — cleared bulkheads open with their guards gone, no
 ## tunnel spawns behind the ship, the ship on the checkpoint ring, the clock.
 func _apply_resume(cp: Dictionary) -> void:
-	var ring := clampi(int(cp.ring), 1, maxi(1, path.main_ring_count - 4))
+	_apply_objective(cp.get("objective", {}))   # v4c: first, the resume ring depends on it
+	var ring := _resume_ring(int(cp.ring))
 	var cleared: Array = cp.cleared_arenas
 	for id in cleared:
 		world.open_door(int(id))
@@ -1271,6 +1547,31 @@ func _apply_resume(cp: Dictionary) -> void:
 	spur_mgr.caches_found = mini(spur_mgr.caches_found, spur_mgr.supply_count())
 
 
+## Where a resume puts the ship: the saved ring, but always a couple of rings before the
+## exit portal (the last bulkhead's checkpoint lies past it), and, if an objective (a
+## generator, reactor, anchor or pod) is still undone behind that ring, a few rings before
+## the earliest such one: a room's door opens on its kills, before its objective may be done.
+func _resume_ring(saved: int) -> int:
+	var ring := clampi(saved, 1, maxi(1, world.portal_ring() - 2))
+	var earliest := ring
+	var spots: Array[Vector3] = []
+	for ob in prop_mgr.objective_positions():
+		spots.append(ob.pos)
+	for pod in pickup_mgr.live_stations("pod"):
+		spots.append(pod.pos)
+	for pos in spots:
+		var ri := 1
+		var best := INF
+		for i in path.main_ring_count:   # (a resume happens once: a plain scan will do)
+			var d2: float = (path.rings[i].p as Vector3).distance_squared_to(pos)
+			if d2 < best:
+				best = d2
+				ri = i
+		if ri - 4 < earliest:
+			earliest = ri - 4
+	return clampi(earliest, 1, ring)
+
+
 ## Re-audit Step 4: the run as it stands, as a checkpoint at `ring`.
 func _checkpoint_data(ring: int, cleared: Array) -> Dictionary:
 	return {
@@ -1300,6 +1601,7 @@ func _checkpoint_data(ring: int, cleared: Array) -> Dictionary:
 		"has_key": GameState.has_key,
 		"switch_on": spur_mgr.switch_on,
 		"vault_found": not _vault.is_empty() and _vault.found,
+		"objective": _objective_data(),   # v4c: pods / generators done, the escape clock
 	}
 
 
@@ -1374,6 +1676,7 @@ func _process(delta: float) -> void:
 	gib_mgr.update_gibs(delta)
 	pickup_mgr.update_pickups(delta)
 	prop_mgr.update_props(delta)
+	_update_escape(delta)   # v4c
 	hazard_mgr.update_traps(delta)
 	_update_secrets()
 	spur_mgr.update(delta)
@@ -1537,6 +1840,8 @@ func _on_pickup_collected(kind: String, value := 0) -> void:
 	match kind:
 		"keycard":   # v4c
 			_on_key_taken()
+			return
+		"pod":   # v4c: a rescue, announced by _on_station_collected
 			return
 		"shield":   # the amount follows the difficulty's pickup value (Step 3)
 			hud.show_message("SHIELD CELL +%d" % roundi(PickupManager.EFFECT.shield
@@ -1793,14 +2098,15 @@ func _open_automap() -> void:
 	for s in _secrets:
 		if s.found:
 			secret_rings.append(s.ring)
-	var portal_ring := (path.rings.size() - 1) if world.portal_active else -1
+	var portal_ring := maxi(path.main_ring_count - 6, 0) if world.portal_active else -1
 	automap.set_markers(secret_rings, portal_ring, _automap_extras())
 	automap.open()
 
 
 ## v4c: what the automap marks beyond secrets and the exit: the keycard (K) and the
 ## switch (a star, red until thrown) once their branch has been seen, the sealed hub door
-## (a red bar), the vault (V) once it's open, and ? on each branch mouth not yet flown.
+## (a red bar), the vault (V) once it's open, and ? on each branch mouth not yet flown;
+## and (v4c) the objectives still to do (P / G / R / A).
 func _automap_extras() -> Array:
 	var out: Array = []
 	var seen_to := automap.explored_to()
@@ -1822,6 +2128,13 @@ func _automap_extras() -> Array:
 				"col": Color("ff3030")})
 	if not _vault.is_empty() and _vault.get("open", false) and not _vault.found:
 		out.append({"pos": path.rings[_vault.ring].p, "glyph": "V", "col": KEY_GOLD})
+	# v4c: each objective still to do: P pod (cyan), G generator (orange), R reactor and
+	# A anchor (red)
+	for pod in pickup_mgr.live_stations("pod"):
+		out.append({"pos": pod.pos, "glyph": "P", "col": Color("55ffee")})
+	for ob in prop_mgr.objective_positions():
+		out.append({"pos": ob.pos, "glyph": String(ob.kind).substr(0, 1).to_upper(),
+			"col": OBJ_ORANGE if ob.kind == "generator" else Color("ff4030")})
 	return out
 
 

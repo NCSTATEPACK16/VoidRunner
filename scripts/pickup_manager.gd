@@ -8,10 +8,13 @@ extends Node3D
 ## bigger, longer-lived, and their effect runs on GameState's power clocks.
 
 signal collected(kind: String, value: int)   # value: salvage amount, else 0
+## v4c: any station's pickup was collected; id is the station's spawn order this level.
+signal station_collected(kind: String, id: int)
 
 const MAGNET_RANGE_SQ := 14.0 * 14.0
 const MAGNET_SPEED := 18.0
 const COLLECT_RANGE_SQ := 9.0
+const POD_RADIUS := 6.0   # v4c: rescue pods are collected by a wide fly-by, no magnet
 const LIFETIME := 12.0
 const POWER_LIFETIME := 16.0   # 3.0: power-ups hang around a little longer
 const BLINK_AT := 3.0     # blink for the last N seconds before expiring
@@ -27,7 +30,8 @@ var player: PlayerShip
 var path: PathGen
 
 var _pickups: Array[Dictionary] = []
-var _stations: Array[Dictionary] = []   # boss resupply: {kind, pos, bob_p, node|null}
+var _stations: Array[Dictionary] = []   # {id, kind, pos, bob_p, node|null, refill, done, r2}
+var _next_station_id := 0
 var _frames := {}   # 3.0: kind -> baked spin frames (SpriteForge)
 var _spin_t := 0.0
 const SPIN_FPS := 10.0
@@ -46,6 +50,7 @@ func clear_all() -> void:
 		if s.node:
 			s.node.queue_free()
 	_stations.clear()
+	_next_station_id = 0
 
 
 func warmup_textures() -> Array:
@@ -65,9 +70,13 @@ func _spin(node: Sprite3D, kind: String, phase: float) -> void:
 ## expires; collecting it empties the slot until replenish_stations() (called on
 ## each boss phase transition) respawns it at its anchor position. v4b: only a
 ## `refill` station (a main boss's) comes back; any other is collected once.
-func add_station(pos: Vector3, kind: String, refill := false) -> Dictionary:
-	var station := {"kind": kind, "pos": pos, "bob_p": randf() * TAU, "node": null,
-		"refill": refill}
+## v4c: each station gets a stable `id` (spawn order, reset by clear_all) and an optional
+## collect `radius` (0 = the usual COLLECT_RANGE). Returns the station dictionary.
+func add_station(pos: Vector3, kind: String, refill := false, radius := 0.0) -> Dictionary:
+	var station := {"id": _next_station_id, "kind": kind, "pos": pos,
+		"bob_p": randf() * TAU, "node": null, "refill": refill, "done": false,
+		"r2": radius * radius if radius > 0.0 else COLLECT_RANGE_SQ}
+	_next_station_id += 1
 	_stations.append(station)
 	_respawn_station(station)
 	return station
@@ -79,11 +88,41 @@ func clear_station(s: Dictionary) -> void:
 	if s.node != null:
 		s.node.queue_free()
 		s.node = null
+	s.done = true
+
+
+## Ids of the stations of `kind` that were already collected (for checkpoints).
+func station_ids_collected(kind: String) -> Array:
+	var out: Array = []
+	for s in _stations:
+		if s.kind == kind and s.done:
+			out.append(s.id)
+	return out
+
+
+## A resume: these stations are taken already. Removes them silently (no signals).
+func mark_stations_collected(kind: String, ids: Array) -> void:
+	for s in _stations:
+		if s.kind == kind and ids.has(s.id):
+			s.done = true
+			if s.node:
+				s.node.queue_free()
+				s.node = null
+
+
+## Stations of `kind` still waiting to be collected, as {id, pos} (HUD / automap).
+func live_stations(kind: String) -> Array:
+	var out: Array = []
+	for s in _stations:
+		if s.kind == kind and not s.done:
+			out.append({"id": s.id, "pos": s.pos})
+	return out
 
 
 func replenish_stations() -> void:
 	for s in _stations:
 		if s.node == null and s.refill:
+			s.done = false
 			_respawn_station(s)
 
 
@@ -139,10 +178,12 @@ func update_pickups(delta: float) -> void:
 		s.bob_p += delta * 2.4
 		node.position = s.pos + Vector3.UP * sin(s.bob_p) * 0.5
 		_spin(node, s.kind, s.bob_p)
-		if player.position.distance_squared_to(node.position) < COLLECT_RANGE_SQ:
-			_collect(s.kind)
+		if player.position.distance_squared_to(node.position) < s.r2:
 			node.queue_free()
 			s.node = null
+			s.done = true
+			_collect(s.kind)
+			station_collected.emit(s.kind, s.id)
 
 
 func _collect(kind: String, value := 0) -> void:
@@ -160,4 +201,5 @@ func _collect(kind: String, value := 0) -> void:
 			GameState.salvage_changed.emit(GameState.salvage_total())
 		"overdrive", "phase", "powercore":   # 3.0: timed — starts/refills its clock
 			GameState.grant_power(kind)
+		# "pod" (v4c) is a rescue, not a power-up: no effect, only the signals
 	collected.emit(kind, value)

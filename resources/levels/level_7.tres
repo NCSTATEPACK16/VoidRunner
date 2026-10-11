@@ -6,7 +6,7 @@
 script = ExtResource("1")
 display_name = "L7 · GLACIAL CONDUITS"
 briefing = "WRAITHS cloak, then shimmer in to fire: hit them while they show. CRAWLERS creep along the walls: watch the sides."
-objective = "TRAVERSE THE CONDUITS"
+objective = "RESCUE 4 STRANDED PODS"
 rings = 195
 spawn_tunnel = 0.13
 spawn_arena = 0.52
@@ -19,3 +19,5 @@ enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk", "hulk", "tu
 intro_types = PackedStringArray("wraith", "crawler")
 spur_count = 2
 hub = true
+objective_kind = "rescue"
+objective_count = 4
