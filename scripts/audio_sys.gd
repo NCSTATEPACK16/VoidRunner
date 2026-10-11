@@ -47,6 +47,13 @@ var _gib_tick: AudioStreamWAV
 var _sting: AudioStreamWAV   # V2.2 L2c: style-grade fanfare, repitched per grade
 var _powerup: AudioStreamWAV   # 3.0: timed power-up grabbed
 var _warn: AudioStreamWAV      # 3.0: stinger wind-up / mine arming tell
+var _tick: AudioStreamWAV      # v4d: tally count-up blip (rate-limited)
+var _stamp: AudioStreamWAV     # v4d: tally rank lands
+var _blip: AudioStreamWAV      # v4d: menu focus move (rate-limited)
+var _confirm: AudioStreamWAV   # v4d: menu press
+var _ui_last_ms := {}          # v4d: per-sound last accepted play time
+const TICK_GAP_MS := 45
+const BLIP_GAP_MS := 30
 var _gib_voices: Array[AudioStreamPlayer] = []   # V2.2 L1f: dedicated, caps ticks at 2
 
 
@@ -71,6 +78,10 @@ func _ready() -> void:
 	_sting = _render_sting()
 	_powerup = _render_powerup()
 	_warn = _render_warn()
+	_tick = _render_tick()
+	_stamp = _render_stamp()
+	_blip = _render_blip()
+	_confirm = _render_confirm()
 	for i in 2:
 		var g := AudioStreamPlayer.new()
 		g.bus = "Master"
@@ -253,6 +264,41 @@ func play_powerup() -> void:
 
 func play_warn() -> void:
 	_play(_warn)
+
+
+## v4d: tally count-up blip. Rate-limited (one per 45 ms, extras dropped) so a
+## count-up can call it every frame; pitch wobbles a little so it isn't a buzz.
+func play_tick() -> void:
+	if _ui_gate("tick", TICK_GAP_MS):
+		_play(_tick, 0.94 + randf() * 0.14)
+
+
+## v4d: the rank landing on the tally — a low stamp/thunk.
+func play_stamp() -> void:
+	_play(_stamp)
+
+
+## v4d: menu focus move — softer than play_select; lightly rate-limited so a
+## held key doesn't stack voices.
+func play_blip() -> void:
+	if _ui_gate("blip", BLIP_GAP_MS):
+		_play(_blip)
+
+
+## v4d: menu item pressed — a brighter two-note confirm.
+func play_confirm() -> void:
+	_play(_confirm)
+
+
+## True (and stamps the clock) when `key` hasn't played within `gap_ms`.
+func _ui_gate(key: String, gap_ms: int) -> bool:
+	if not _unlocked:
+		return false
+	var now := Time.get_ticks_msec()
+	if now - int(_ui_last_ms.get(key, -100000)) < gap_ms:
+		return false
+	_ui_last_ms[key] = now
+	return true
 
 
 ## v4b: a MENDER patching an ally — the power-up chime, higher and quicker.
@@ -574,6 +620,72 @@ func _render_warn() -> AudioStreamWAV:
 		var on := t < 0.05 or (t > 0.09 and t < 0.14)
 		phase += 1320.0 / SAMPLE_RATE
 		out[i] = ((1.0 if fmod(phase, 1.0) < 0.5 else -1.0) * 0.07) if on else 0.0
+	return _make_wav(out)
+
+
+func _render_tick() -> AudioStreamWAV:
+	# v4d: 30 ms FM blip, 1180 Hz carrier with a 2:1 modulator that bites on the attack.
+	var n := int(SAMPLE_RATE * 0.03)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		phase += 1180.0 / SAMPLE_RATE
+		var idx := 1.8 * exp(-t * 90.0)
+		out[i] = sin(TAU * phase + idx * sin(TAU * 2.0 * phase)) * 0.09 * exp(-t * 70.0)
+	return _make_wav(out)
+
+
+func _render_stamp() -> AudioStreamWAV:
+	# v4d: a stamp landing — sine thump diving 150 -> 48 Hz, an FM knock on the
+	# hit and a short noise slap (0.22 s).
+	var n := int(SAMPLE_RATE * 0.22)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 95
+	var phase := 0.0
+	var knock := 0.0
+	var lp := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		phase += (48.0 + 102.0 * exp(-t * 30.0)) / SAMPLE_RATE
+		knock += 210.0 / SAMPLE_RATE
+		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.3
+		var v := sin(TAU * phase) * 0.22 * exp(-t * 14.0)
+		v += sin(TAU * knock + 2.4 * exp(-t * 40.0) * sin(TAU * 1.41 * knock)) * 0.075 * exp(-t * 28.0)
+		v += lp * 0.06 * exp(-t * 120.0)
+		out[i] = clampf(v, -1.0, 1.0)
+	return _make_wav(out)
+
+
+func _render_blip() -> AudioStreamWAV:
+	# v4d: 28 ms soft triangle blip at 780 Hz — a hair above a whisper next to select.
+	var n := int(SAMPLE_RATE * 0.028)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		phase += 780.0 / SAMPLE_RATE
+		var tri := absf(fmod(phase, 1.0) * 4.0 - 2.0) - 1.0
+		out[i] = tri * 0.05 * exp(-t * 55.0)
+	return _make_wav(out)
+
+
+func _render_confirm() -> AudioStreamWAV:
+	# v4d: two bright 25%-pulse notes, A5 then E6 (a rising fifth), 0.16 s.
+	var n := int(SAMPLE_RATE * 0.16)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		var k := 0 if t < 0.06 else 1
+		phase += (880.0 if k == 0 else 1318.5) / SAMPLE_RATE
+		var env := 0.09 * exp(-(t - k * 0.06) * (22.0 if k == 0 else 14.0))
+		out[i] = (1.0 if fmod(phase, 1.0) < 0.25 else -1.0) * env
 	return _make_wav(out)
 
 
