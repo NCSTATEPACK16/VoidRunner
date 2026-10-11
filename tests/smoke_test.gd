@@ -100,6 +100,7 @@ func _run() -> void:
 	for id in SpriteModels.ENEMIES + SpriteModels.BOSSES:
 		var st: Dictionary = SpriteForge.sprite_set(id)
 		assert(st.tex.size() == st.angles * st.anim and st.flash.size() == st.angles)
+	assert(SpriteForge.bosses_ready())   # headless: the pixel fallback packs bosses too
 	for kind in SpriteModels.PICKUPS:
 		assert(not SpriteForge.pickup_frames(kind).is_empty())
 	assert(SpriteForge.prop_texture() != null)

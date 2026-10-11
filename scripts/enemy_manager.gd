@@ -201,7 +201,8 @@ const GIB_TINTS := {
 
 
 func _ready() -> void:
-	for id in SpriteModels.ENEMIES + SpriteModels.BOSSES:
+	# boss sets are fetched on first spawn (_boss_dict): their sheet bakes then
+	for id in SpriteModels.ENEMIES:
 		_sets[id] = SpriteForge.sprite_set(id)
 
 
@@ -274,11 +275,16 @@ func _release_node(s: Sprite3D) -> void:
 	_node_cache.append(s)
 
 
-## First frame of every enemy type (incl. bosses), for the briefing shader warm-up.
+## First frame of every enemy type (and the bosses once their sheet is baked), for
+## the briefing shader warm-up.
 func warmup_textures() -> Array:
 	var texes: Array = []
 	for id in _sets:
 		texes.append(_sets[id].tex[0])
+	if SpriteForge.bosses_ready():
+		for id in SpriteModels.BOSSES:
+			if not _sets.has(id):
+				texes.append(SpriteForge.sprite_set(id).tex[0])
 	return texes
 
 
@@ -457,7 +463,10 @@ func spawn_miniboss(arena: Dictionary, lvl: LevelDef) -> void:
 func _boss_dict(ring_idx: int, model: String, hp: int, size: float, tint: Color,
 		lvl: LevelDef) -> Dictionary:
 	var ring: Dictionary = path.rings[ring_idx]
-	var st: Dictionary = _sets.get(model, _sets["sentinel"])
+	if not _sets.has(model):
+		_sets[model] = SpriteForge.sprite_set(
+			model if SpriteModels.BOSSES.has(model) else "sentinel")
+	var st: Dictionary = _sets[model]
 	var sprite := _acquire_node(st.tex[0], size)
 	sprite.modulate = tint
 	sprite.position = ring.p
