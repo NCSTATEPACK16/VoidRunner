@@ -106,3 +106,76 @@ static func load_lines(level_index: int) -> PackedStringArray:
 	if level_index < 0 or level_index >= _LOAD_LINES.size():
 		return PackedStringArray(_LOAD_LINES[0])
 	return PackedStringArray(_LOAD_LINES[level_index])
+
+
+## V4d episodes: three chapters of three sectors each. `first`/`last` are 0-based level
+## indices. `subtitle` is the title card's one-liner (<= ~38 chars, fits one 8 px line);
+## `ending` is the text over the boss-room still (<= ~160 chars, <= 4 lines in the band).
+const EPISODES: Array[Dictionary] = [
+	{
+		"id": "E1",
+		"title": "THE OUTER LANES",
+		"subtitle": "A lone pilot lights the way",
+		"first": 0,
+		"last": 2,
+		"ending": "The Sentinel powers down and the docks glow green again. Starlight's outer ring is safe. Ahead, the Hive's nest waits.",
+	},
+	{
+		"id": "E2",
+		"title": "THE HIVE",
+		"subtitle": "Follow the glow to the nest",
+		"first": 3,
+		"last": 5,
+		"ending": "The Brood Mother settles into a quiet hum. The nest is calm at last, and the way to the Rift lies open.",
+	},
+	{
+		"id": "E3",
+		"title": "THE RIFT",
+		"subtitle": "One last run through the dark",
+		"first": 6,
+		"last": 8,
+		"ending": "The Rift folds shut like a closing door, and the stars come back. Starlight Station is safe, thanks to you, Runner.",
+	},
+]
+
+
+## Episode number 0..2 for a campaign level index; -1 for the gauntlet, endless or
+## any out-of-range index.
+static func episode_of(level_index: int) -> int:
+	for i in EPISODES.size():
+		var ep: Dictionary = EPISODES[i]
+		if level_index >= int(ep["first"]) and level_index <= int(ep["last"]):
+			return i
+	return -1
+
+
+## The episode dictionary for episode number `i` (clamped into range).
+static func episode(i: int) -> Dictionary:
+	return EPISODES[clampi(i, 0, EPISODES.size() - 1)]
+
+
+## "E2" for a level index, "" outside the campaign.
+static func episode_code(level_index: int) -> String:
+	var e: int = episode_of(level_index)
+	if e < 0:
+		return ""
+	var ep: Dictionary = EPISODES[e]
+	return String(ep["id"])
+
+
+static func starts_episode(level_index: int) -> bool:
+	var e: int = episode_of(level_index)
+	return e >= 0 and level_index == int(EPISODES[e]["first"])
+
+
+static func ends_episode(level_index: int) -> bool:
+	var e: int = episode_of(level_index)
+	return e >= 0 and level_index == int(EPISODES[e]["last"])
+
+
+## "L4 · REACTOR MAZE" -> "E2 · L4 · REACTOR MAZE". Unchanged outside the campaign.
+static func sector_name(level_index: int, display_name: String) -> String:
+	var code: String = episode_code(level_index)
+	if code == "":
+		return display_name
+	return "%s · %s" % [code, display_name]
