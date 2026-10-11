@@ -267,3 +267,30 @@ their own), 6 boss models (3 of them the mini-bosses) in one 1536 px sheet, 3 sh
   class's angles or cell size are the first knobs.
 - Draw calls stay one per enemy sprite, so the dense arena (now 18 types) peaks 88–95, inside
   the ~105 gate.
+
+## Load time: a lighter sprite bake (2026-10-11)
+
+Two changes to `SpriteForge`, both checked pixel-for-pixel against `main` (the forge probe's
+three contact sheets are identical):
+
+- Each model's 7 extra angle copies are bare RenderingServer instances of its meshes instead
+  of duplicated node trees added to the bake viewport. Building the sheets fell from ~285 ms
+  to ~70 ms of a ~750 ms bake (xvfb, llvmpipe); node duplication had been ~220 ms of it.
+- The boss sheet (6 models at 128 px, the largest) no longer bakes at boot. `bake_bosses()`
+  runs on the first `sprite_set()` of a boss model, which only happens while a level loads
+  (`spawn_boss` / `spawn_miniboss` in `_load_level_world`): under the web loading overlay,
+  behind the briefing on desktop. The enemy manager fetches boss sets on first spawn.
+
+| Run (same container, alternating) | `main` (32ed5f9) | This PR |
+|---|---|---|
+| Forge probe boot bake ×3 (xvfb) | 1282 / 1124 / 1017 ms, 3 sheets | 295 / 284 / 383 ms, 2 sheets |
+| Deferred boss sheet ×3 | (in the boot bake) | 287 / 194 / 263 ms, at the first boss level's load |
+| Web bake ×3 (SwiftShader) | 2995 / 2456 / 2309 ms | 1331 / 1528 / 1418 ms |
+| Web title up ×3 | 11.9 / 9.3 / 9.0 s | 8.2 / 8.5 / 8.3 s |
+| Web first flight (L1, no boss) ×3 | 37.6 / 23.2 / 22.4 s | 34.0 / 22.1 / 22.3 s |
+
+- The first run of each side logged the existing "A user gesture is required to request
+  Pointer Lock" race (a launch that lands after the keypress); later runs had 0 errors.
+- The web download is unchanged: the engine is 39.5 MB (about 10 MB gzipped), the game's
+  pack 0.56 MB. Shrinking the engine needs a custom export template (fewer modules), which
+  is a separate decision.

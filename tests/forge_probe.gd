@@ -15,6 +15,8 @@ func _ready() -> void:
 	SpriteForge.bake(self)
 	print("[forge] baked in %d ms (bake_ms %d), %d sheets, gpu=%s" % [Time.get_ticks_msec() - t0,
 		SpriteForge.bake_ms, SpriteForge.sheet_count, SpriteForge.gpu_baked])
+	SpriteForge.bake_bosses()   # deferred to the first boss in the game; forced here
+	print("[forge] boss sheet baked in %d ms (deferred from boot)" % SpriteForge.boss_bake_ms)
 	for group in [SpriteModels.ENEMIES, SpriteModels.BOSSES]:
 		var cell: int = (SpriteForge.sprite_set(group[0]).tex[0] as Texture2D).get_width()
 		var sheet := Image.create(cell * 8, cell * 3 * group.size(), false, Image.FORMAT_RGBA8)

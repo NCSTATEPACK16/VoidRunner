@@ -36,35 +36,78 @@ static var _prop: Array[ImageTexture] = []
 static var _baked := false
 static var gpu_baked := false   # true when the GPU turntable path produced the sets
 static var bake_ms := 0         # v4b: how long bake() took, either path
+static var boss_bake_ms := 0    # the deferred boss sheet's bake (see bake_bosses)
+static var _bosses_baked := false
+static var _host: Node = null   # bake()'s host, reused by the deferred boss bake
 static var sheet_count := 0     # v4b: bake viewports used (0 on the pixel fallback)
+## Bake-only RenderingServer instances (the angle copies), freed after readback.
+static var _rids: Array[RID] = []
 
 
-## Bake every sprite class. Call once, early, from a node inside the tree.
+## Bake the enemy and pickup sprites. Call once, early, from a node inside the tree.
+## The boss sheet (the largest: 128 px cells) waits for the first boss — see
+## bake_bosses — so the title comes up sooner.
 static func bake(host: Node) -> void:
 	if _baked:
 		return
 	_baked = true
+	_host = host
 	var t0 := Time.get_ticks_msec()
 	_bake(host)
 	bake_ms = Time.get_ticks_msec() - t0
 
 
+## The boss and mini-boss sheet. Runs on the first sprite_set() of a boss model,
+## which happens while a level loads (spawn_boss / spawn_miniboss in
+## game._load_level_world): under the web loading overlay, behind the briefing on
+## desktop. Safe to call any time; a no-op once done.
+static func bake_bosses() -> void:
+	if _bosses_baked:
+		return
+	_bosses_baked = true
+	if not gpu_baked:
+		return   # the pixel fallback already packed the bosses
+	var host := _host
+	if host == null or not is_instance_valid(host) or not host.is_inside_tree():
+		host = (Engine.get_main_loop() as SceneTree).root
+	var t0 := Time.get_ticks_msec()
+	if not _bake_classes(host, [{"cell": 128, "angles": ANGLES, "anim": ANIM,
+			"pitch": 10.0, "ids": SpriteModels.BOSSES}]):
+		push_warning("SpriteForge: boss atlas readback failed; using pixel fallback bosses")
+		_fallback_bosses()
+	boss_bake_ms = Time.get_ticks_msec() - t0
+
+
 static func _bake(host: Node) -> void:
 	if DisplayServer.get_name() == "headless":
 		_fallback()
+		_bosses_baked = true
 		return
-	var sheets: Array[Dictionary] = []
-	for cls in [
+	if _bake_classes(host, [
 		{"cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0, "ids": SpriteModels.ENEMIES},
-		{"cell": 128, "angles": ANGLES, "anim": ANIM, "pitch": 10.0, "ids": SpriteModels.BOSSES},
 		{"cell": 32, "angles": 8, "anim": 1, "pitch": 24.0,
 			"ids": SpriteModels.PICKUPS + ["prop"]},
-	]:
+	]):
+		gpu_baked = true
+	else:
+		push_warning("SpriteForge: atlas readback failed; using pixel fallback sprites")
+		_sets.clear()
+		_pickups.clear()
+		_prop.clear()
+		_fallback()
+		_bosses_baked = true
+
+
+## Renders and slices the given sprite classes in one synchronous GPU pass. False
+## if a readback came back empty (the caller falls back to pixel sprites).
+static func _bake_classes(host: Node, classes: Array) -> bool:
+	var sheets: Array[Dictionary] = []
+	for cls in classes:
 		for ids in sheet_chunks(cls.ids, cls.cell, cls.anim):
 			var sh: Dictionary = cls.duplicate()
 			sh.ids = ids
 			sheets.append(sh)
-	sheet_count = sheets.size()
+	sheet_count += sheets.size()
 	var vps: Array[SubViewport] = []
 	for sh in sheets:
 		vps.append(_build_sheet(host, sh))
@@ -73,24 +116,31 @@ static func _bake(host: Node) -> void:
 	for vp in vps:
 		_flush(vp)
 	RenderingServer.force_draw(false)
+	for r in _rids:
+		RenderingServer.free_rid(r)
+	_rids.clear()
 	for k in sheets.size():
 		var img: Image = vps[k].get_texture().get_image()
 		vps[k].queue_free()
 		if img == null or img.is_empty():
-			push_warning("SpriteForge: atlas readback failed; using pixel fallback sprites")
-			_sets.clear()
-			_pickups.clear()
-			_prop.clear()
-			_fallback()
-			return
+			for j in range(k + 1, sheets.size()):
+				vps[j].queue_free()
+			return false
 		img.convert(Image.FORMAT_RGBA8)
 		_slice(img, sheets[k])
-	gpu_baked = true
+	return true
 
 
 static func sprite_set(id: String) -> Dictionary:
 	_ensure()
+	if not _bosses_baked and SpriteModels.BOSSES.has(id):
+		bake_bosses()
 	return _sets.get(id, _sets["drone"])
+
+
+## True once the boss sheet exists (warm-up lists include it only then).
+static func bosses_ready() -> bool:
+	return _bosses_baked
 
 
 static func pickup_frames(kind: String) -> Array:
@@ -129,6 +179,7 @@ static func _ensure() -> void:
 	if not _baked:
 		_baked = true
 		_fallback()
+		_bosses_baked = true
 
 
 static func _build_sheet(host: Node, sh: Dictionary) -> SubViewport:
@@ -157,22 +208,53 @@ static func _build_sheet(host: Node, sh: Dictionary) -> SubViewport:
 	vp.add_child(cam)
 	cam.current = true
 	var w := CELL_WORLD
+	var scenario := vp.find_world_3d().scenario
 	for idx in sh.ids.size():
 		for f in sh.anim:
 			var row: int = idx * sh.anim + f
-			# v4b: one build per (model, frame); the other angles are duplicates that
-			# share its meshes and materials
+			# v4b: one build per (model, frame), shared by every angle. Angle 0 is the
+			# node tree itself; the other angles are bare RenderingServer instances of
+			# its meshes (no nodes to duplicate and add to the tree: that cost ~220 ms
+			# of a ~700 ms bake)
 			var proto := SpriteModels.build(sh.ids[idx], f)
+			var parts := _mesh_parts(proto)
 			for a in cols:
-				var pivot := Node3D.new()
-				pivot.position = Vector3((a + 0.5) * w - cols * w * 0.5,
-					rows * w * 0.5 - (row + 0.5) * w, 0.0)
-				pivot.rotation.x = deg_to_rad(sh.pitch)   # look down on it a little
-				var model: Node3D = proto if a == 0 else proto.duplicate()
-				model.rotation.y = a * TAU / cols
-				pivot.add_child(model)
-				vp.add_child(pivot)
+				var pivot := Transform3D(Basis.from_euler(Vector3(deg_to_rad(sh.pitch), 0, 0)),
+					Vector3((a + 0.5) * w - cols * w * 0.5, rows * w * 0.5 - (row + 0.5) * w, 0.0))
+				proto.rotation.y = a * TAU / cols
+				var at := pivot * proto.transform
+				if a > 0:
+					for pt in parts:
+						var r := RenderingServer.instance_create2(pt.mesh, scenario)
+						RenderingServer.instance_set_transform(r, at * pt.xf)
+						RenderingServer.instance_geometry_set_material_override(r, pt.mat)
+						_rids.append(r)
+			proto.rotation.y = 0.0
+			var holder := Node3D.new()
+			holder.transform = Transform3D(Basis.from_euler(Vector3(deg_to_rad(sh.pitch), 0, 0)),
+				Vector3(0.5 * w - cols * w * 0.5, rows * w * 0.5 - (row + 0.5) * w, 0.0))
+			holder.add_child(proto)
+			vp.add_child(holder)
 	return vp
+
+
+## Every mesh under a model root with its transform relative to the root and its
+## material — what an angle copy needs to be drawn without nodes.
+static func _mesh_parts(root: Node3D) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var stack: Array = [[root, Transform3D.IDENTITY]]
+	while not stack.is_empty():
+		var item: Array = stack.pop_back()
+		for c in (item[0] as Node).get_children():
+			if not (c is Node3D):
+				continue
+			var xf: Transform3D = item[1] * (c as Node3D).transform
+			if c is MeshInstance3D and (c as MeshInstance3D).mesh != null:
+				var mi := c as MeshInstance3D
+				out.append({"mesh": mi.mesh.get_rid(), "xf": xf,
+					"mat": mi.material_override.get_rid() if mi.material_override else RID()})
+			stack.append([c, xf])
+	return out
 
 
 static func _flush(n: Node) -> void:
@@ -227,9 +309,13 @@ static func _fallback() -> void:
 	for id in SpriteModels.ENEMIES:
 		var fr: Array = legacy.get(id, legacy["drone"])
 		_sets[id] = {"angles": 1, "anim": 2, "tex": [fr[0], fr[1]], "flash": [fr[2]]}
-	var boss := SpriteGen.boss_frames()
-	for id in SpriteModels.BOSSES:
-		_sets[id] = {"angles": 1, "anim": 2, "tex": [boss[0], boss[1]], "flash": [boss[2]]}
+	_fallback_bosses()
 	for kind in SpriteModels.PICKUPS:
 		_pickups[kind] = [SpriteGen.pickup_texture(kind)]
 	_prop = [SpriteGen.prop_texture()]
+
+
+static func _fallback_bosses() -> void:
+	var boss := SpriteGen.boss_frames()
+	for id in SpriteModels.BOSSES:
+		_sets[id] = {"angles": 1, "anim": 2, "tex": [boss[0], boss[1]], "flash": [boss[2]]}
