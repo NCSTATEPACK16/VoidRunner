@@ -188,7 +188,7 @@ for sectors 3–5 here; the other four, the heavy variants and the mini-bosses n
 
 **Next:** v4c (hubs, keys, switches, objectives) and v4d (tally, episodes, message log, menu
 feel), each with the gates in *Order and gates*. The session handoff with the full spec, the
-gates and the tooling is `docs/revamp/2026-10-06-v4-handoff.md`.
+gates and the tooling is `docs/revamp/2026-10-11-v4-spec.md` (it was the 2026-10-06 handoff).
 
 ## Why
 

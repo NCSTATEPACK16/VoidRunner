@@ -61,6 +61,11 @@ directory up**, outside this repo, in the parent `RadixRemix/` folder:
 
 ## Current work
 
-v4 is half done: v4c (hubs, keys, objectives) and v4d (tally, episodes, message log, menus)
-remain, then Step 7 gets queued. Start with `docs/revamp/2026-10-06-v4-handoff.md`. Delete this
-section when v4d lands.
+v4 is half done. The spec for everything left is `docs/revamp/2026-10-11-v4-spec.md`:
+- PR A: v4c (hubs, keys, objectives), starting from `docs/revamp/v4c-wip.patch`;
+- PR B: v4d (tally, episodes, message log, menus);
+- PR C: beta polish;
+- then Step 7 gets queued.
+
+It's built by an orchestrator session with Sonnet subagents (§1 of the spec). The web gate is
+`node tests/web_check.mjs`. Delete this section when PR C lands.
