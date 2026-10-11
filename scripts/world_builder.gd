@@ -254,6 +254,8 @@ func open_door(arena_id: int) -> void:
 		return
 	var d: Dictionary = _doors[arena_id]
 	d.open = true
+	if light_rig and d.get("light", -1) >= 0:
+		light_rig.set_static_on(d.light, false)   # v4c: a keyed door's glow goes out
 	var ring: Dictionary = path.rings[d.ring]
 	var tween := create_tween().set_parallel(true)
 	for k in 2:
@@ -265,6 +267,35 @@ func open_door(arena_id: int) -> void:
 
 func is_door_open(arena_id: int) -> bool:
 	return _doors.has(arena_id) and _doors[arena_id].open
+
+
+## v4c: what a sealed door says when the ship bumps it ("" = the usual line).
+func set_door_hint(arena_id: int, text: String) -> void:
+	if _doors.has(arena_id):
+		_doors[arena_id].hint = text
+
+
+func door_hint(door_ring: int) -> String:
+	for id in _doors:
+		if _doors[id].ring == door_ring:
+			return _doors[id].get("hint", "")
+	return ""
+
+
+## v4c: a keyed door: its leaves glow in `color` and a light of that colour stands at
+## it until it opens. Same sector shader as every door, so no new variant compiles.
+func mark_door(arena_id: int, color: Color) -> void:
+	if not _doors.has(arena_id):
+		return
+	var d: Dictionary = _doors[arena_id]
+	var mat := prop_material("door", 1.0, color.lerp(Color.WHITE, 0.5), color * 0.35)
+	mat.set_shader_parameter("cycle_speed", TextureGen.DOOR_CYCLE)
+	for n: MeshInstance3D in d.nodes:
+		n.material_override = mat
+	if light_rig:
+		var ring: Dictionary = path.rings[d.ring]
+		d.light = light_rig.add_static(ring.p - (ring.d as Vector3) * 3.0, color, 1.8, 34.0,
+			"pulse")
 
 
 ## Small meshes for every material class this level can draw that isn't in view

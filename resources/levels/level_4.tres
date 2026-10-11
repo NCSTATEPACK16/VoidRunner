@@ -18,3 +18,4 @@ level_seed = 303
 enemy_types = PackedStringArray("drone", "weaver", "weaver", "hulk", "turret", "stinger", "mine", "layer", "rammer")
 intro_types = PackedStringArray("rammer")
 spur_count = 1
+hub = true

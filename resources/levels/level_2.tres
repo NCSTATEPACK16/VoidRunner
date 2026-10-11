@@ -21,3 +21,4 @@ miniboss_model = "hauler"
 miniboss_name = "HAULER"
 miniboss_hp = 70
 miniboss_size = 11.0
+hub = true

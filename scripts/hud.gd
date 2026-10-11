@@ -89,6 +89,8 @@ var _c_threat := false
 var _c_blink := -2
 var _c_pips := -1
 var _c_boss_hp := -2
+var _key_slot := false   # v4c: this sector has a hub (a keycard socket on the canopy)
+var _c_key := -1
 var _c_boss_flash := false
 var _c_wpn := -1
 var _c_missiles := -1
@@ -235,6 +237,12 @@ func setup(p: PlayerShip, em: EnemyManager, sm: ShotManager, names: Array[String
 	_update_bars()
 
 
+## v4c: show the keycard socket on hub sectors (lit once the key is aboard).
+func set_key_slot(on: bool) -> void:
+	_key_slot = on
+	_c_key = -1
+
+
 func show_message(text: String, t := 1.2) -> void:
 	_msg.text = text
 	_msg_t = t
@@ -321,8 +329,10 @@ func _process(delta: float) -> void:
 		if _threat else -1
 	var boss_hp := int(enemy_mgr.boss.hp) if boss_live else -1
 	var boss_flash: bool = boss_live and enemy_mgr.boss.flash_t > 0.0
+	var key_state := (2 if GameState.has_key else 1) if _key_slot else 0
 	if _threat != _c_threat or blink != _c_blink or GameState.plasma_bombs != _c_pips \
-			or boss_hp != _c_boss_hp or boss_flash != _c_boss_flash:
+			or boss_hp != _c_boss_hp or boss_flash != _c_boss_flash or key_state != _c_key:
+		_c_key = key_state
 		_c_threat = _threat
 		_c_blink = blink
 		_c_pips = GameState.plasma_bombs
@@ -524,6 +534,11 @@ func _draw_canopy() -> void:
 			Color("ff9a30") if lit_pip else Color(0.16, 0.12, 0.09))
 		if lit_pip:
 			c.draw_rect(Rect2(W - 59 + i * 8, 5, 2, 2), Color("ffe0a0"))
+	# v4c: the keycard socket, left of the bomb rack: a dark slot, gold once it's aboard
+	if _key_slot:
+		var held := GameState.has_key
+		c.draw_rect(Rect2(W - 74, 3, 9, 7), Color("ffc830") if held else Color(0.16, 0.12, 0.09))
+		c.draw_rect(Rect2(W - 72, 5, 3, 3), Color("fff0a0") if held else Color(0.09, 0.07, 0.05))
 	# Phase J: boss health bar under the THREAT panel — chunky rect, white damage
 	# flash, tick marks at the 66%/33% phase gates (v4b: a mini-boss's one at 50%)
 	if enemy_mgr and enemy_mgr.boss_visible():

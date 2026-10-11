@@ -22,3 +22,4 @@ miniboss_model = "tender"
 miniboss_name = "SPORE TENDER"
 miniboss_hp = 100
 miniboss_size = 12.0
+hub = true

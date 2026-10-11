@@ -1390,6 +1390,7 @@ func _run() -> void:
 	var hl_score := GameState.score
 	GameState.difficulty = 1
 	GameState.clear_checkpoint()
+	GameState.has_key = true   # (v4c: L2's mini-boss room is its hub; see the HUB block)
 	mb_em.hit_enemy(mb_em.enemies.find(hl), 9999)
 	assert(mb_em.boss.is_empty() and game._miniboss_down and not GameState.boss_active)
 	assert(game.world.is_door_open(hl_room.id) and hl_boss_deaths[0] == 0)
@@ -1655,7 +1656,9 @@ func _run() -> void:
 	GameState.level_index = 1        # L2 · spur_count = 1
 	game._launch_level()
 	await get_tree().process_frame
-	assert(game.path.spurs.size() == 1)
+	# (v4c: plus the hub's key and switch branches; the supply spur stays first)
+	assert(game.path.spurs.size() == 3 and game.path.spurs[0].kind == "supply")
+	GameState.has_key = true         # (the supply spur lies past L2's hub door)
 	var esp: Dictionary = game.path.spurs[0]
 	var e_mouth: Vector3 = game.path.rings[esp.start].p
 	var e_phase := 0                 # 0 fly-in, 1 to mouth, 2 to cache, 3 return + clear
@@ -1697,11 +1700,149 @@ func _run() -> void:
 	assert(e_done)                   # full in-cache-out pass completed
 	assert(game.spur_mgr.caches_found == 1)
 	game.overlays.set_level_clear("L2", 0, 0, "L3", 0, 0, 0.0, "C", false, 0, 0, 0, 0,
-		game.spur_mgr.caches_found, game.path.spurs.size())
+		game.spur_mgr.caches_found, game.spur_mgr.supply_count())
 	var clear_body: String = \
 		(game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert("CACHES 1/1" in clear_body)
 	print("spur e2e ok — flew in, cached, flew out; tally CACHES 1/1")
+	# --- v4c A1: the hub — keycard, locked bulkhead, switch, vault, checkpoint fields ---
+	var hb_diff := GameState.difficulty
+	var hb_lc: int = game.levels.size()
+	GameState.reset_run()
+	GameState.difficulty = 1
+	GameState.level_index = 1        # L2: hub = the mini-boss room
+	game._launch_level()
+	await get_tree().process_frame
+	var hb_hub: int = game._hub_arena
+	assert(hb_hub >= 0 and hb_hub == game.path.mid_arena())
+	var hb_room: Dictionary = game.path.arenas[hb_hub]
+	assert(game.path.spurs.size() == 3 and game.spur_mgr.supply_count() == 1)
+	for hb_kind in ["key", "switch"]:                # both branches leave the hub room
+		var hb_ent: int = game.path.spur_of(hb_kind).entry
+		assert(hb_ent >= int(hb_room.start) and hb_ent <= int(hb_room.end))
+	assert(not GameState.has_key and not game.world.is_door_open(hb_hub))
+	# a non-hub level has no hub
+	assert(game.levels[0].hub == false and game.levels[1].hub == true)
+	# kills alone leave the hub door shut, and the bump says why
+	for k in int(game._arena_spawned[hb_hub]) - int(game._arena_kills.get(hb_hub, 0)):
+		game._on_enemy_killed(hb_hub)
+	assert(not game.world.is_door_open(hb_hub))
+	assert(game.world.door_hint(int(hb_room.door_ring)) == "KEYCARD REQUIRED")
+	assert(game.hud._msg.text == "ROOM CLEAR · KEYCARD REQUIRED")
+	# the keycard is a station in the key branch; flying onto it takes it, and the cleared
+	# room's bulkhead opens at once
+	var hb_kp: Vector3 = game.spur_mgr.key_pos()
+	assert(hb_kp != Vector3.INF)
+	GameState.clear_checkpoint()
+	game.player.position = hb_kp
+	game.pickup_mgr.update_pickups(0.0)
+	assert(GameState.has_key and game.world.is_door_open(hb_hub))
+	assert(game.world.door_hint(int(hb_room.door_ring)) == "")
+	var hb_cp := GameState.load_checkpoint(hb_lc)    # the bulkhead's checkpoint carries it
+	assert(not hb_cp.is_empty() and bool(hb_cp.has_key) and not bool(hb_cp.switch_on))
+	# key and switch branches hold no cache: not in the tally, not in the collected list
+	assert(game.spur_mgr.collected_ids().is_empty() and game.spur_mgr.caches_found == 0)
+	# the other order: the key first, the door still waits for its kills
+	GameState.reset_run()
+	GameState.difficulty = 1
+	GameState.level_index = 1
+	game._launch_level()
+	await get_tree().process_frame
+	hb_hub = game._hub_arena
+	hb_room = game.path.arenas[hb_hub]
+	game._on_pickup_collected("keycard")
+	assert(GameState.has_key and not game.world.is_door_open(hb_hub))
+	game.player.position = game.spur_mgr.key_pos()
+	game.pickup_mgr.update_pickups(0.0)              # the station is gone: no second award
+	for k in int(game._arena_spawned[hb_hub]) - int(game._arena_kills.get(hb_hub, 0)):
+		game._on_enemy_killed(hb_hub)
+	assert(game.world.is_door_open(hb_hub))
+	# the switch: sealed vault first, then one fly-through throws it (once)
+	var hb_v: Dictionary = game._vault
+	assert(not hb_v.is_empty() and hb_v.vault and not hb_v.get("open", false))
+	assert(int(hb_v.ring) >= int(hb_room.door_ring) + 8 and game._secrets.has(hb_v))
+	var hb_vring: Dictionary = game.path.rings[hb_v.ring]
+	game.player.place_at_ring(int(hb_v.ring))
+	game.player.position = hb_vring.p + hb_vring.r * (float(hb_v.side) * (float(hb_vring.hw) - 1.0))
+	var hb_score := GameState.score
+	game._update_secrets()                           # sealed: brushing it does nothing
+	assert(not hb_v.found and GameState.score == hb_score and is_instance_valid(hb_v.node))
+	var hb_flips := [0]
+	var hb_hear := func() -> void:
+		hb_flips[0] += 1
+	game.spur_mgr.switch_flipped.connect(hb_hear)
+	var hb_swp: Vector3 = game.spur_mgr.switch_pos()
+	assert(hb_swp != Vector3.INF and not game.spur_mgr.switch_on)
+	game.player.position = hb_swp + Vector3(0, 0, 9)   # near, but beyond 5 u: no throw
+	game.spur_mgr.update(0.0)
+	assert(hb_flips[0] == 0 and not game.spur_mgr.switch_on)
+	game.player.position = hb_swp
+	game.spur_mgr.update(0.0)
+	game.spur_mgr.update(0.0)
+	assert(hb_flips[0] == 1 and game.spur_mgr.switch_on)
+	game.spur_mgr.switch_flipped.disconnect(hb_hear)
+	assert(game.hud._msg.text == "YOU HEAR A DOOR OPEN" and hb_v.get("open", false))
+	assert(game.spur_mgr.collected_ids().is_empty())
+	# the vault: its panel is gone and the cache pays once
+	game.player.place_at_ring(int(hb_v.ring))
+	game.player.position = hb_vring.p + hb_vring.r * (float(hb_v.side) * (float(hb_vring.hw) - 1.0))
+	var hb_drops: int = game.pickup_mgr._pickups.size()
+	var hb_sec := GameState.level_secrets
+	hb_score = GameState.score
+	game._update_secrets()
+	assert(hb_v.found and GameState.score == hb_score + 750)
+	assert(GameState.level_secrets == hb_sec + 1)
+	assert(game.pickup_mgr._pickups.size() == hb_drops + 5)   # 2 missiles, bomb, power-up, salvage
+	game._update_secrets()
+	assert(GameState.score == hb_score + 750 and game.pickup_mgr._pickups.size() == hb_drops + 5)
+	await get_tree().process_frame
+	assert(not is_instance_valid(hb_v.node))
+	# checkpoint: all three fields round-trip, old saves default to false
+	var hb_cleared := []
+	for a in game.path.arenas:
+		if a.door_ring >= 0 and int(a.id) <= hb_hub:
+			hb_cleared.append(a.id)
+	var hb_raw := GameState.save_checkpoint(game._checkpoint_data(int(hb_room.door_ring) + 2, hb_cleared))
+	assert(bool(hb_raw.has_key) and bool(hb_raw.switch_on) and bool(hb_raw.vault_found))
+	var hb_old := hb_raw.duplicate()
+	for key in ["has_key", "switch_on", "vault_found"]:
+		hb_old.erase(key)
+	var hb_norm := GameState.normalize_checkpoint(hb_old, hb_lc)
+	assert(not hb_norm.is_empty() and hb_norm.has_key == false \
+		and hb_norm.switch_on == false and hb_norm.vault_found == false)
+	var hb_back := GameState.load_checkpoint(hb_lc)
+	assert(hb_back.has_key == true and hb_back.switch_on == true and hb_back.vault_found == true)
+	# resume: key held and its card gone, switch thrown, vault stays looted and its panel
+	# is not freed twice; nothing pays again
+	var hb_saved_score := GameState.score
+	GameState.score = 0
+	game._begin_resume(hb_back)
+	game._on_launch()
+	await get_tree().process_frame
+	assert(game.state == game.State.PLAYING)
+	assert(GameState.has_key and game.spur_mgr.switch_on and game._vault.found)
+	assert(game.world.is_door_open(hb_hub) and game.world.door_hint(int(hb_room.door_ring)) == "")
+	assert(not is_instance_valid(game._vault.node))
+	assert(GameState.score == hb_saved_score and game.spur_mgr.collected_ids().is_empty())
+	hb_vring = game.path.rings[game._vault.ring]
+	game.player.place_at_ring(int(game._vault.ring))
+	game.player.position = hb_vring.p \
+		+ hb_vring.r * (float(game._vault.side) * (float(hb_vring.hw) - 1.0))
+	game._update_secrets()
+	assert(GameState.score == hb_saved_score)        # no second payout
+	# a save with only the key: switch and vault still to do, the vault stays sealed
+	hb_back.switch_on = false
+	hb_back.vault_found = false
+	hb_back.secrets_found = []                       # (the looted vault was in this list)
+	game._begin_resume(hb_back)
+	game._on_launch()
+	await get_tree().process_frame
+	assert(GameState.has_key and not game.spur_mgr.switch_on)
+	assert(not game._vault.get("open", false) and is_instance_valid(game._vault.node))
+	assert(not game._vault.found)
+	GameState.clear_checkpoint()
+	GameState.difficulty = hb_diff
+	print("HUB ok — locked door, keycard, switch, vault, checkpoint fields")
 	# --- V2.2 story pass: lore coverage + the briefing bands never overlap ---
 	for lidx in 9:
 		assert(Lore.story(lidx).length() > 20)            # every sector has a story

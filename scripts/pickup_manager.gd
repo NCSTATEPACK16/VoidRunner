@@ -65,11 +65,20 @@ func _spin(node: Sprite3D, kind: String, phase: float) -> void:
 ## expires; collecting it empties the slot until replenish_stations() (called on
 ## each boss phase transition) respawns it at its anchor position. v4b: only a
 ## `refill` station (a main boss's) comes back; any other is collected once.
-func add_station(pos: Vector3, kind: String, refill := false) -> void:
+func add_station(pos: Vector3, kind: String, refill := false) -> Dictionary:
 	var station := {"kind": kind, "pos": pos, "bob_p": randf() * TAU, "node": null,
 		"refill": refill}
 	_stations.append(station)
 	_respawn_station(station)
+	return station
+
+
+## v4c: take a station's pickup away without collecting it (a keycard already held
+## when a checkpoint resumes).
+func clear_station(s: Dictionary) -> void:
+	if s.node != null:
+		s.node.queue_free()
+		s.node = null
 
 
 func replenish_stations() -> void:

@@ -263,32 +263,65 @@ func mid_arena() -> int:
 ## building work unchanged; each carries a `spur` id. The whole generator cursor is
 ## snapshotted and restored so the main path is byte-identical afterward. Campaign,
 ## non-boss only — a no-op otherwise. Called by game._load_level_world after generate().
-func add_spurs(count: int) -> void:
-	if is_boss or is_endless or count <= 0 or arenas.size() < 2:
+## v4c: `hub` (an arena id, or -1) is kept for add_hub's branches; if nothing else
+## qualifies the spurs fall back to arena 0. Run this before add_hub, so spurs[0] stays a
+## supply spur.
+func add_spurs(count: int, hub := -1) -> void:
+	if is_boss or is_endless or count <= 0 or arenas.is_empty():
 		return
-	var save := {"pos": _pos, "yaw": _yaw, "pitch": _pitch, "yaw_v": _yaw_v,
-		"pitch_v": _pitch_v, "count": _count, "hw": _hw, "hh": _hh,
-		"fo": _fo, "co": _co, "arena_in": _arena_in}
+	var save := _save_cursor()
 	var eligible: Array[int] = []
 	for i in range(1, arenas.size()):   # skip arena 0 (near spawn) and the final arena
-		if not arenas[i].get("is_final", false):
+		if not arenas[i].get("is_final", false) and i != hub:
 			eligible.append(i)
+	if eligible.is_empty() and hub != 0 and not arenas[0].get("is_final", false):
+		eligible.append(0)
 	var made := 0
 	var idx := 0
 	while made < count and idx < eligible.size():
-		_grow_spur(made, eligible[idx])
+		_grow_spur(spurs.size(), eligible[idx])
 		made += 1
 		idx += maxi(1, eligible.size() / count)   # spread the spurs across the level
+	_restore_cursor(save)
+
+
+## v4c: a hub's two branches off arena `hub`: the keycard branch toward the left wall
+## (side -1) and the switch branch toward the right (+1). Each is a spur of its kind.
+func add_hub(hub: int) -> void:
+	if is_boss or is_endless or hub < 0 or hub >= arenas.size():
+		return
+	var save := _save_cursor()
+	_grow_spur(spurs.size(), hub, -1.0, "key")
+	_grow_spur(spurs.size(), hub, 1.0, "switch")
+	_restore_cursor(save)
+
+
+## v4c: the spur of `kind` ("supply" | "key" | "switch"), or {}.
+func spur_of(kind: String) -> Dictionary:
+	for sp in spurs:
+		if sp.kind == kind:
+			return sp
+	return {}
+
+
+func _save_cursor() -> Dictionary:
+	return {"pos": _pos, "yaw": _yaw, "pitch": _pitch, "yaw_v": _yaw_v,
+		"pitch_v": _pitch_v, "count": _count, "hw": _hw, "hh": _hh,
+		"fo": _fo, "co": _co, "arena_in": _arena_in}
+
+
+func _restore_cursor(save: Dictionary) -> void:
 	_pos = save.pos; _yaw = save.yaw; _pitch = save.pitch
 	_yaw_v = save.yaw_v; _pitch_v = save.pitch_v; _count = save.count
 	_hw = save.hw; _hh = save.hh; _fo = save.fo; _co = save.co; _arena_in = save.arena_in
 
 
-func _grow_spur(id: int, ai: int) -> void:
+## One spur off arena `ai`, toward the `side` wall (0 = alternate by id), of `kind`.
+func _grow_spur(id: int, ai: int, side_pick := 0.0, kind := "supply") -> void:
 	var arena: Dictionary = arenas[ai]
 	var entry: int = (arena.start + arena.end) / 2
 	var er: Dictionary = rings[entry]
-	var side: float = -1.0 if (id % 2 == 0) else 1.0
+	var side: float = side_pick if side_pick != 0.0 else (-1.0 if (id % 2 == 0) else 1.0)
 	# head off toward the `side` wall at 60..110 deg from the arena heading
 	var entry_yaw: float = atan2(-er.d.x, -er.d.z)
 	_yaw = entry_yaw - side * deg_to_rad(60.0 + _rng.randf() * 50.0)
@@ -320,7 +353,7 @@ func _grow_spur(id: int, ai: int) -> void:
 		_push_ring()
 		rings[rings.size() - 1]["spur"] = id
 	spurs.append({"id": id, "entry": entry, "start": start,
-		"end": rings.size() - 1, "cache": cache_start + 1, "side": side})
+		"end": rings.size() - 1, "cache": cache_start + 1, "side": side, "kind": kind})
 
 
 # ---------- spatial queries (ports of nearestRing / clampToRing) ----------

@@ -47,6 +47,10 @@ var _boss_arena_start := -1   # Phase J: first ring of the boss room (-1 = no bo
 var _boss_announced := false
 var _miniboss_arena := -1     # v4b: the room a mini-boss holds (-1 = none this sector)
 var _miniboss_down := false   # ...and whether it has fallen (checkpoints keep this)
+var _hub_arena := -1          # v4c: the hub room (its door needs the keycard), or -1
+var _vault := {}              # v4c: the secret beyond the hub that the switch unlocks
+var _vault_light := -1
+const KEY_GOLD := Color(1.0, 0.78, 0.25)
 var _last_style := 0   # V2.2 L2c: sting fires on upward grade changes only
 var _low_shield_warned := false
 var _built_level := -1        # level index the world is currently built for (-1 = dirty)
@@ -244,6 +248,7 @@ func _ready() -> void:
 	pickup_mgr.player = player
 	enemy_mgr.drop_spawned.connect(pickup_mgr.spawn_drop)
 	pickup_mgr.collected.connect(_on_pickup_collected)
+	spur_mgr.switch_flipped.connect(_on_switch_flipped)   # v4c
 	spur_mgr.cache_collected.connect(func(_id: int) -> void:
 		hud.show_message("SUPPLY CACHE +300", 2.0)
 		AudioSys.play_portal())
@@ -435,7 +440,12 @@ func _load_level_world(index: int) -> void:
 	path = PathGen.new()
 	path.generate(level.rings, level.level_seed, level.spawn_arena,
 		level.kind == "boss", _gauntlet)
-	path.add_spurs(level.spur_count)   # V2.2 L5: campaign spurs (guarded for boss/endless/0)
+	# v4c: a hub grows its keycard and switch branches off the room nearest mid-sector;
+	# the supply spurs go first and skip it (so spurs[0] stays a supply spur)
+	_hub_arena = path.mid_arena() if level.hub and level.kind == "tunnel" and not _gauntlet \
+		else -1
+	path.add_spurs(level.spur_count, _hub_arena)   # V2.2 L5 (guarded for boss/endless/0)
+	path.add_hub(_hub_arena)
 	_intro_rings = _plan_intros(level)   # v4b: before any spawn picks a type
 	player.path = path
 	enemy_mgr.path = path
@@ -458,8 +468,13 @@ func _load_level_world(index: int) -> void:
 	_place_props(level)
 	_place_hazards(level)
 	_place_secrets(level)
-	spur_mgr.setup(path, player, pickup_mgr,   # V2.2 L5
-		world.prop_material("wall_c", 1.0, Color(1.0, 0.9, 0.7), theme.accent2 * 0.2))
+	spur_mgr.setup(path, player, pickup_mgr,   # V2.2 L5 (v4c: and the hub's branches)
+		world.prop_material("wall_c", 1.0, Color(1.0, 0.9, 0.7), theme.accent2 * 0.2),
+		world.light_rig)
+	if _hub_arena >= 0:
+		world.mark_door(_hub_arena, KEY_GOLD)   # v4c: the keyed bulkhead glows gold
+		world.set_door_hint(_hub_arena, "KEYCARD REQUIRED")
+	hud.set_key_slot(_hub_arena >= 0)
 	_arena_spawned.clear()
 	_arena_kills.clear()
 	_door_queue.clear()
@@ -591,36 +606,60 @@ func _place_secrets(level: LevelDef) -> void:
 	_secrets.clear()
 	GameState.level_secrets = 0
 	GameState.level_secrets_total = 0
+	_vault = {}
+	_vault_light = -1
 	if level.kind != "tunnel":
 		return
 	var rng := RandomNumberGenerator.new()
 	rng.seed = level.level_seed + 999
 	var want := clampi(level.rings / 100, 1, 2)
 	var placed: Array[int] = []
-	for attempt in 80:
+	# v4c: on a hub level the first secret is the vault, somewhere past the hub's door
+	var vault_from := -1
+	if _hub_arena >= 0:
+		vault_from = int(path.arenas[_hub_arena].door_ring) + 8
+	for attempt in 160:
 		if placed.size() >= want:
 			break
 		var ri := rng.randi_range(30, level.rings - 30)
-		var ring: Dictionary = path.rings[ri]
-		if ring.arena_id >= 0:
+		if vault_from >= 0 and placed.is_empty() and ri < vault_from:
 			continue
-		if path.rings[ri - 2].d.dot(path.rings[ri + 2].d) < 0.985:
-			continue   # panels sit flush only on straight wall runs
-		var clear := true
-		for arena in path.arenas:
-			if arena.door_ring >= 0 and absi(ri - arena.door_ring) < 6:
-				clear = false
-		for other in placed:
-			if absi(ri - other) < 25:
-				clear = false
-		for t in hazard_mgr._traps:
-			if absi(ri - t.ring) < 6:
-				clear = false
-		if not clear:
+		if not _secret_site_ok(ri, placed):
 			continue
 		_secrets.append(_build_secret(ri, 1.0 if rng.randf() < 0.5 else -1.0))
+		if vault_from >= 0 and placed.is_empty():
+			_vault = _secrets.back()
+			_vault.vault = true   # sealed until the hub switch throws (_open_vault)
 		placed.append(ri)
+	# v4c: a hub level always has its vault. If the dice found no site past the door, take
+	# the first sound one in order, easing the flat-wall rule when the corridor is bendy
+	# (L2's is)
+	for flat in ([0.985, 0.95, 0.0] if vault_from >= 0 else []):
+		for ri in range(vault_from, level.rings - 4):
+			if _vault.is_empty() and _secret_site_ok(ri, placed, flat):
+				_secrets.append(_build_secret(ri, 1.0 if rng.randf() < 0.5 else -1.0))
+				_vault = _secrets.back()
+				_vault.vault = true
 	GameState.level_secrets_total = _secrets.size()
+
+
+## A phantom panel can sit at ring `ri`: not in a room, on a straight run, clear of
+## doors, traps and the secrets already `placed`.
+func _secret_site_ok(ri: int, placed: Array[int], flat := 0.985) -> bool:
+	if path.rings[ri].arena_id >= 0:
+		return false
+	if path.rings[ri - 2].d.dot(path.rings[ri + 2].d) < flat:
+		return false   # panels sit flush only on straight wall runs
+	for arena in path.arenas:
+		if arena.door_ring >= 0 and absi(ri - arena.door_ring) < 6:
+			return false
+	for other in placed:
+		if absi(ri - other) < 25:
+			return false
+	for t in hazard_mgr._traps:
+		if absi(ri - t.ring) < 6:
+			return false
+	return true
 
 
 ## The panel: a box proud of the wall by ~1 u with a slightly-off wall tint — the
@@ -649,12 +688,18 @@ func _update_secrets() -> void:
 	for s in _secrets:
 		if s.found or absi(player.ring_idx - s.ring) > 1:
 			continue
+		if s.get("vault", false) and not s.get("open", false):
+			continue   # v4c: the vault stays sealed until the switch throws
 		var ring: Dictionary = path.rings[s.ring]
 		var lat: float = (player.position - ring.p as Vector3).dot(ring.r) * s.side
 		if lat > ring.hw - 2.4:
 			s.found = true
-			s.node.queue_free()
+			if is_instance_valid(s.node):
+				s.node.queue_free()
 			GameState.level_secrets += 1
+			if s.get("vault", false):
+				_loot_vault(s, ring)
+				continue
 			GameState.score += 250
 			hud.show_message("SECRET FOUND +250", 2.0)
 			AudioSys.play_portal()
@@ -666,6 +711,19 @@ func _update_secrets() -> void:
 					player.position + ring.d * randf_range(2.0, 6.0), s.ring, kind)
 			pickup_mgr.spawn_drop(   # V2.2 L3b: caches always hide scrap
 				player.position + ring.d * randf_range(2.0, 6.0), s.ring, "salvage", 25)
+
+
+## v4c: the vault's haul: +750, two missile packs, a bomb, a power-up and 60 salvage.
+func _loot_vault(s: Dictionary, ring: Dictionary) -> void:
+	GameState.score += 750
+	hud.show_message("VAULT OPEN +750", 2.5)
+	AudioSys.play_portal()
+	if _vault_light >= 0:
+		world.light_rig.set_static_on(_vault_light, false)
+	var kinds: Array[String] = ["missile", "missile", "bomb", EnemyManager.random_power()]
+	for kind in kinds:
+		pickup_mgr.spawn_drop(player.position + ring.d * randf_range(2.0, 7.0), s.ring, kind)
+	pickup_mgr.spawn_drop(player.position + ring.d * 4.0, s.ring, "salvage", 60)
 
 
 ## K5: the active tuning source — campaign levels from resources, gauntlet from
@@ -932,7 +990,7 @@ func _level_complete() -> void:
 			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
 			GameState.level_kills, acc, player.elapsed, rank, secondary_done,
 			GameState.level_secrets, GameState.level_secrets_total, GameState.peak_style, earned,
-			spur_mgr.caches_found, path.spurs.size())
+			spur_mgr.caches_found, spur_mgr.supply_count())
 		overlays.show_only("level_clear")
 
 
@@ -1180,6 +1238,18 @@ func _apply_resume(cp: Dictionary) -> void:
 		if not (_miniboss_arena in cleared):
 			# its room's door still counts it among the kills it waits for
 			_arena_kills[_miniboss_arena] = int(_arena_kills.get(_miniboss_arena, 0)) + 1
+	# v4c: the keycard held, the switch thrown, the vault looted
+	if bool(cp.get("has_key", false)) and _hub_arena >= 0:
+		GameState.has_key = true
+		spur_mgr.take_key()
+		world.set_door_hint(_hub_arena, "")
+	if bool(cp.get("switch_on", false)) and _hub_arena >= 0:
+		spur_mgr.set_switch(true)
+		_open_vault()
+	if bool(cp.get("vault_found", false)) and not _vault.is_empty():
+		_vault.found = true
+		if _vault_light >= 0:
+			world.light_rig.set_static_on(_vault_light, false)
 	world.skip_spawns_to(ring)
 	player.place_at_ring(ring)
 	player.elapsed = float(cp.elapsed)
@@ -1189,7 +1259,8 @@ func _apply_resume(cp: Dictionary) -> void:
 	for s in _secrets:
 		if int(s.ring) in found and not s.found:
 			s.found = true
-			s.node.queue_free()
+			if is_instance_valid(s.node):   # (v4c: a resumed vault's panel is already gone)
+				s.node.queue_free()
 	spur_mgr.mark_collected(cp.get("caches", []))
 	prop_mgr.remove_ids(cp.get("props_gone", []))
 	var stats: Array = cp.stats
@@ -1197,7 +1268,7 @@ func _apply_resume(cp: Dictionary) -> void:
 	# belt and braces for pre-fix saves: a tally can never pass its total
 	GameState.level_secrets = mini(GameState.level_secrets, GameState.level_secrets_total)
 	GameState.level_props = mini(GameState.level_props, GameState.level_props_total)
-	spur_mgr.caches_found = mini(spur_mgr.caches_found, path.spurs.size())
+	spur_mgr.caches_found = mini(spur_mgr.caches_found, spur_mgr.supply_count())
 
 
 ## Re-audit Step 4: the run as it stands, as a checkpoint at `ring`.
@@ -1225,6 +1296,10 @@ func _checkpoint_data(ring: int, cleared: Array) -> Dictionary:
 			.map(func(s: Dictionary) -> int: return int(s.ring)),
 		"caches": spur_mgr.collected_ids(),
 		"props_gone": prop_mgr.gone_ids(),
+		# v4c: the hub's keycard and switch, and whether the vault was looted
+		"has_key": GameState.has_key,
+		"switch_on": spur_mgr.switch_on,
+		"vault_found": not _vault.is_empty() and _vault.found,
 	}
 
 
@@ -1460,6 +1535,9 @@ func _update_arena_lock() -> void:
 
 func _on_pickup_collected(kind: String, value := 0) -> void:
 	match kind:
+		"keycard":   # v4c
+			_on_key_taken()
+			return
 		"shield":   # the amount follows the difficulty's pickup value (Step 3)
 			hud.show_message("SHIELD CELL +%d" % roundi(PickupManager.EFFECT.shield
 				* GameState.pickup_mult()))
@@ -1544,31 +1622,70 @@ func _on_enemy_killed(arena_id: int) -> void:
 	if arena_id < 0:
 		return
 	_arena_kills[arena_id] = _arena_kills.get(arena_id, 0) + 1
-	if _arena_kills[arena_id] >= _arena_spawned.get(arena_id, 0) \
-			and not world.is_door_open(arena_id):
-		world.open_door(arena_id)
-		if arena_id == _miniboss_arena and _miniboss_down:
-			hud.show_message("%s DESTROYED · BULKHEAD OPEN" % _current_level().miniboss_name,
-				2.5)
-		else:
-			hud.show_message("BULKHEAD OPEN")
-		AudioSys.play_select()
-		# re-audit Step 4: a cleared bulkhead is a checkpoint on RECRUIT and RUNNER
-		# (VOIDBORNE saves at sector starts only, the era's way)
-		if state == State.PLAYING and not _gauntlet and GameState.difficulty < 2:
-			var cleared := []
-			var door := -1
-			for a in path.arenas:
-				if a.door_ring >= 0 and world.is_door_open(a.id):
-					cleared.append(a.id)
-				if a.id == arena_id:
-					door = a.door_ring
-			if door >= 0:
-				_save_checkpoint(door + 2, cleared)
-		# 3.0: a cleared room often leaves a power-up floating in the flight line
-		if randf() < ARENA_POWER_CHANCE:
-			var ring := mini(player.ring_idx + 2, path.rings.size() - 1)
-			pickup_mgr.spawn_drop(path.rings[ring].p, ring, EnemyManager.random_power())
+	_try_open_bulkhead(arena_id)
+
+
+## A cleared room's bulkhead opens (v4c: the hub's needs the keycard too). Called on
+## each of the room's kills and when the keycard comes aboard.
+func _try_open_bulkhead(arena_id: int) -> void:
+	if arena_id < 0 or world.is_door_open(arena_id) or _arena_spawned.get(arena_id, 0) <= 0 \
+			or _arena_kills.get(arena_id, 0) < _arena_spawned.get(arena_id, 0):
+		return
+	if arena_id == _hub_arena and not GameState.has_key:
+		hud.show_message("ROOM CLEAR · KEYCARD REQUIRED", 2.5)   # it's in a side branch
+		return
+	world.open_door(arena_id)
+	if arena_id == _miniboss_arena and _miniboss_down:
+		hud.show_message("%s DESTROYED · BULKHEAD OPEN" % _current_level().miniboss_name, 2.5)
+	else:
+		hud.show_message("BULKHEAD OPEN")
+	AudioSys.play_select()
+	# re-audit Step 4: a cleared bulkhead is a checkpoint on RECRUIT and RUNNER
+	# (VOIDBORNE saves at sector starts only, the era's way)
+	if state == State.PLAYING and not _gauntlet and GameState.difficulty < 2:
+		var cleared := []
+		var door := -1
+		for a in path.arenas:
+			if a.door_ring >= 0 and world.is_door_open(a.id):
+				cleared.append(a.id)
+			if a.id == arena_id:
+				door = a.door_ring
+		if door >= 0:
+			_save_checkpoint(door + 2, cleared)
+	# 3.0: a cleared room often leaves a power-up floating in the flight line
+	if randf() < ARENA_POWER_CHANCE:
+		var ring := mini(player.ring_idx + 2, path.rings.size() - 1)
+		pickup_mgr.spawn_drop(path.rings[ring].p, ring, EnemyManager.random_power())
+
+
+## v4c: the hub's keycard came aboard: the door's glow and hint stand down, and if the
+## room is already clear it opens now.
+func _on_key_taken() -> void:
+	GameState.has_key = true
+	spur_mgr.take_key()
+	world.set_door_hint(_hub_arena, "")
+	hud.show_message("KEYCARD ACQUIRED", 2.0)
+	AudioSys.play_powerup()
+	_try_open_bulkhead(_hub_arena)
+
+
+## v4c: the hub switch threw: the vault beyond the hub unseals.
+func _on_switch_flipped() -> void:
+	hud.show_message("YOU HEAR A DOOR OPEN", 2.5)
+	AudioSys.play_clank()
+	_open_vault()
+
+
+## v4c: the vault's panel goes, and a gold light marks where it stood.
+func _open_vault() -> void:
+	if _vault.is_empty() or _vault.get("open", false):
+		return
+	_vault.open = true
+	if is_instance_valid(_vault.node):
+		_vault.node.queue_free()
+	var ring: Dictionary = path.rings[_vault.ring]
+	_vault_light = world.light_rig.add_static(
+		ring.p + ring.r * (_vault.side * (ring.hw - 3.0)), KEY_GOLD, 2.0, 30.0, "pulse")
 
 
 func _on_tunnel_spawn(ring_idx: int) -> void:
@@ -1677,8 +1794,35 @@ func _open_automap() -> void:
 		if s.found:
 			secret_rings.append(s.ring)
 	var portal_ring := (path.rings.size() - 1) if world.portal_active else -1
-	automap.set_markers(secret_rings, portal_ring)
+	automap.set_markers(secret_rings, portal_ring, _automap_extras())
 	automap.open()
+
+
+## v4c: what the automap marks beyond secrets and the exit: the keycard (K) and the
+## switch (a star, red until thrown) once their branch has been seen, the sealed hub door
+## (a red bar), the vault (V) once it's open, and ? on each branch mouth not yet flown.
+func _automap_extras() -> Array:
+	var out: Array = []
+	var seen_to := automap.explored_to()
+	for sp in path.spurs:
+		var kind: String = sp.get("kind", "supply")
+		if not automap.spur_seen(sp.id):
+			if sp.entry <= seen_to:
+				out.append({"pos": path.rings[sp.entry].p, "glyph": "?", "col": Color("c8d0e0")})
+			continue
+		if kind == "key" and not GameState.has_key:
+			out.append({"pos": spur_mgr.key_pos(), "glyph": "K", "col": KEY_GOLD})
+		elif kind == "switch":
+			out.append({"pos": spur_mgr.switch_pos(), "glyph": "*",
+				"col": Color("50ff70") if spur_mgr.switch_on else Color("ff4030")})
+	if _hub_arena >= 0 and not world.is_door_open(_hub_arena):
+		var door: int = path.arenas[_hub_arena].door_ring
+		if door <= seen_to + 2:
+			out.append({"pos": path.rings[door].p, "bar": path.rings[door].r,
+				"col": Color("ff3030")})
+	if not _vault.is_empty() and _vault.get("open", false) and not _vault.found:
+		out.append({"pos": path.rings[_vault.ring].p, "glyph": "V", "col": KEY_GOLD})
+	return out
 
 
 func _select_weapon(i: int) -> void:

@@ -16,7 +16,7 @@ const ENEMIES := ["drone", "weaver", "hulk", "turret", "stinger", "spinner", "mi
 ## (v4b: the three mini-bosses bake into the same 128 px boss sheet)
 const BOSSES := ["sentinel", "brood", "maw", "hauler", "tender", "gatewarden"]
 const PICKUPS := ["shield", "energy", "missile", "bomb", "salvage", "overdrive", "phase",
-	"powercore"]
+	"powercore", "keycard", "switch", "switch_on"]   # v4c: the hub's keycard and switch
 
 static var _mats := {}
 
@@ -804,6 +804,18 @@ static func _pickup(root: Node3D, kind: String) -> void:
 			part(root, cyl(0.0, 0.46, 0.58, 4), m("8a5ae8", 0.5, 0.35, 40.0, 1.0), Vector3(0, 0.29, 0))
 			part(root, cyl(0.46, 0.0, 0.58, 4), m("5a2ac0", 0.5, 0.3, 40.0, 1.0), Vector3(0, -0.29, 0))
 			part(root, torus(0.76, 0.88), m("e03cb0", 0.3, 0.5), Vector3.ZERO, Vector3(90, 0, 0))
+		"keycard":   # v4c: a gold pass card, chip and stripe lit
+			part(root, box(1.0, 0.66, 0.08), m("ffc830", 0.6, 0.35, 40.0, 1.0), Vector3.ZERO)
+			part(root, box(1.0, 0.12, 0.1), glow("fff0a0", 1), Vector3(0, 0.18, 0))
+			part(root, box(0.22, 0.18, 0.1), m("8a6a20", 0.7), Vector3(-0.26, -0.12, 0))
+			part(root, torus(0.76, 0.86), m("c8d0e0", 0.7), Vector3.ZERO, Vector3(90, 0, 0))
+		"switch", "switch_on":   # v4c: a wall lever, thrown red-down or green-up
+			var on := kind == "switch_on"
+			part(root, box(0.9, 1.1, 0.2), m("4a5468", 0.4), Vector3.ZERO)
+			part(root, box(0.7, 0.9, 0.1), painted("ffffff", "hazard", 0.2), Vector3(0, 0, 0.1))
+			var tip := Vector3(0, 0.42 if on else -0.42, 0.42)
+			pipe(root, Vector3(0, 0, 0.12), tip, 0.07, m("c8d0e0", 0.6))
+			part(root, sphere(0.16), glow("40ff60" if on else "ff3020", 1), tip)
 
 
 ## K3 fuel cell: a hazard-banded canister with a hot core window.

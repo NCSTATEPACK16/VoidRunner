@@ -54,3 +54,9 @@ extends Resource
 @export var miniboss_name := ""
 @export var miniboss_hp := 80          # absolute HP, as for a boss
 @export var miniboss_size := 12.0      # billboard world-size
+
+# --- v4c: level structure ---
+## A hub: the kill-locked room nearest mid-sector (PathGen.mid_arena, the mini-boss's
+## room where there is one) grows a keycard branch and a switch branch. Its bulkhead
+## needs the room's kills AND the keycard; the switch opens a vault beyond it.
+@export var hub := false

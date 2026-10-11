@@ -22,3 +22,4 @@ miniboss_model = "gatewarden"
 miniboss_name = "GATE WARDEN"
 miniboss_hp = 140
 miniboss_size = 13.0
+hub = true

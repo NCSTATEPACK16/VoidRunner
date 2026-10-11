@@ -305,6 +305,17 @@ static func pickup_texture(kind: String) -> ImageTexture:
 			_rect(img, 5, 5, 6, 5, Palette.ORANGE_2)
 			_rect(img, 6, 4, 3, 3, Palette.ORANGE_3)
 			_px(img, 7, 5, Palette.WHITE)
+		"keycard":   # v4c: gold pass card with a lit stripe and chip
+			_rect(img, 2, 4, 12, 8, Palette.ORANGE_1)
+			_rect(img, 3, 5, 10, 6, Palette.ORANGE_3)
+			_rect(img, 3, 6, 10, 1, Palette.WHITE)
+			_rect(img, 4, 8, 3, 2, Palette.ORANGE_0)
+		"switch", "switch_on":   # v4c: a wall plate with a lever, red-down or green-up
+			var on := kind == "switch_on"
+			_rect(img, 3, 2, 10, 12, Palette.GREY_2)
+			_rect(img, 4, 3, 8, 10, Palette.GREY_4)
+			_rect(img, 7, 4 if on else 8, 2, 4, Palette.GREY_6)
+			_rect(img, 6, 3 if on else 11, 4, 2, Palette.GREEN_2 if on else Palette.RED_3)
 	return ImageTexture.create_from_image(img)
 
 
