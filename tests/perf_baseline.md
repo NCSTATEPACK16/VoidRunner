@@ -294,3 +294,27 @@ three contact sheets are identical):
 - The web download is unchanged: the engine is 39.5 MB (about 10 MB gzipped), the game's
   pack 0.56 MB. Shrinking the engine needs a custom export template (fewer modules), which
   is a separate decision.
+
+## v4c: hubs, keys and objectives (2026-10-11)
+
+The new 64 px `OBJECTS` sheet (generator, reactor, rift anchor; 8 angles, 2 frames) bakes on
+the first `sprite_set()` of one of them, during the level load, like the boss sheet. The rescue
+pod and the keycard and switch join the 32 px pickups sheet at boot. Enemy and boss contact
+sheets are pixel-identical to `main` (`ImageChops.difference(...).getbbox()` is `None`).
+
+| Run (same container, alternating) | `main` (3bfe303) | This PR |
+|---|---|---|
+| Forge probe boot bake ×3 (xvfb) | 264 / 306 / 287 ms | 286 / 271 / 307 ms |
+| Deferred boss sheet ×3 | 203 / 220 / 219 ms | 220 / 191 / 219 ms |
+| Deferred objects sheet ×3 | — | 47 / 49 / 61 ms |
+| Rendered dense L8, average frame ×2 | 26.94 / 27.41 ms | 27.10 / 27.03 ms |
+| Rendered dense L8, `[draw]` peak ×2 | 92 / 79 | 76 / 84 |
+| Web bake (SwiftShader) | 1602 / 1825 ms | 1604 ms |
+| Web title up | 8.8 / 9.8 s | 8.4 s |
+| Web first flight (L1) | 35.1 / 36.9 s | 34.3 s |
+
+Headless perf (this PR): L8 rail worst step 3.5 / 7.7 / 6.0 ms (one 78.6 ms host stall with no
+build or spawn in that step, gone on rerun), L9 rail 2.3 ms, gauntlet 5.3 / 5.5 ms, dense L8
+2.5 / 2.8 ms. The perf rail now flies with `tests/rail_assist.gd`: it kills guards one by one
+within 15 rings instead of a 60 u splash, and leaves main bosses alone, so the L9 run samples
+the whole 240 s of the boss fight instead of ending at the boss's death.
