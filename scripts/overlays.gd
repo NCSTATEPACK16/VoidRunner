@@ -374,11 +374,15 @@ func set_briefing(level: LevelDef) -> void:
 func set_level_clear(level_name: String, bonus: int, score: int, next_name: String,
 		kills: int, acc: int, time: float, rank: String, secondary := false,
 		secrets := 0, secrets_total := 0, style_peak := 0, salvage := 0,
-		caches := 0, caches_total := 0) -> void:
+		caches := 0, caches_total := 0, objective_line := "", escape_bonus := 0) -> void:
 	var p: Control = _panels.level_clear
 	(p.get_node("Title") as Label).text = "%s CLEAR · %s" % [level_name,
 		GameState.difficulty_name()]   # Step 3: the tally names the preset
 	var extras: Array[String] = []
+	if objective_line != "":   # v4c: PODS 3/3, GENERATORS 4/4, REACTOR DOWN...
+		extras.append(objective_line)
+	if escape_bonus > 0:   # v4c: beat the clock
+		extras.append("ESCAPE BONUS +%d" % escape_bonus)
 	if secondary:
 		extras.append("SECONDARY COMPLETE +400")
 	if secrets_total > 0:   # V2.0 phantom-wall caches

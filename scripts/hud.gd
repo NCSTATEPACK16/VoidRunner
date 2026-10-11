@@ -89,6 +89,12 @@ var _c_threat := false
 var _c_blink := -2
 var _c_pips := -1
 var _c_boss_hp := -2
+var _key_slot := false   # v4c: this sector has a hub (a keycard socket on the canopy)
+var _c_key := -1
+var _obj_label: Label    # v4c: the sector's objective counter ("PODS 1/3"), left, above the weapons well
+var _time_label: Label   # the TIME well's caption (reads EXIT while the escape clock runs)
+var _escape_left := -1.0 # v4c: seconds left on the escape clock, or -1 when none is running
+var _c_esc := -1
 var _c_boss_flash := false
 var _c_wpn := -1
 var _c_missiles := -1
@@ -211,7 +217,9 @@ func _ready() -> void:
 	_label(root, Vector2(218, CONSOLE_Y + 22), "HEAT", Color("ffab66"), 8)
 	_wpn_name = _label(root, Vector2(8, CONSOLE_Y + 21), "", Color("9fe8ff"), 8)
 	_label(root, Vector2(82, CONSOLE_Y + 8), "MSL", LABEL_DIM, 8)
-	_label(root, Vector2(111, CONSOLE_Y + 6), "TIME", LABEL_DIM, 8)
+	_time_label = _label(root, Vector2(111, CONSOLE_Y + 6), "TIME", LABEL_DIM, 8)
+	_obj_label = _label(root, Vector2(14, CONSOLE_Y - 11), "", Color("ffd34d"), 8)
+	_obj_label.visible = false
 	_label(root, Vector2(186, CONSOLE_Y + 6), "EVD", Color("2f8a82"), 8)  # K4 lamp
 	GameState.shields_changed.connect(func(_v: float) -> void: _update_bars())
 	GameState.energy_changed.connect(func(_v: float) -> void: _update_bars())
@@ -233,6 +241,28 @@ func setup(p: PlayerShip, em: EnemyManager, sm: ShotManager, names: Array[String
 	radar.shot_mgr = sm
 	_update_weapons()
 	_update_bars()
+
+
+## v4c: show the keycard socket on hub sectors (lit once the key is aboard).
+func set_key_slot(on: bool) -> void:
+	_key_slot = on
+	_c_key = -1
+
+
+## v4c: the objective counter above the weapons well ("" hides it). `done` turns it green.
+func set_objective(text: String, done := false) -> void:
+	_obj_label.text = text
+	_obj_label.visible = text != ""
+	_obj_label.add_theme_color_override("font_color",
+		Color("62ffae") if done else Color("ffd34d"))
+
+
+## v4c: the escape countdown in the TIME well, in red (seconds left; negative = off).
+func set_escape(left: float) -> void:
+	_escape_left = left
+	_time_label.text = "TIME" if left < 0.0 else "EXIT"
+	_time_label.add_theme_color_override("font_color",
+		LABEL_DIM if left < 0.0 else Color("ff5030"))
 
 
 func show_message(text: String, t := 1.2) -> void:
@@ -321,8 +351,10 @@ func _process(delta: float) -> void:
 		if _threat else -1
 	var boss_hp := int(enemy_mgr.boss.hp) if boss_live else -1
 	var boss_flash: bool = boss_live and enemy_mgr.boss.flash_t > 0.0
+	var key_state := (2 if GameState.has_key else 1) if _key_slot else 0
 	if _threat != _c_threat or blink != _c_blink or GameState.plasma_bombs != _c_pips \
-			or boss_hp != _c_boss_hp or boss_flash != _c_boss_flash:
+			or boss_hp != _c_boss_hp or boss_flash != _c_boss_flash or key_state != _c_key:
+		_c_key = key_state
 		_c_threat = _threat
 		_c_blink = blink
 		_c_pips = GameState.plasma_bombs
@@ -334,12 +366,19 @@ func _process(delta: float) -> void:
 	# 3.0 phase 4: the top lit SHLD segment blinks while shields are critical
 	var led_blink := (0 if GameState.reduce_flashing else int(Time.get_ticks_msec() / 200) % 2) \
 		if GameState.shields < GameState.max_shields() * 0.25 and not GameState.is_dead else -1
+	# v4c: the escape clock redraws once a second, and blinks through its last ten
+	var esc := -1
+	if _escape_left >= 0.0:
+		esc = ceili(_escape_left) * 2 \
+			+ (1 if _escape_left < 10.0 and not GameState.reduce_flashing \
+			and int(Time.get_ticks_msec() / 250) % 2 == 0 else 0)
 	if GameState.weapon_index != _c_wpn or GameState.missiles != _c_missiles \
-			or tsec != _c_tsec or _kills != _c_kills or _kill_target != _c_ktarget \
+			or esc != _c_esc or tsec != _c_tsec or _kills != _c_kills or _kill_target != _c_ktarget \
 			or dodge_busy or dodge_busy != _c_dodge or led_blink != _led_blink:
 		_c_wpn = GameState.weapon_index
 		_c_missiles = GameState.missiles
 		_c_tsec = tsec
+		_c_esc = esc
 		_c_kills = _kills
 		_c_ktarget = _kill_target
 		_c_dodge = dodge_busy
@@ -524,6 +563,11 @@ func _draw_canopy() -> void:
 			Color("ff9a30") if lit_pip else Color(0.16, 0.12, 0.09))
 		if lit_pip:
 			c.draw_rect(Rect2(W - 59 + i * 8, 5, 2, 2), Color("ffe0a0"))
+	# v4c: the keycard socket, left of the bomb rack: a dark slot, gold once it's aboard
+	if _key_slot:
+		var held := GameState.has_key
+		c.draw_rect(Rect2(W - 74, 3, 9, 7), Color("ffc830") if held else Color(0.16, 0.12, 0.09))
+		c.draw_rect(Rect2(W - 72, 5, 3, 3), Color("fff0a0") if held else Color(0.09, 0.07, 0.05))
 	# Phase J: boss health bar under the THREAT panel — chunky rect, white damage
 	# flash, tick marks at the 66%/33% phase gates (v4b: a mini-boss's one at 50%)
 	if enemy_mgr and enemy_mgr.boss_visible():
@@ -566,10 +610,15 @@ func _draw_console() -> void:
 			Palette.ramp(Palette.CYAN, 14) if frac >= 1.0 else Palette.ramp(Palette.CYAN, 6))
 	# TIME clock, centred in its well (long runs drop to the small digits)
 	var ts := _time_string()
+	var tcol := DIGIT_COL
+	if _escape_left >= 0.0:   # v4c: the red escape countdown takes the well over
+		var sl := ceili(_escape_left)
+		ts = "%d:%02d" % [sl / 60, sl % 60]
+		tcol = Color("ff3018") if _c_esc % 2 == 0 else Color("ff9080")
 	var px := 2 if ts.length() <= 4 else 1
 	var tw := (ts.length() * 4 - 1) * px
 	_draw_text3x5(c, Vector2(floorf(123.0 - tw / 2.0), CONSOLE_Y + (16 if px == 2 else 19)),
-		ts, px, DIGIT_COL)
+		ts, px, tcol)
 	# LED gauges — SHLD shifts green -> gold -> red as it drains (its top lit
 	# segment blinks when critical); HEAT runs gold -> orange -> red along its
 	# length and goes all-red on overheat

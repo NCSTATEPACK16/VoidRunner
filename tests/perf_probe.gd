@@ -9,6 +9,7 @@ extends Node
 ## v4 perf groundwork: VR_PERF_DENSE=1 swaps the level run for the dense-arena scene
 ## (see _dense_step), and rendered runs also report the game view's draw calls.
 
+const RailAssist := preload("res://tests/rail_assist.gd")
 const SPIKE_US := 8000   # 8 ms of script time in a 16.6 ms frame budget
 const DENSE_STEPS := 60 * 20
 const DENSE_HOLD_RING := 10
@@ -75,16 +76,11 @@ func _run() -> void:
 		if dense:
 			_dense_step(game, f)
 		elif OS.get_environment("VR_PERF_RAIL") == "1":
-			# rail-steer down the tunnel so the probe actually reaches the arenas,
-			# turrets, and secrets deeper in (straight flight stalls at the first bend),
+			# fly the rail like a pilot (steer, clear guards, fetch the hub key, do the
+			# objectives) so the probe reaches the arenas, turrets and secrets deeper in,
 			# and force-survive so combat can't cut the traversal short
 			GameState.is_dead = false
-			var pd: Vector3 = game.path.rings[mini(game.player.ring_idx + 2,
-				game.path.rings.size() - 1)].d
-			game.player.yaw = atan2(-pd.x, -pd.z)
-			game.player.pitch = clampf(asin(pd.y), -0.6, 0.6)
-			if f % 30 == 0:   # clear locked-arena guards so bulkheads open and we pass
-				game.enemy_mgr.splash_damage(game.player.position, 60.0, 999)
+			RailAssist.step(game, f)
 		var ring_before: int = game.player.ring_idx
 		var built_before: int = game.world._built_up_to
 		var enemies_before: int = game.enemy_mgr.enemies.size()

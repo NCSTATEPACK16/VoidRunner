@@ -123,6 +123,7 @@ var level_kills := 0
 var level_props := 0        # K3: fuel cells destroyed this level
 var level_props_total := 0  # K3: set at world build; all destroyed = secondary bonus
 var level_secrets := 0        # V2.0: phantom-wall caches found this level
+var has_key := false          # v4c: this sector's hub keycard is aboard
 var level_secrets_total := 0  # set at world build
 var high_score := 0
 var best_ranks: Array = []  # best rank letter per level index ("" = unranked)
@@ -347,6 +348,7 @@ func reset_level_stats() -> void:
 	level_kills = 0
 	level_props = 0   # level_props_total is owned by game._place_props at world build
 	level_secrets = 0   # level_secrets_total is owned by game._place_secrets
+	has_key = false     # v4c: a keycard opens only its own sector's hub
 	combo_changed.emit(0, 1)
 	clear_powers()   # 3.0: power-ups never carry into the next level
 
@@ -527,9 +529,24 @@ static func normalize_checkpoint(raw: Dictionary, level_count: int) -> Dictionar
 		"secrets_found": _int_list(raw.get("secrets_found", [])),
 		"caches": _int_list(raw.get("caches", [])),
 		"props_gone": _int_list(raw.get("props_gone", [])),
+		# v4c, optional: the hub's keycard, its switch, and whether the vault was looted
+		"has_key": bool(raw.get("has_key", false)),
+		"switch_on": bool(raw.get("switch_on", false)),
+		"vault_found": bool(raw.get("vault_found", false)),
+		# v4c, optional: objective progress (done pod / prop ids) and the escape clock
+		"objective": _normalize_objective(raw.get("objective", {})),
 		"saved_at": float(raw.saved_at),
 		"build": str(raw.get("build", "")),
 	}
+
+
+static func _normalize_objective(v: Variant) -> Dictionary:
+	var d: Dictionary = v if v is Dictionary else {}
+	var left: float = -1.0
+	var raw_left: Variant = d.get("escape_left", -1.0)
+	if raw_left is float or raw_left is int:
+		left = float(raw_left)
+	return {"done": _int_list(d.get("done", [])), "escape_left": left if left >= 0.0 else -1.0}
 
 
 static func _int_list(v: Variant) -> Array:

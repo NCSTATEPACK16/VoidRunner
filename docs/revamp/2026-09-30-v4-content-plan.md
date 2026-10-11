@@ -5,7 +5,7 @@
 verification). Steps 3–6 make the game finishable. v4 makes it feel like a full mid-90s DOS
 shooter before the public launch in Step 8.*
 
-## Progress (2026-10-05)
+## Progress (2026-10-11)
 
 | Sub-step | Status |
 |---|---|
@@ -13,8 +13,23 @@ shooter before the public launch in Step 8.*
 | Perf groundwork | Done (PR #12) |
 | v4b part 1: parts kit; LAYER, RAMMER, MENDER, SPLITTER (sectors 3–5) | Done (PR #13) |
 | v4b part 2: WRAITH, CRAWLER, WARDEN, CARRIER (sectors 7–8); heavy variants; mini-bosses | Done (PR #14) |
-| v4c hubs, keys and objectives | Next, two commits: hubs with keycards and switches; objectives |
-| v4d tally, episodes and menu feel | Queued, one commit |
+| v4c hubs, keys and objectives | Done (PR #19) |
+| v4d tally, episodes and menu feel | Next (spec: `docs/revamp/2026-10-11-v4-spec.md` §6) |
+
+**How v4c landed (PR #19):**
+- **Hubs.** L2, L4, L5, L7 and L8 grow a keycard branch and a switch branch off the room
+  nearest mid-sector (the mini-boss room where there is one). Its bulkhead needs the room's
+  kills and the keycard; a gold mark and a KEYCARD REQUIRED hint show until then. The switch
+  unseals a vault past the hub (+750, missiles, a bomb, a power-up, salvage).
+- **Objectives are required:** pods (L2, L7), generators (L5), the reactor (L4) and the rift
+  anchor (L8). The portal stays dark until the objective is done; the console counts it.
+  Destroying the reactor or anchor starts an escape clock in the TIME well; beating it pays an
+  ESCAPE BONUS, missing it drains shields (no instant fail).
+- **Checkpoints** carry the key, switch, vault and objective. A resume never starts past the
+  portal and backs up to the earliest undone objective behind the saved ring.
+- **Tests:** `tests/rail_assist.gd` flies the probes (steer, guards, mini-bosses, key,
+  objectives); `tests/checkpoint_probe.tscn` flies every sector from each checkpoint it saves
+  (9 sectors, 32 checkpoints, all clear).
 
 **How v4a landed, and where it differs from the plan below:**
 - **Stepped darkness.** The sector shader already cut light into 12 bands, so the missing piece

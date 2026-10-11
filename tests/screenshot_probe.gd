@@ -13,6 +13,9 @@ extends Node
 ##   5. touch II tab over flight, then the pause menu -> shot_touch.png / shot_pause.png
 ##   6. difficulty panel (Step 3)      -> shot_difficulty.png
 ##   7. touch page of the manual (Step 5) -> shot_help_touch.png
+##   8. v4c: hub door, key, switch, reactor, escape HUD, generator, anchor, pod and the
+##      automap marks -> shot_hub_door / key / switch / reactor / escape / generator /
+##      anchor / pod / automap_hub / automap_vault / automap_gen / automap_pods .png
 ## Output dir: VR_SHOT_DIR env var, else user://shots. Restores records/settings.
 
 
@@ -60,6 +63,65 @@ func _fly(game: Node3D, frames: int) -> void:
 		game.player.yaw = atan2(-pd.x, -pd.z)
 		game.player.pitch = clampf(asin(pd.y), -0.6, 0.6)
 		await get_tree().process_frame
+
+
+## v4c: a still frame from a chosen spot: the ship parked at `from`, looking at `at`.
+func _look(game: Node3D, from: Vector3, at: Vector3, ring: int) -> void:
+	var to := (at - from).normalized()
+	for a in game.path.arenas:   # the bulkheads before the spot, open (as a resume would),
+		if a.door_ring >= 0 and a.door_ring < ring:   # or the ship is shoved back to one
+			game.world.open_door(a.id)
+	game.player.active = true
+	for i in 4:   # re-pinned each frame: the ship only drifts a few cm between frames
+		GameState.shields = 100.0
+		game.player.position = from
+		game.player.ring_idx = ring
+		game.player.yaw = atan2(-to.x, -to.z)
+		game.player.pitch = clampf(asin(clampf(to.y, -1.0, 1.0)), -0.6, 0.6)
+		await get_tree().process_frame
+
+
+## The main-path ring nearest `pos` (spur rings included, for branch props).
+func _nearest_ring(game: Node3D, pos: Vector3) -> int:
+	var best := 0
+	var best_d := INF
+	for i in game.path.rings.size():
+		var d: float = game.path.rings[i].p.distance_squared_to(pos)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+
+## Park `back` units short of `target` along the path (ring `target_ring` - `rings_back`,
+## lifted a little) and look at it.
+func _look_at_target(game: Node3D, target: Vector3, rings_back: int, lift := 0.5) -> void:
+	var tr := _nearest_ring(game, target)
+	var r := maxi(tr - rings_back, 1)
+	await _look(game, game.path.rings[r].p + Vector3.UP * lift, target, r)
+
+
+func _open_level(game: Node3D, li: int) -> void:
+	GameState.reset_run()
+	GameState.level_index = li
+	game._launch_level()
+	await get_tree().process_frame
+	game.enemy_mgr.clear_all()
+	game.shot_mgr.clear_all()
+
+
+## Tab automap with every main ring up to `upto` flown and the listed spur ids entered.
+func _automap_shot(game: Node3D, file_name: String, dir: String, upto: int,
+		spur_kinds: Array) -> void:
+	for r in range(1, upto + 1):
+		game.automap.note_ring(r)
+	for kind in spur_kinds:
+		var sp: Dictionary = game.path.spur_of(kind)
+		if not sp.is_empty():
+			game.automap.note_ring(sp.start + 2)
+	game._open_automap()
+	await _capture(game, file_name, dir)
+	game.automap.close()
 
 
 func _run() -> void:
@@ -320,6 +382,68 @@ func _run() -> void:
 	game.enemy_mgr.boss.hp = int(game.enemy_mgr.boss.max_hp * 0.7)
 	await _fly(game, 30)
 	await _capture(game, "shot_miniboss.png", dir)
+	# 3c) v4c hubs and objectives. L4 (reactor): the hub room's sealed gold door, the
+	# keycard in its branch, the switch in the other, the reactor in the room, then the
+	# escape (red countdown in the TIME well); L2/L7 pods, L5 generator, L8 anchor; and
+	# the automap with the new marks (K, star, V, ?, P / G / R / A, the red door bar)
+	await _open_level(game, 3)
+	var hub: Dictionary = game.path.arenas[game._hub_arena]
+	var hdoor: Dictionary = game.path.rings[hub.door_ring]
+	await _look(game, game.path.rings[hub.door_ring - 3].p + Vector3.UP * 0.5,
+		hdoor.p, hub.door_ring - 3)
+	await _capture(game, "shot_hub_door.png", dir)
+	# (each stop reloads the sector: streaming frees the chunks behind the ship, so a jump
+	# back or sideways into a branch would find its walls gone)
+	await _open_level(game, 3)
+	var ksp: Dictionary = game.path.spur_of("key")
+	await _look(game, game.path.rings[ksp.cache - 1].p + Vector3.UP * 0.5,
+		game.spur_mgr.key_pos(), ksp.cache - 1)
+	await _capture(game, "shot_key.png", dir)
+	await _open_level(game, 3)
+	var ssp: Dictionary = game.path.spur_of("switch")
+	await _look(game, game.path.rings[ssp.cache - 1].p + Vector3.UP * 0.5,
+		game.spur_mgr.switch_pos(), ssp.cache - 1)
+	await _capture(game, "shot_switch.png", dir)
+	await _open_level(game, 3)
+	var reactor: Dictionary = game.prop_mgr.objective_positions()[0]
+	await _look_at_target(game, reactor.pos, 3)
+	await _capture(game, "shot_reactor.png", dir)
+	# the automap before the door opens: K, the red switch star, ? on unflown branches,
+	# the red door bar and the R
+	await _automap_shot(game, "shot_automap_hub.png", dir, hub.door_ring + 2, ["key", "switch"])
+	# blow it: the real objective path lights the exit and starts the escape clock
+	for i in game.prop_mgr.props.size():
+		if game.prop_mgr.props[i].id == reactor.id:
+			game.prop_mgr.damage_prop(i, 99999.0)
+			break
+	game.hud.set_escape(game._escape_left)
+	var exit_r: int = game.path.main_ring_count - 8
+	await _look(game, game.path.rings[hub.door_ring + 4].p + Vector3.UP * 0.5,
+		game.path.rings[hub.door_ring + 18].p, hub.door_ring + 4)
+	await get_tree().process_frame
+	await _capture(game, "shot_escape.png", dir)
+	# the thrown switch: the vault's V and a green star
+	game.spur_mgr.set_switch(true)
+	game._on_switch_flipped()
+	await _automap_shot(game, "shot_automap_vault.png", dir, hub.door_ring + 12, ["key", "switch"])
+	# L5: a generator in its room (G marks on the map)
+	await _open_level(game, 4)
+	var gens: Array = game.prop_mgr.objective_positions()
+	await _look_at_target(game, gens[0].pos, 1)
+	await _capture(game, "shot_generator.png", dir)
+	await _automap_shot(game, "shot_automap_gen.png", dir, game.path.main_ring_count - 6, [])
+	# L8: the rift anchor
+	await _open_level(game, 7)
+	await _look_at_target(game, game.prop_mgr.objective_positions()[0].pos, 3)
+	await _capture(game, "shot_anchor.png", dir)
+	# L2: the stranded pods (the nearest one, with the others on the map as P)
+	await _open_level(game, 1)
+	var pods: Array = game.pickup_mgr.live_stations("pod")
+	await _look_at_target(game, pods[0].pos, 1)
+	await _capture(game, "shot_pod.png", dir)
+	await _automap_shot(game, "shot_automap_pods.png", dir, game.path.main_ring_count - 6, [])
+	await _open_level(game, 0)
+
 	# 5) re-audit Step 2: the touch layer's II pause tab over flight, then the menu
 	var touch := TouchControls.new()
 	add_child(touch)

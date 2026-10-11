@@ -16,7 +16,10 @@ const ENEMIES := ["drone", "weaver", "hulk", "turret", "stinger", "spinner", "mi
 ## (v4b: the three mini-bosses bake into the same 128 px boss sheet)
 const BOSSES := ["sentinel", "brood", "maw", "hauler", "tender", "gatewarden"]
 const PICKUPS := ["shield", "energy", "missile", "bomb", "salvage", "overdrive", "phase",
-	"powercore"]
+	"powercore", "keycard", "switch", "switch_on", "pod"]   # v4c: hub keycard and switch, rescue pods
+## v4c: the mission objects (PropManager kinds with HP). They bake into their own 64 px
+## OBJECTS sheet on first use, like the bosses.
+const OBJECTS := ["generator", "reactor", "anchor"]
 
 static var _mats := {}
 
@@ -45,6 +48,9 @@ static func build(id: String, frame: int) -> Node3D:
 		"hauler": _hauler(root, frame)
 		"tender": _tender(root, frame)
 		"gatewarden": _gatewarden(root, frame)
+		"generator": _generator(root, frame)
+		"reactor": _reactor(root, frame)
+		"anchor": _anchor(root, frame)
 		"prop": _fuel_cell(root)
 		_: _pickup(root, id)
 	return root
@@ -761,9 +767,116 @@ static func _gatewarden(root: Node3D, f: int) -> void:
 		pod(root, Vector3(x, -0.05, -1.12), 0.14, 0.34, dark, "ff9020", f)
 
 
+# ---------------------------------------------------------------- v4c mission objects
+
+## A Palette.ramp colour as the hex string m() and glow() take.
+static func pc(hue: int, shade: int) -> String:
+	return Palette.ramp(hue, shade).to_html(false)
+
+
+## Generator (L5): a squat humming pylon. A hazard-skirted base, a ribbed drum with a
+## cyan coil stack riding it, a spark gap on top that blazes on the bright frame, a
+## vent bank on the front and a fat tank on each flank.
+static func _generator(root: Node3D, f: int) -> void:
+	var body := painted(pc(Palette.STEEL, 9), "panel", 0.4, Vector2(3, 1))
+	var dark := m(pc(Palette.STEEL, 3), 0.25)
+	var tank := painted(pc(Palette.BRASS, 8), "panel", 0.4, Vector2(2, 2))
+	part(root, taper(1.7, 0.3, 1.45, 0.34, 1.7), painted("ffffff", "hazard", 0.25, Vector2(4, 1)),
+		Vector3(0, -0.92, 0))
+	part(root, cyl(0.62, 0.74, 1.0, 12), body, Vector3(0, -0.28, 0))
+	part(root, cyl(0.7, 0.7, 0.1, 12), dark, Vector3(0, -0.74, 0))
+	part(root, cyl(0.7, 0.7, 0.1, 12), dark, Vector3(0, 0.2, 0))
+	for i in 3:
+		part(root, torus(0.46, 0.64 - i * 0.05), glow(pc(Palette.CYAN, 11), f),
+			Vector3(0, 0.34 + i * 0.2, 0), Vector3.ZERO, Vector3(1, 1.5, 1))
+	part(root, cyl(0.1, 0.1, 0.7), dark, Vector3(0, 0.6, 0))
+	part(root, sphere(0.18 if f == 0 else 0.24), glow(pc(Palette.CYAN, 15), f), Vector3(0, 0.98, 0))
+	for s in [-1.0, 1.0]:
+		part(root, capsule(0.3, 1.0), tank, Vector3(s * 0.98, -0.42, 0.06))
+		part(root, torus(0.26, 0.34), dark, Vector3(s * 0.98, -0.2, 0.06))
+		part(root, sphere(0.07), glow(pc(Palette.ORANGE, 12), f), Vector3(s * 0.98, 0.12, 0.06))
+		pipe(root, Vector3(s * 0.7, -0.3, 0.0), Vector3(s * 0.8, -0.3, 0.0), 0.07, dark)
+	vents(root, Vector3(0, -0.4, 0.74), 0.7, 3, pc(Palette.CYAN, 12), f)
+
+
+## Reactor (L4): the room's centrepiece. A white-hot core that swells on the bright
+## frame, held in a caged frame (four posts, a ring above and below) with a tilted
+## containment ring and a hazard-striped plinth.
+static func _reactor(root: Node3D, f: int) -> void:
+	var steel := m(pc(Palette.STEEL, 8), 0.5)
+	var dark := m(pc(Palette.STEEL, 3), 0.25)
+	part(root, taper(1.9, 0.3, 1.6, 0.34, 1.9), painted("ffffff", "hazard", 0.25, Vector2(4, 1)),
+		Vector3(0, -0.98, 0))
+	part(root, cyl(0.62, 0.8, 0.22, 12), dark, Vector3(0, -0.74, 0))
+	part(root, sphere(0.56 if f == 0 else 0.62), glow(pc(Palette.ORANGE, 11), f), Vector3(0, 0.06, 0))
+	part(root, sphere(0.3 if f == 0 else 0.38), glow(pc(Palette.GOLD, 15), 1), Vector3(0, 0.1, 0.34))
+	part(root, torus(0.9, 1.04, 32), glow(pc(Palette.RED, 11), f), Vector3(0, 0.06, 0),
+		Vector3(70, 0, 20))
+	part(root, torus(0.82, 1.06, 28), steel, Vector3(0, -0.64, 0))
+	part(root, torus(0.82, 1.06, 28), steel, Vector3(0, 0.78, 0))
+	for k in 4:
+		var a := k * TAU / 4.0 + TAU / 8.0
+		var at := Vector3(cos(a) * 0.94, 0.07, sin(a) * 0.94)
+		part(root, cyl(0.08, 0.08, 1.5, 8), steel, at)
+		part(root, box(0.16, 0.1, 0.16), glow(pc(Palette.ORANGE, 13), f), at + Vector3(0, 0.46, 0))
+	part(root, cyl(0.2, 0.34, 0.3), dark, Vector3(0, 1.02, 0))
+	part(root, sphere(0.1), glow(pc(Palette.RED, 12), f), Vector3(0, 1.22, 0))
+
+
+## Rift anchor (L8): a strange crystal spike-cluster pinning the rift. A double-ended
+## violet crystal with a ring of splayed spikes round its waist, three shards drifting
+## high and low (they shift between frames), and a glowing cyan rift ring beneath.
+static func _anchor(root: Node3D, f: int) -> void:
+	var crystal := m(pc(Palette.VIOLET, 10), 0.6, 0.4, 40.0, 1.1)
+	var deep := m(pc(Palette.VIOLET, 6), 0.5, 0.25, 40.0, 1.0)
+	var pale := m(pc(Palette.MAGENTA, 11), 0.6, 0.35, 44.0, 1.1)
+	part(root, torus(0.7, 0.96, 32), glow(pc(Palette.CYAN, 11), f), Vector3(0, -0.74, 0))
+	part(root, cyl(0.0, 0.34, 1.0, 6), crystal, Vector3(0, 0.36, 0))
+	part(root, cyl(0.34, 0.0, 1.0, 6), deep, Vector3(0, -0.64, 0))
+	part(root, cyl(0.0, 0.2, 0.7, 5), pale, Vector3(0, 1.2, 0))
+	part(root, sphere(0.15 if f == 0 else 0.2), glow(pc(Palette.CYAN, 15), f), Vector3(0, -0.14, 0.2))
+	for k in 6:
+		var a := k * TAU / 6.0 + (0.0 if k % 2 == 0 else 0.25)
+		var out := Vector3(cos(a), 0.0, sin(a))
+		var tilt := 62.0 if k % 2 == 0 else 48.0
+		var sp := part(root, cyl(0.0, 0.14, 0.95 if k % 2 == 0 else 0.7, 5),
+			crystal if k % 2 == 0 else deep, out * 0.62 + Vector3(0, -0.28 + 0.1 * (k % 2), 0))
+		# a cone's tip is its +Y end: lean it away from the axis by `tilt` degrees
+		var axis := Vector3.UP.cross(out).normalized()
+		sp.transform = Transform3D(Basis(axis, deg_to_rad(tilt)), sp.position)
+	for k in 3:
+		var a := k * TAU / 3.0 + (0.4 if f == 0 else 0.7)
+		var y := 0.55 + 0.1 * f if k != 1 else -0.3 - 0.1 * f
+		part(root, prism(0.22, 0.34, 0.22), pale,
+			Vector3(cos(a) * 1.0, y, sin(a) * 1.0), Vector3(0, rad_to_deg(a), 14 * (k - 1)))
+
+
 # ---------------------------------------------------------------- pickups + props
 
+## Rescue pod (v4c): a little stranded lifeboat lying on its side — cream hull, an
+## orange stripe, a round window with a friendly glow, a small engine bell, two stubby fins and a
+## beacon on a short mast. Built from the parts kit with Palette.ramp colours.
+static func _rescue_pod(root: Node3D) -> void:
+	var hull := m(Palette.ramp(Palette.STEEL, 14).to_html(false), 0.45, 0.0, 34.0)
+	var stripe := m(Palette.ramp(Palette.ORANGE, 10).to_html(false), 0.3, 0.1)
+	var glass := m(Palette.ramp(Palette.CYAN, 11).to_html(false), 0.7, 0.55, 44.0, 1.1)
+	part(root, capsule(0.42, 1.3), hull, Vector3.ZERO, Vector3(0, 0, 90))
+	part(root, torus(0.36, 0.46), stripe, Vector3(0.12, 0, 0), Vector3(0, 0, 90))
+	part(root, sphere(0.22), glass, Vector3(-0.2, 0.02, 0.32))
+	part(root, cyl(0.2, 0.28, 0.2), m(Palette.ramp(Palette.STEEL, 6).to_html(false), 0.3),
+		Vector3(0.74, 0, 0), Vector3(0, 0, 90))
+	pair(root, fin(0.34, 0.3, 0.16, 0.08, 0.06), stripe, Vector3(0.38, 0.26, 0.0),
+		Vector3(0, 0, 70))
+	part(root, cyl(0.025, 0.035, 0.34), m(Palette.ramp(Palette.STEEL, 8).to_html(false), 0.3),
+		Vector3(0, 0.55, 0))
+	part(root, sphere(0.12), glow(Palette.ramp(Palette.GOLD, 14).to_html(false), 1),
+		Vector3(0, 0.74, 0))   # the beacon (bright idle frame: the pod's own light)
+
+
 static func _pickup(root: Node3D, kind: String) -> void:
+	if kind == "pod":
+		_rescue_pod(root)
+		return
 	var ring := m("c8d0e0", 0.7)
 	match kind:
 		"shield":
@@ -804,6 +917,18 @@ static func _pickup(root: Node3D, kind: String) -> void:
 			part(root, cyl(0.0, 0.46, 0.58, 4), m("8a5ae8", 0.5, 0.35, 40.0, 1.0), Vector3(0, 0.29, 0))
 			part(root, cyl(0.46, 0.0, 0.58, 4), m("5a2ac0", 0.5, 0.3, 40.0, 1.0), Vector3(0, -0.29, 0))
 			part(root, torus(0.76, 0.88), m("e03cb0", 0.3, 0.5), Vector3.ZERO, Vector3(90, 0, 0))
+		"keycard":   # v4c: a gold pass card, chip and stripe lit
+			part(root, box(1.0, 0.66, 0.08), m("ffc830", 0.6, 0.35, 40.0, 1.0), Vector3.ZERO)
+			part(root, box(1.0, 0.12, 0.1), glow("fff0a0", 1), Vector3(0, 0.18, 0))
+			part(root, box(0.22, 0.18, 0.1), m("8a6a20", 0.7), Vector3(-0.26, -0.12, 0))
+			part(root, torus(0.76, 0.86), m("c8d0e0", 0.7), Vector3.ZERO, Vector3(90, 0, 0))
+		"switch", "switch_on":   # v4c: a wall lever, thrown red-down or green-up
+			var on := kind == "switch_on"
+			part(root, box(0.9, 1.1, 0.2), m("4a5468", 0.4), Vector3.ZERO)
+			part(root, box(0.7, 0.9, 0.1), painted("ffffff", "hazard", 0.2), Vector3(0, 0, 0.1))
+			var tip := Vector3(0, 0.42 if on else -0.42, 0.42)
+			pipe(root, Vector3(0, 0, 0.12), tip, 0.07, m("c8d0e0", 0.6))
+			part(root, sphere(0.16), glow("40ff60" if on else "ff3020", 1), tip)
 
 
 ## K3 fuel cell: a hazard-banded canister with a hot core window.

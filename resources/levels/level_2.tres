@@ -6,7 +6,7 @@
 script = ExtResource("1")
 display_name = "L2 · SUPPLY ARTERY"
 briefing = "Expect heavier patrols. Keep moving — a still ship is an easy target. Mines arm when you get close: shoot them early."
-objective = "PUNCH THROUGH THE ARTERY"
+objective = "RESCUE 3 STRANDED PODS"
 rings = 130
 spawn_tunnel = 0.08
 spawn_arena = 0.36
@@ -21,3 +21,6 @@ miniboss_model = "hauler"
 miniboss_name = "HAULER"
 miniboss_hp = 70
 miniboss_size = 11.0
+hub = true
+objective_kind = "rescue"
+objective_count = 3

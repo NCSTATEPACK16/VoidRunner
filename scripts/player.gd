@@ -348,8 +348,9 @@ func _door_collide() -> void:
 		bounce += ring.d * -14.0
 		if wall_hurt_t <= 0.0:
 			wall_hurt_t = 0.45
+			var hint := world.door_hint(door_ring)   # v4c: a keyed door says so
 			take_damage(2.0 * wall_damage_mult(),
-				"BULKHEAD SEALED — CLEAR ALL HOSTILES", true)
+				hint if hint != "" else "BULKHEAD SEALED — CLEAR ALL HOSTILES", true)
 
 
 ## pierce_evade: wall/bulkhead scrapes still hurt mid-dodge (no rolling along walls

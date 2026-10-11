@@ -170,6 +170,54 @@ static func boss_frames() -> Array[ImageTexture]:
 	return frames
 
 
+## v4c: headless / readback-failure stand-ins for the OBJECTS sheet (generator,
+## reactor, rift anchor): 64 px, two idle frames plus a flash, like boss_frames().
+static func object_frames(kind: String) -> Array[ImageTexture]:
+	var frames: Array[ImageTexture] = []
+	for f in 2:
+		frames.append(ImageTexture.create_from_image(_draw_object(kind, f, false)))
+	frames.append(ImageTexture.create_from_image(_draw_object(kind, 1, true)))
+	return frames
+
+
+static func _draw_object(kind: String, frame: int, flash: bool) -> Image:
+	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	var lit := Palette.WHITE
+	var steel := lit if flash else Palette.GREY_5
+	var dark := lit if flash else Palette.GREY_2
+	var hot := frame == 1
+	match kind:
+		"generator":
+			_rect(img, 10, 52, 44, 6, lit if flash else Palette.ORANGE_2)
+			_rect(img, 20, 24, 24, 28, steel)
+			_rect(img, 20, 24, 4, 28, dark)
+			_rect(img, 4, 34, 10, 18, dark)
+			_rect(img, 50, 34, 10, 18, dark)
+			for i in 3:
+				_rect(img, 18, 26 + i * 8, 28, 3, lit if flash else Palette.CYAN_2)
+			_rect(img, 30, 10, 4, 14, dark)
+			var gr := 5 if hot else 4
+			_ellipse(img, 32, 9, gr, gr, lit if flash else Palette.CYAN_3)
+		"reactor":
+			_rect(img, 8, 54, 48, 5, lit if flash else Palette.ORANGE_2)
+			for x in [12, 50]:
+				_rect(img, x, 8, 3, 46, steel)
+			_rect(img, 10, 8, 44, 3, steel)
+			_rect(img, 10, 50, 44, 3, steel)
+			var rr := 16 if hot else 14
+			_ellipse(img, 32, 30, rr, rr, lit if flash else Palette.ORANGE_2)
+			_ellipse(img, 32, 30, 8, 8, lit if flash else Palette.ORANGE_3)
+		_:
+			_ellipse(img, 32, 52, 24, 5, lit if flash else Palette.CYAN_1)
+			for i in 11:
+				var h := 40 - absi(i - 5) * 5
+				var col := Palette.NAVY_2 if i % 2 == 0 else Palette.BLUE_0
+				_rect(img, 12 + i * 4, 52 - h, 3, h, lit if flash else col)
+			var ar := 5 if hot else 4
+			_ellipse(img, 32, 40, ar, ar, lit if flash else Palette.CYAN_3)
+	return img
+
+
 static func _draw_boss(frame: int, flash: bool) -> Image:
 	var img := Image.create(64, 64, false, Image.FORMAT_RGBA8)
 	var plate := Palette.WHITE if flash else Palette.GREY_5
@@ -305,6 +353,26 @@ static func pickup_texture(kind: String) -> ImageTexture:
 			_rect(img, 5, 5, 6, 5, Palette.ORANGE_2)
 			_rect(img, 6, 4, 3, 3, Palette.ORANGE_3)
 			_px(img, 7, 5, Palette.WHITE)
+		"keycard":   # v4c: gold pass card with a lit stripe and chip
+			_rect(img, 2, 4, 12, 8, Palette.ORANGE_1)
+			_rect(img, 3, 5, 10, 6, Palette.ORANGE_3)
+			_rect(img, 3, 6, 10, 1, Palette.WHITE)
+			_rect(img, 4, 8, 3, 2, Palette.ORANGE_0)
+		"switch", "switch_on":   # v4c: a wall plate with a lever, red-down or green-up
+			var on := kind == "switch_on"
+			_rect(img, 3, 2, 10, 12, Palette.GREY_2)
+			_rect(img, 4, 3, 8, 10, Palette.GREY_4)
+			_rect(img, 7, 4 if on else 8, 2, 4, Palette.GREY_6)
+			_rect(img, 6, 3 if on else 11, 4, 2, Palette.GREEN_2 if on else Palette.RED_3)
+		"pod":   # v4c rescue pod: lifeboat on its side, orange band, window, beacon light
+			_ellipse(img, 8, 10, 7, 5, Palette.GREY_5)
+			_ellipse(img, 8, 10, 6, 4, Palette.GREY_7)
+			_rect(img, 6, 7, 2, 7, Palette.ORANGE_2)
+			_ellipse(img, 10, 10, 2, 2, Palette.CYAN_3)
+			_px(img, 9, 9, Palette.WHITE)
+			_rect(img, 8, 3, 1, 3, Palette.GREY_5)
+			_rect(img, 7, 1, 3, 2, Palette.ORANGE_3)
+			_px(img, 8, 1, Palette.WHITE)
 	return ImageTexture.create_from_image(img)
 
 

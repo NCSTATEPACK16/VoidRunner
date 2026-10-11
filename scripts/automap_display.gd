@@ -33,6 +33,9 @@ var _portal_ring := -1
 var _main_end := 0          # last main-path ring index (spur rings append after this)
 var _spur_seen := {}        # spur id -> true once the player has entered it
 var _spur_runs: Array = []  # one PackedVector2Array polyline per seen spur
+## v4c: extra markers, each {pos: Vector3, glyph: String, col: Color} or, for a sealed
+## door, {pos, bar: Vector3 (the door's right axis), col}. The game picks what shows.
+var _extras: Array = []
 
 
 func _ready() -> void:
@@ -53,6 +56,7 @@ func setup(path, player) -> void:
 	_portal_ring = -1
 	_spur_seen = {}
 	_spur_runs = []
+	_extras = []
 	_main_end = path.rings.size() - 1
 	if not path.spurs.is_empty():          # V2.2 L5c: spur rings live past the main path
 		_main_end = path.spurs[0].start - 1
@@ -73,11 +77,22 @@ func note_ring(idx: int) -> void:
 
 
 ## Markers the game refreshes when the map opens (found secrets, woken exit portal).
-func set_markers(secret_rings: PackedInt32Array, portal_ring: int) -> void:
+func set_markers(secret_rings: PackedInt32Array, portal_ring: int, extras: Array = []) -> void:
 	_secret_rings = secret_rings
 	_portal_ring = portal_ring
+	_extras = extras
 	if _open:
 		queue_redraw()
+
+
+## v4c: has the ship been into this spur yet? (the game hides what's down it until then)
+func spur_seen(id: int) -> bool:
+	return _spur_seen.has(id)
+
+
+## v4c: the furthest main-path ring explored so far.
+func explored_to() -> int:
+	return _max_ring
 
 
 func is_open() -> bool:
@@ -194,6 +209,14 @@ func _draw() -> void:
 		if sr >= 0 and sr < _pts.size():
 			draw_string(ThemeDB.fallback_font, to_screen.call(_pts[sr]) + Vector2(-3, 3),
 				"S", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, SECRET_COL)
+	for mk in _extras:   # v4c: keycard, switch, sealed door, vault, unexplored branches
+		var mp: Vector2 = to_screen.call(Vector2(mk.pos.x, mk.pos.z))
+		if mk.has("bar"):
+			var ax: Vector2 = Vector2(mk.bar.x, mk.bar.z).normalized() * 5.0
+			draw_line(mp - ax, mp + ax, mk.col, 2.0)
+		else:
+			draw_string(ThemeDB.fallback_font, mp + Vector2(-3, 3), mk.glyph,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 8, mk.col)
 	if _portal_ring >= 0 and _portal_ring < _pts.size():
 		var pp: Vector2 = to_screen.call(_pts[_portal_ring])
 		draw_colored_polygon(PackedVector2Array([

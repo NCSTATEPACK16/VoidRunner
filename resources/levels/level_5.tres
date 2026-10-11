@@ -6,7 +6,7 @@
 script = ExtResource("1")
 display_name = "L5 · HIVE TRENCHES"
 briefing = "MENDERS repair the swarm: shoot them first. SPLITTERS burst into three drones. SPINNERS throw rings: hold your line."
-objective = "BURN OUT THE NEST"
+objective = "SHUT DOWN 4 GENERATORS"
 rings = 180
 spawn_tunnel = 0.12
 spawn_arena = 0.48
@@ -22,3 +22,6 @@ miniboss_model = "tender"
 miniboss_name = "SPORE TENDER"
 miniboss_hp = 100
 miniboss_size = 12.0
+hub = true
+objective_kind = "generators"
+objective_count = 4

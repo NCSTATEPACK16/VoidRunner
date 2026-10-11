@@ -77,7 +77,7 @@ func material_count() -> int:
 	return _materials.size()
 
 
-## Level lamps with an animated mood: "steady" | "flicker" | "strobe". Returns an
+## Level lamps with an animated mood: "steady" | "flicker" | "strobe" | "pulse". Returns an
 ## id for set_static_on() (the exit portal is dark until its gate wakes).
 func add_static(pos: Vector3, color: Color, energy: float, light_range: float,
 		mode := "steady", phase := 0.0) -> int:
@@ -129,6 +129,8 @@ func commit(delta: float) -> void:
 					e *= 0.55 + 0.45 * sin(_t * 13.0 + s.phase) * sin(_t * 7.3 + s.phase * 2.0)
 				"strobe":
 					e *= 1.0 if fmod(_t + s.phase, 0.9) < 0.62 else 0.08
+				"pulse":   # v4c: a slow breathe, for things that want finding
+					e *= 0.7 + 0.3 * sin(_t * 3.0 + s.phase)
 		s.live = e
 		if (s.pos as Vector3).distance_squared_to(_cam) < STATIC_CULL * STATIC_CULL:
 			add(s.pos, s.color, e, s.range)
