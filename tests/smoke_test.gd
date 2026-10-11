@@ -974,7 +974,7 @@ func _run() -> void:
 	assert(cr.bays and cr_said.is_empty())
 	em.hit_enemy(em.enemies.find(cr), 1)
 	assert(not cr.bays and cr_said.size() == 1 and cr_said[0] == "CARRIER BAYS DOWN")
-	assert(game.hud._msg.text == "CARRIER BAYS DOWN")
+	assert(game.hud.last_message() == "CARRIER BAYS DOWN")
 	em.announced.disconnect(hear)
 	em.remove_where(func(en: Dictionary) -> bool: return en.get("parent") == cr.node)
 	for tick in 3:
@@ -1339,7 +1339,7 @@ func _run() -> void:
 	mb_em.update_enemies(dt)
 	assert(hl.engaged and hl_woke.size() == 1 and hl_woke[0] == "HAULER")
 	assert(mb_em.boss_visible() and GameState.boss_active)
-	assert(game.hud._msg.text == "WARNING · HAULER")
+	assert(game.hud.last_message() == "WARNING · HAULER")
 	assert(game.hud.boss_gates(hl) == [0.5])         # one phase tick, at 50%
 	# ...it sows mines from the rack at its tail...
 	var hl_mines := func() -> int:
@@ -1366,7 +1366,7 @@ func _run() -> void:
 	hl.summon_t = 0.0
 	mb_em.update_enemies(dt)
 	assert(mb_phases.size() == 1 and mb_phases[0] == 2 and hl.phase == 2)
-	assert(game.hud._msg.text == "ESCORTS INBOUND — STAY MOBILE")
+	assert(game.hud.last_message() == "ESCORTS INBOUND — STAY MOBILE")
 	var hl_escorts := 0
 	for en in mb_em.enemies:
 		if en.get("summoned", false):
@@ -1395,7 +1395,7 @@ func _run() -> void:
 	assert(mb_em.boss.is_empty() and game._miniboss_down and not GameState.boss_active)
 	assert(game.world.is_door_open(hl_room.id) and hl_boss_deaths[0] == 0)
 	assert(GameState.score > hl_score)
-	assert(game.hud._msg.text == "HAULER DESTROYED · BULKHEAD OPEN")
+	assert(game.hud.last_message() == "HAULER DESTROYED · BULKHEAD OPEN")
 	mb_em.boss_killed.disconnect(hear_boss)
 	mb_em.boss_phase.disconnect(hear_phase)
 	# the bulkhead's checkpoint knows it fell, so a resume past it doesn't bring it back
@@ -1485,7 +1485,7 @@ func _run() -> void:
 	gw.hp = gw.max_hp / 2
 	mb_em.update_enemies(dt)
 	assert(gw.phase == 2 and not gw.shielded and gw.tint == EnemyManager.GATEWARDEN_BARE_TINT)
-	assert(game.hud._msg.text == "SHIELD DOWN — OPEN FIRE")
+	assert(game.hud.last_message() == "SHIELD DOWN — OPEN FIRE")
 	gw_hp = gw.hp
 	gw.facing = -gw_fwd
 	mb_em.hit_enemy(mb_em.enemies.find(gw), 1, gw_fwd)
@@ -1728,7 +1728,7 @@ func _run() -> void:
 		game._on_enemy_killed(hb_hub)
 	assert(not game.world.is_door_open(hb_hub))
 	assert(game.world.door_hint(int(hb_room.door_ring)) == "KEYCARD REQUIRED")
-	assert(game.hud._msg.text == "ROOM CLEAR · KEYCARD REQUIRED")
+	assert(game.hud.last_message() == "ROOM CLEAR · KEYCARD REQUIRED")
 	# the keycard is a station in the key branch; flying onto it takes it, and the cleared
 	# room's bulkhead opens at once
 	var hb_kp: Vector3 = game.spur_mgr.key_pos()
@@ -1781,7 +1781,7 @@ func _run() -> void:
 	game.spur_mgr.update(0.0)
 	assert(hb_flips[0] == 1 and game.spur_mgr.switch_on)
 	game.spur_mgr.switch_flipped.disconnect(hb_hear)
-	assert(game.hud._msg.text == "YOU HEAR A DOOR OPEN" and hb_v.get("open", false))
+	assert(game.hud.last_message() == "YOU HEAR A DOOR OPEN" and hb_v.get("open", false))
 	assert(game.spur_mgr.collected_ids().is_empty())
 	# the vault: its panel is gone and the cache pays once
 	game.player.place_at_ring(int(hb_v.ring))
@@ -1917,19 +1917,19 @@ func _run() -> void:
 	var rs_score := GameState.score
 	game.pickup_mgr.update_pickups(0.0)
 	game.pickup_mgr.update_pickups(0.0)
-	assert(game._obj_done == 1 and game.hud._msg.text == "POD RESCUED 1/3")
+	assert(game._obj_done == 1 and game.hud.last_message() == "POD RESCUED 1/3")
 	assert(game.hud._obj_label.text == "PODS 1/3" and not game.world.portal_active)
 	assert(GameState.score == rs_score and GameState.missiles == GameState.missile_cap())
 	game.player.position = rs_pods[1].pos
 	game.pickup_mgr.update_pickups(0.0)
-	assert(game._obj_done == 2 and game.hud._msg.text == "POD RESCUED 2/3")
+	assert(game._obj_done == 2 and game.hud.last_message() == "POD RESCUED 2/3")
 	# a checkpoint with two pods safe: a resume has them gone, the third waiting, the exit dark
 	var rs_cp := GameState.save_checkpoint(game._checkpoint_data(40, []))
 	assert(rs_cp.objective.done.size() == 2 and float(rs_cp.objective.escape_left) == -1.0)
 	game.player.position = rs_pods[2].pos
 	game.pickup_mgr.update_pickups(0.0)
 	assert(game._obj_done == 3 and game.world.portal_active)
-	assert(game.hud._msg.text == "ALL PODS SAFE · EXIT OPEN" and game.hud._obj_label.text == "PODS 3/3")
+	assert(game.hud.last_message() == "ALL PODS SAFE · EXIT OPEN" and game.hud._obj_label.text == "PODS 3/3")
 	assert(game.pickup_mgr.live_stations("pod").is_empty())
 	var rs_full := GameState.save_checkpoint(game._checkpoint_data(60, []))
 	assert(rs_full.objective.done.size() == 3)
@@ -2008,7 +2008,7 @@ func _run() -> void:
 	assert(game.prop_mgr.props[ob_flash].hp < 30.0 and game.prop_mgr.props[ob_flash].flash_t > 0.0)
 	game.prop_mgr.splash(ob_gen_pos[3], 12.0, 100.0)
 	game.prop_mgr.update_props(0.0)
-	assert(game._obj_done == 1 and game.hud._msg.text == "GENERATOR DOWN 1/4")
+	assert(game._obj_done == 1 and game.hud.last_message() == "GENERATOR DOWN 1/4")
 	assert(game.hud._obj_label.text == "GENERATORS 1/4")
 	for k in 2:
 		for pi in game.prop_mgr.props.size():
@@ -2017,7 +2017,7 @@ func _run() -> void:
 				break
 		game.prop_mgr.update_props(0.0)
 		assert(game._obj_done == 2 + k)
-	assert(not game.world.portal_active and game.hud._msg.text == "GENERATOR DOWN 3/4")
+	assert(not game.world.portal_active and game.hud.last_message() == "GENERATOR DOWN 3/4")
 	var ob_cp: Dictionary = game._checkpoint_data(30, [])                        # 3 down: saved as such
 	assert(ob_cp.objective.done.size() == 3)
 	for pi in game.prop_mgr.props.size():
@@ -2026,7 +2026,7 @@ func _run() -> void:
 			break
 	game.prop_mgr.update_props(0.0)
 	assert(game._obj_done == 4 and game.world.portal_active and game._escape_left < 0.0)
-	assert(game.hud._msg.text == "ALL GENERATORS DOWN · EXIT OPEN" and game.hud._obj_label.text == "GENERATORS 4/4")
+	assert(game.hud.last_message() == "ALL GENERATORS DOWN · EXIT OPEN" and game.hud._obj_label.text == "GENERATORS 4/4")
 	assert(GameState.level_props_total == ob_cells and game.prop_mgr.cell_count() <= ob_cells)
 	assert(game.prop_mgr.objectives_left() == 0)
 	# a resume with three down: that generator stays down and the other waits
@@ -2076,7 +2076,7 @@ func _run() -> void:
 	es_boom.call()
 	assert(game.world.portal_active and game._obj_done == 1)
 	assert(is_equal_approx(game._escape_left, game.escape_time(es_rings, es_detour)))
-	assert(game.hud._msg.text == "REACTOR DOWN · ESCAPE!" and game.hud._obj_label.text == "REACTOR 1/1")
+	assert(game.hud.last_message() == "REACTOR DOWN · ESCAPE!" and game.hud._obj_label.text == "REACTOR 1/1")
 	assert(is_equal_approx(game.hud._escape_left, game._escape_left) and game.hud._time_label.text == "EXIT")
 	assert(GameState.score >= 1200)                                    # the reactor pays
 	var es_total: float = game._escape_left
@@ -2120,7 +2120,7 @@ func _run() -> void:
 		es_boom.call()
 		game._escape_left = 0.4
 		game._update_escape(0.5)
-		assert(game._escape_left == 0.0 and game.hud._msg.text == "OUT OF TIME · SHIELDS DRAINING — RUN!")
+		assert(game._escape_left == 0.0 and game.hud.last_message() == "OUT OF TIME · SHIELDS DRAINING — RUN!")
 		assert(game.state == game.State.PLAYING and not GameState.is_dead)
 		var es_sh: float = GameState.shields
 		game._update_escape(1.0)
@@ -2151,7 +2151,7 @@ func _run() -> void:
 	assert(game.path.rings[es_aring].arena_id == game._hub_arena)
 	game.player.place_at_ring(es_aring)
 	es_boom.call()
-	assert(game.world.portal_active and game._escape_left > 8.0 and game.hud._msg.text == "ANCHOR DOWN · ESCAPE!")
+	assert(game.world.portal_active and game._escape_left > 8.0 and game.hud.last_message() == "ANCHOR DOWN · ESCAPE!")
 	assert(game.prop_mgr.objectives_left() == 0)
 	print("ANCHOR ok — in the mini-boss room, same escape")
 	# ---- L4: resume from each checkpoint it can save, with the reactor standing and gone
@@ -3282,12 +3282,12 @@ func _run() -> void:
 	assert(first_contact)   # the guaranteed sector-1 drone
 	assert(game._tips_on and game._tip_stage == game.TIP_STEER)
 	game._update_tips(1.6)
-	assert(game.hud._msg.text == game.tip_text(game.TIP_STEER))
+	assert(game.hud.last_message() == game.tip_text(game.TIP_STEER))
 	game.player.yaw += 0.3                     # steering answers STEER
 	game._update_tips(0.1)
 	assert(game._tip_stage == game.TIP_FIRE)
 	game._update_tips(0.1)
-	assert(game.hud._msg.text == game.tip_text(game.TIP_FIRE))
+	assert(game.hud.last_message() == game.tip_text(game.TIP_FIRE))
 	GameState.level_shots += 1                 # a shot answers FIRE
 	game._update_tips(0.1)
 	assert(game._tip_stage == game.TIP_BOOST)
@@ -3297,10 +3297,10 @@ func _run() -> void:
 	Input.action_release("boost")
 	assert(game._tip_stage == game.TIP_EVADE)
 	game._update_tips(0.1)
-	assert(game.hud._msg.text != game.tip_text(game.TIP_EVADE))   # waits for a bolt
+	assert(game.hud.last_message() != game.tip_text(game.TIP_EVADE))   # waits for a bolt
 	game.shot_mgr.threat_near = true
 	game._update_tips(4.0)
-	assert(game.hud._msg.text == game.tip_text(game.TIP_EVADE))
+	assert(game.hud.last_message() == game.tip_text(game.TIP_EVADE))
 	game.player.dodged.emit(Vector3.RIGHT)     # a roll answers EVADE
 	game._update_tips(0.1)
 	assert(not game._tips_on and GameState.seen_flight_tips)
@@ -3478,7 +3478,7 @@ func _run() -> void:
 	assert(vhud._tint_flash.color.a > 0.0 and vhud._tint_flash.color.r > 0.9)
 	GameState.difficulty = 0
 	game._on_pickup_collected("shield")
-	assert(vhud._msg.text == "SHIELD CELL +%d" % roundi(PickupManager.EFFECT.shield * 1.5))
+	assert(vhud.last_message() == "SHIELD CELL +%d" % roundi(PickupManager.EFFECT.shield * 1.5))
 	GameState.difficulty = 1
 	# richer blasts: more frames, and a big one leaves lingering smoke
 	assert(FxGen.fireball_frames().size() == FxGen.FIREBALL_FRAMES)
@@ -3492,6 +3492,31 @@ func _run() -> void:
 	assert(vsm._puffs.size() == ShotManager.AFTERMATH_PUFFS)
 	assert(is_equal_approx(float(vsm._puffs[0].life), ShotManager.AFTERMATH_LIFE))
 	vsm.clear_all()
+	# v4d message log: stack, drop, refresh, expire, dim
+	var ml_hud: Hud = game.hud
+	ml_hud._log.clear()
+	ml_hud.show_message("LOG A", 5.0)
+	ml_hud.show_message("LOG B", 5.0)
+	ml_hud.show_message("LOG C", 5.0)
+	assert(ml_hud.last_message() == "LOG C" and ml_hud._log.size() == 3)
+	assert(ml_hud._log_labels[2].text == "LOG C" and ml_hud._log_labels[0].text == "LOG A")   # newest at the bottom
+	assert(ml_hud._log_labels[2].position.y > ml_hud._log_labels[1].position.y)
+	assert(ml_hud._log_labels[0].modulate.a < ml_hud._log_labels[1].modulate.a \
+		and ml_hud._log_labels[1].modulate.a < ml_hud._log_labels[2].modulate.a)
+	ml_hud.show_message("LOG D", 5.0)   # a 4th drops the oldest
+	assert(ml_hud._log.size() == 3 and ml_hud._log_labels[0].text == "LOG B" and ml_hud.last_message() == "LOG D")
+	ml_hud.show_message("LOG D", 5.0)   # a repeat refreshes, never stacks
+	assert(ml_hud._log.size() == 3)
+	ml_hud._log[0].t = 0.1
+	ml_hud._log[1].t = 4.0
+	ml_hud._log[2].t = 2.0
+	ml_hud._update_log(0.2)   # the oldest times out on its own
+	assert(ml_hud._log.size() == 2 and ml_hud._log[0].text == "LOG C" and ml_hud._log_labels[0].visible == false)
+	ml_hud._log[1].t = 0.1
+	ml_hud.show_message("LOG D", 5.0)   # refresh restores the timer
+	assert(is_equal_approx(float(ml_hud._log[1].t), 5.0))
+	ml_hud._update_log(10.0)
+	assert(ml_hud.last_message() == "" and not ml_hud._log_labels[2].visible)
 	print("V4A ok — distance bands match the fog, cycling on themed surfaces, capped flashes, 14/6-frame blasts + aftermath smoke")
 	# --- v4 perf groundwork: FxBatch, one draw call per effect layer. A layer's frames
 	# sit in one atlas strip, add() refuses past capacity, an empty layer hides, and
