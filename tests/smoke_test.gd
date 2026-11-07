@@ -192,7 +192,9 @@ func _run() -> void:
 	# that would launch a later (even boss) level and break the L1 asserts below
 	GameState.unlocked_level = 0
 	game.overlays._sector = 0
-	game._on_launch()   # MENU -> BRIEFING
+	game._on_launch()   # MENU -> episode title card
+	assert(game.state == game.State.EPISODE)
+	game.overlays.episode_title_dismiss()   # -> BRIEFING
 	# V2.1: the briefing pump must finish the whole finite level before launch
 	for f in 20:
 		game._process(1.0 / 60.0)
@@ -1713,8 +1715,9 @@ func _run() -> void:
 			break
 	assert(e_done)                   # full in-cache-out pass completed
 	assert(game.spur_mgr.caches_found == 1)
-	game.overlays.set_level_clear("L2", 0, 0, "L3", 0, 0, 0.0, "C", false, 0, 0, 0, 0,
-		game.spur_mgr.caches_found, game.spur_mgr.supply_count())
+	game.overlays.set_level_clear("L2", [{"text": "CACHES %d/%d", "vals": [
+		game.spur_mgr.caches_found, game.spur_mgr.supply_count()]}], "C")
+	game.overlays.tally_skip()
 	var clear_body: String = \
 		(game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert("CACHES 1/1" in clear_body)
@@ -1978,6 +1981,7 @@ func _run() -> void:
 	game.player.position = game.world.portal_position
 	game._check_portal()
 	assert(game.state == game.State.LEVEL_CLEAR and GameState.score == rs_score + 500 + 1 * 250)
+	game.overlays.tally_skip()
 	var rs_body: String = (game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert("PODS 3/3" in rs_body and not ("ESCAPE" in rs_body))
 	var rs_next := GameState.load_checkpoint(ob_lc)       # the next sector starts fresh
@@ -2120,6 +2124,7 @@ func _run() -> void:
 	assert(game.state == game.State.LEVEL_CLEAR and game._escape_left < 0.0)
 	var es_bonus := 1000 + 10 * int(es_left)
 	assert(GameState.score == 500 + 3 * 250 + es_bonus)
+	game.overlays.tally_skip()
 	var es_body: String = (game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert(("ESCAPE BONUS +%d" % es_bonus) in es_body and "REACTOR DESTROYED" in es_body)
 	assert(not game.hud._time_label.text == "EXIT" and game.hud._escape_left < 0.0)
@@ -2148,6 +2153,7 @@ func _run() -> void:
 	game.player.position = game.world.portal_position
 	game._check_portal()
 	assert(game.state == game.State.LEVEL_CLEAR and GameState.score == 500 + 3 * 250)
+	game.overlays.tally_skip()
 	es_body = (game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert(not ("ESCAPE BONUS" in es_body))
 	print("REACTOR ok — clock %.0f s (rings x 12/18 x 1.5 + 8), detour if no key, bonus, drain" % es_total)
@@ -2482,13 +2488,13 @@ func _run() -> void:
 			row_r = maxf(row_r, c.position.x + c.size.x)
 	assert(absf((row_l + row_r) * 0.5 - 160.0) <= 1.0 and row_l >= 0.0 and row_r <= 320.0)
 	ov.set_continue("L4")
-	assert(ov._continue_btn.visible and ov._card_text(0).begins_with("L4 · "))
+	assert(ov._continue_btn.visible and ov._card_text(0).begins_with("E2 · L4 · REACTOR MAZE"))
 	for c in ov._cards:
 		var cap: String = ov._card_text(ov._cards.find(c))
 		assert(cap.length() * PixelFont.ADVANCE <= 316)   # captions fit the screen
 	ov._new_btn.pressed.emit()
 	assert(ov._panels.new_game.visible and ov._focus["new_game"].text == "> LAUNCH")
-	assert(ov._sector_label.text.begins_with("SECTOR: L"))
+	assert(ov._sector_label.text.begins_with("SECTOR: E"))
 	ov._difficulty_btn.pressed.emit()
 	assert(ov._panels.difficulty.visible)
 	(ov._focus["difficulty"] as Button).pressed.emit()   # BACK -> NEW GAME
@@ -2999,7 +3005,9 @@ func _run() -> void:
 	assert(not game.player.active)
 	# ...and the title still launches a campaign from there
 	game.overlays._sector = 0
-	game._on_launch()   # MENU -> BRIEFING
+	game._on_launch()   # MENU -> episode title card
+	assert(game.state == game.State.EPISODE)
+	game.overlays.episode_title_dismiss()   # -> BRIEFING
 	assert(game.state == game.State.BRIEFING)
 	for f in 20:
 		game._process(1.0 / 60.0)
@@ -3233,7 +3241,7 @@ func _run() -> void:
 	# the title's CONTINUE row follows the save
 	game._refresh_continue()
 	assert(not game.overlays._continue_btn.disabled and game.overlays._continue_btn.visible)
-	assert(game.overlays._card_text(0).begins_with("L1 · "))
+	assert(game.overlays._card_text(0).begins_with("E1 · L1 · "))
 	# a sector clear saves the next sector's start; the campaign's end clears it
 	game._level_complete()
 	var next_cp := GameState.load_checkpoint(lc)
@@ -3587,6 +3595,154 @@ func _run() -> void:
 				inks[px] = true
 		assert(inks.size() >= 8)   # actually painted, not a blank fill
 	print("ICONS ok — 144/180/512 icons + 1200x630 card, code-painted, palette-only")
+	# --- v4d: the tally reveal and the episode flow ---
+	var tl_ov: Overlays = game.overlays
+	var tl_panel: Control = tl_ov._panels.level_clear
+	var tl_body := tl_panel.get_node("Body") as Label
+	var tl_rank := tl_panel.get_node("Rank") as Label
+	var tl_next: Button = tl_ov._focus["level_clear"]
+	var tl_lines: Array = [
+		{"text": "KILLS %d · ACCURACY %d%% · TIME %s", "vals": [40, 75, "1:23"]},
+		{"text": "SECRETS %d/%d · SALVAGE +%d", "vals": [2, 3, 90]},
+		{"text": "EXIT BONUS +%d · SCORE %d", "vals": [750, 5000]},
+		{"text": "NEXT: E1 · L2 · SUPPLY ARTERY", "vals": []}]
+	tl_ov.set_level_clear("E1 · L1 · STARLIGHT APPROACH", tl_lines, "A")
+	tl_ov.show_only("level_clear")
+	assert(tl_body.text == "" and not tl_next.visible and not tl_rank.visible)
+	var tl_ticks0: int = AudioSys.tick_plays
+	tl_ov.tally_step(0.1)
+	assert(tl_ov.tally_revealed() == 1 and not tl_next.visible and not tl_ov.tally_done())
+	assert(tl_body.text.begins_with("KILLS ") and not ("KILLS 40" in tl_body.text))   # still counting
+	assert("TIME 1:23" in tl_body.text and AudioSys.tick_plays > tl_ticks0)
+	tl_ov.tally_step(0.5)
+	assert(tl_ov.tally_revealed() == 2 and "SECRETS" in tl_body.text and not tl_rank.visible)
+	tl_ov.tally_skip()   # straight to the totals
+	assert(tl_ov.tally_done() and tl_next.visible and tl_rank.visible)
+	assert("KILLS 40 · ACCURACY 75% · TIME 1:23" in tl_body.text and "SCORE 5000" in tl_body.text)
+	assert("NEXT: E1 · L2" in tl_body.text and tl_ov.tally_revealed() == 4)
+	# left alone it reaches the same totals by itself, and NEXT stays hidden until then
+	tl_ov.set_level_clear("E1 · L1 · STARLIGHT APPROACH", tl_lines, "A")
+	tl_ov.show_only("level_clear")
+	var tl_t := 0.0
+	while not tl_ov.tally_done() and tl_t < 10.0:
+		assert(not tl_next.visible)
+		tl_ov.tally_step(0.05)
+		tl_t += 0.05
+	assert(tl_ov.tally_done() and tl_t > 2.0 and tl_t < 6.0 and "SCORE 5000" in tl_body.text)
+	# a key press skips (and is consumed); NEXT waits a beat so the same press can't hit it
+	tl_ov.set_level_clear("E1 · L1 · STARLIGHT APPROACH", tl_lines, "A")
+	tl_ov.show_only("level_clear")
+	var tl_echo := InputEventKey.new()
+	tl_echo.keycode = KEY_SPACE
+	tl_echo.pressed = true
+	tl_echo.echo = true
+	tl_ov._input(tl_echo)
+	assert(not tl_ov.tally_done() and tl_body.text == "")   # an auto-repeat is not a press
+	var tl_key := InputEventKey.new()
+	tl_key.keycode = KEY_SPACE
+	tl_key.pressed = true
+	tl_ov._input(tl_key)
+	assert("SCORE 5000" in tl_body.text and tl_rank.visible and not tl_next.visible)
+	tl_ov.tally_step(0.1)
+	assert(not tl_ov.tally_done())
+	tl_ov.tally_step(0.3)
+	assert(tl_ov.tally_done() and tl_next.visible)
+	await get_tree().process_frame
+	assert(tl_next.has_focus())
+	# the real tally, all inside the 300x160 window
+	GameState.reset_run()
+	game._gauntlet = false
+	GameState.gauntlet_mode = false
+	game._resume = {}
+	GameState.level_index = 1
+	game._level_complete()
+	tl_ov.tally_skip()
+	assert(game.state == game.State.LEVEL_CLEAR and "NEXT: E1 · L3 · DOCK SENTINEL" in tl_body.text)
+	assert((tl_panel.get_node("Title") as Label).text.begins_with("E1 · L2 · SUPPLY ARTERY CLEAR"))
+	assert(tl_next.text == "> NEXT LEVEL")
+	for tl_line in tl_body.text.split("\n"):
+		assert(tl_line.length() * PixelFont.ADVANCE <= 292)
+	tl_next.pressed.emit()   # L2 is mid-episode: straight to the next briefing
+	assert(game.state == game.State.BRIEFING and GameState.level_index == 2)
+	assert((tl_ov._panels.briefing.get_node("Title") as Label).text == "E1 · L3 · DOCK SENTINEL")
+	# L3 closes episode 1: tally -> ending -> E2's title card -> briefing
+	GameState.level_index = 2
+	game._level_complete()
+	tl_ov.tally_skip()
+	assert(tl_next.text == "> CONTINUE" and "NEXT: E2 · L4 · REACTOR MAZE" in tl_body.text)
+	tl_next.pressed.emit()
+	assert(game.state == game.State.EPISODE and tl_ov._panels.episode_end.visible)
+	var tl_end: Control = tl_ov._panels.episode_end
+	assert((tl_end.get_node("Heading") as Label).text == "E1 · THE OUTER LANES")
+	assert(not (tl_end.get_node("Still") as TextureRect).visible)   # headless: no still
+	assert(Lore.episode_ending(0) == (tl_end.get_node("Ending") as Label).text)
+	tl_ov._episode_btn.pressed.emit()
+	assert(game.state == game.State.EPISODE and tl_ov._panels.episode_title.visible)
+	assert(GameState.level_index == 3)
+	assert((tl_ov._panels.episode_title.get_node("Name") as Label).text == "THE HIVE")
+	assert((tl_ov._panels.episode_title.get_node("Number") as Label).text == "EPISODE 2 OF 3")
+	tl_ov.episode_title_dismiss()
+	assert(game.state == game.State.BRIEFING and tl_ov._panels.briefing.visible)
+	assert((tl_ov._panels.briefing.get_node("Title") as Label).text == "E2 · L4 · REACTOR MAZE")
+	# CONTINUE and a retry never show a title card (L4's start was saved at the L3 clear)
+	game._on_continue()
+	assert(game.state == game.State.BRIEFING and GameState.level_index == 3)
+	game._on_retry()
+	assert(game.state == game.State.BRIEFING)
+	# the title card: any press (after it arms) or the timer ends it
+	var tl_done := [0]
+	var tl_cb := func() -> void:
+		tl_done[0] += 1
+	tl_ov.episode_title_done.connect(tl_cb)
+	tl_ov.set_episode_title(2)
+	tl_ov.show_only("episode_title")
+	tl_ov._input(tl_key)   # too early: consumed, not acted on
+	assert(tl_done[0] == 0)
+	tl_ov._process(0.4)
+	tl_ov._input(tl_key)
+	assert(tl_done[0] == 1)
+	tl_ov.show_only("episode_title")
+	tl_ov._process(2.0)
+	assert(tl_done[0] == 1)
+	tl_ov._process(2.5)
+	assert(tl_done[0] == 2)
+	tl_ov.episode_title_done.disconnect(tl_cb)
+	# NEW GAME: the picker is grouped by episode, and LAUNCH shows that episode's card
+	GameState.reset_run()
+	game.state = game.State.MENU
+	tl_ov.show_only("start")
+	GameState.unlocked_level = 8
+	tl_ov._sector = 4
+	tl_ov._refresh_start()
+	assert(tl_ov._episode_label.text == "E2 · THE HIVE")
+	assert(tl_ov._sector_label.text == "SECTOR: E2 · L5 · HIVE TRENCHES")
+	game._on_launch()
+	assert(game.state == game.State.EPISODE and GameState.level_index == 4)
+	tl_ov.episode_title_dismiss()
+	assert(game.state == game.State.BRIEFING)
+	# L9 gets a tally, then the last ending, then the victory panel
+	GameState.level_index = 8
+	game._level_complete()
+	assert(game.state == game.State.LEVEL_CLEAR and tl_panel.visible)
+	tl_ov.tally_skip()
+	assert(tl_next.text == "> CONTINUE" and not ("NEXT: " in tl_body.text))
+	tl_next.pressed.emit()
+	assert(game.state == game.State.EPISODE and tl_end.visible)
+	assert((tl_end.get_node("Heading") as Label).text == "E3 · THE RIFT")
+	tl_ov._episode_btn.pressed.emit()
+	assert(game.state == game.State.VICTORY and tl_ov._panels.victory.visible)
+	# a still of the boss room shows when there is one
+	tl_ov.set_episode_end(1, Image.create(64, 40, false, Image.FORMAT_RGBA8))
+	assert((tl_end.get_node("Still") as TextureRect).visible)
+	tl_ov.set_episode_end(1, null)
+	assert(not (tl_end.get_node("Still") as TextureRect).visible)
+	# NEW CAMPAIGN opens episode 1's card
+	tl_ov.new_campaign_requested.emit()
+	assert(game.state == game.State.EPISODE and GameState.level_index == 0)
+	tl_ov.episode_title_dismiss()
+	assert(game.state == game.State.BRIEFING)
+	print("TALLY ok — lines reveal and tick, skip jumps to totals, NEXT waits; "
+		+ "EPISODES ok — L3 ending -> E2 card -> briefing, L9 tally -> ending -> victory, no card on CONTINUE")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

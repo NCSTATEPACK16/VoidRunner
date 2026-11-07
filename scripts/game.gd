@@ -3,7 +3,7 @@ extends Node3D
 ## portal → next level → victory), the weapon heat economy, and all system wiring.
 ## Everything under it is built in code from procedural assets.
 
-enum State { MENU, BRIEFING, PLAYING, PAUSED, GAME_OVER, LEVEL_CLEAR, VICTORY }
+enum State { MENU, BRIEFING, PLAYING, PAUSED, GAME_OVER, LEVEL_CLEAR, EPISODE, VICTORY }
 
 const HEAT_COOL := 26.0
 const OVERHEAT_LOCK := 3.0
@@ -45,6 +45,10 @@ var _arena_spawned := {}
 var _arena_kills := {}
 var _boss_arena_start := -1   # Phase J: first ring of the boss room (-1 = no boss)
 var _boss_announced := false
+var _boss_still: Image          # v4d: the boss room ~1.2 s after an episode's last boss fell
+var _still_grab := false       # v4d: hides the HUD for the frames the still takes
+var _boss_still_gen := 0        # (invalidates a pending capture when the level changes)
+var _victory_record := false    # v4d: L9's record flag, held through the ending screens
 var _miniboss_arena := -1     # v4b: the room a mini-boss holds (-1 = none this sector)
 var _miniboss_down := false   # ...and whether it has fallen (checkpoints keep this)
 var _hub_arena := -1          # v4c: the hub room (its door needs the keycard), or -1
@@ -291,6 +295,8 @@ func _ready() -> void:
 	overlays.launch_requested.connect(_on_launch)
 	overlays.gauntlet_requested.connect(_on_gauntlet)
 	overlays.next_level_requested.connect(_on_next_level)
+	overlays.episode_continue_requested.connect(_on_episode_continue)   # v4d
+	overlays.episode_title_done.connect(_show_briefing)                 # v4d
 	overlays.retry_requested.connect(_on_retry)
 	overlays.new_campaign_requested.connect(_on_new_campaign)
 	overlays.continue_requested.connect(_on_continue)                  # Step 4
@@ -308,7 +314,7 @@ func _ready() -> void:
 		_last_style = grade)
 	var level_names: Array[String] = []
 	for l in levels:
-		level_names.append(l.display_name)
+		level_names.append(Overlays.sector_name(l.display_name))
 	overlays.set_campaign(level_names)   # Phase J sector select
 	# re-audit Step 4: a saved checkpoint lights up CONTINUE on the title
 	_checkpoint = GameState.load_checkpoint(levels.size())
@@ -525,6 +531,8 @@ func _load_level_world(index: int) -> void:
 	# exit ring dark until it falls (no bulkheads on boss levels — see PathGen).
 	_boss_arena_start = -1
 	_boss_announced = false
+	_boss_still = null   # v4d
+	_boss_still_gen += 1
 	hud.set_boss_name(level.boss_name if level.kind == "boss" else level.miniboss_name)
 	if level.kind == "boss":
 		var room: Dictionary = path.arenas.back()
@@ -1232,13 +1240,12 @@ func _level_complete() -> void:
 	Feedback.count_level(Feedback.EV_LEVEL_CLEARED, idx)   # M3: pairs with level-started
 	var new_record := GameState.record_progress(rank)
 	GameState.bank_salvage()   # V2.2 L3: this level's salvage haul → persistent bank
-	if idx >= levels.size() - 1:
+	var last := idx >= levels.size() - 1
+	if last:
 		GameState.clear_checkpoint()   # re-audit Step 4: the campaign is done
 		_checkpoint = {}
 		_refresh_continue()
-		state = State.VICTORY
-		overlays.set_final_score("victory", GameState.score, new_record)
-		overlays.show_only("victory")
+		_victory_record = new_record
 	else:
 		# re-audit Step 4: the next sector's start, saved now, so a tab closed on the
 		# tally screen loses nothing
@@ -1260,13 +1267,53 @@ func _level_complete() -> void:
 		next.vault_found = false
 		next.objective = {"done": [], "escape_left": -1.0}
 		_store_checkpoint(next)
-		state = State.LEVEL_CLEAR
-		overlays.set_level_clear(
-			levels[idx].display_name, bonus, GameState.score, levels[idx + 1].display_name,
-			GameState.level_kills, acc, player.elapsed, rank, secondary_done,
-			GameState.level_secrets, GameState.level_secrets_total, GameState.peak_style, earned,
-			spur_mgr.caches_found, spur_mgr.supply_count(), objective_line, escape_bonus)
-		overlays.show_only("level_clear")
+	state = State.LEVEL_CLEAR
+	# v4d: the tally. Each line is {text, vals}: the ints in vals count up as it reveals.
+	var lines: Array = [{"text": "KILLS %d · ACCURACY %d%% · TIME %s",
+		"vals": [GameState.level_kills, acc, _fmt_time(player.elapsed)]}]
+	var extras: Array = []
+	if objective_line != "":   # v4c: PODS 3/3, GENERATORS 4/4, REACTOR DOWN...
+		extras.append({"text": objective_line.replace("%", "%%"), "vals": []})
+	if escape_bonus > 0:   # v4c: beat the clock
+		extras.append({"text": "ESCAPE BONUS +%d", "vals": [escape_bonus]})
+	if secondary_done:
+		extras.append({"text": "SECONDARY COMPLETE +400", "vals": []})
+	if GameState.level_secrets_total > 0:   # V2.0 phantom-wall caches
+		extras.append({"text": "SECRETS %d/%d",
+			"vals": [GameState.level_secrets, GameState.level_secrets_total]})
+	if GameState.peak_style > 0:   # V2.2 L2c: best style grade pays out
+		extras.append({"text": "STYLE: " + GameState.STYLE_NAMES[GameState.peak_style] + " +%d",
+			"vals": [GameState.peak_style * 100]})
+	if earned > 0:   # V2.2 L3: salvage hauled this level (banked at completion)
+		extras.append({"text": "SALVAGE +%d", "vals": [earned]})
+	if spur_mgr.supply_count() > 0:   # V2.2 L5: optional supply caches collected
+		extras.append({"text": "CACHES %d/%d",
+			"vals": [spur_mgr.caches_found, spur_mgr.supply_count()]})
+	# two extras per line keeps every line inside the window
+	for i in range(0, extras.size(), 2):
+		var pair: Array = extras.slice(i, i + 2)
+		var vals: Array = []
+		var texts: Array[String] = []
+		for ex in pair:
+			texts.append(ex.text)
+			vals.append_array(ex.vals)
+		lines.append({"text": " · ".join(texts), "vals": vals})
+	lines.append({"text": "EXIT BONUS +%d · SCORE %d", "vals": [bonus, GameState.score]})
+	var next_text := "> NEXT LEVEL"
+	if last:
+		lines.append({"text": "THE RIFT IS SHUT. WELL FLOWN!", "vals": []})
+		next_text = "> CONTINUE"
+	else:
+		lines.append({"text": "NEXT: " + Overlays.sector_name(levels[idx + 1].display_name),
+			"vals": []})
+		if Lore.is_episode_end(idx):
+			next_text = "> CONTINUE"
+	overlays.set_level_clear(Overlays.sector_name(level.display_name), lines, rank, next_text)
+	overlays.show_only("level_clear")
+
+
+func _fmt_time(t: float) -> String:
+	return "%d:%02d" % [int(t) / 60, int(t) % 60]
 
 
 ## 5-point rank: accuracy 30/50/70% and finishing under par / well under par.
@@ -1327,7 +1374,7 @@ func _on_launch() -> void:
 		GameState.level_start_score = 0
 		GameState.score = 0
 		_resume = {}   # NEW CAMPAIGN never resumes
-		_show_briefing()
+		_show_episode_title(Lore.episode_of(GameState.level_index))
 	else:
 		_launch_level()
 
@@ -1454,9 +1501,44 @@ func _end_warmup() -> void:
 	_warmup_rig = null
 
 
+## The tally's NEXT: an episode's last sector goes to its ending first; otherwise the
+## next sector (behind its episode's title card when it starts one).
 func _on_next_level() -> void:
+	var idx := GameState.level_index
+	if Lore.is_episode_end(idx) or idx >= levels.size() - 1:
+		_show_episode_end(idx)
+		return
 	GameState.level_index += 1
-	_show_briefing()
+	if Lore.is_episode_start(GameState.level_index):
+		_show_episode_title(Lore.episode_of(GameState.level_index))
+	else:
+		_show_briefing()
+
+
+func _show_episode_end(idx: int) -> void:
+	state = State.EPISODE
+	overlays.set_episode_end(maxi(Lore.episode_of(idx), 0), _boss_still)
+	overlays.show_only("episode_end")
+
+
+## The ending's CONTINUE: after L9 the victory panel, else on into the next episode.
+func _on_episode_continue() -> void:
+	if state != State.EPISODE:
+		return
+	if GameState.level_index >= levels.size() - 1:
+		state = State.VICTORY
+		overlays.set_final_score("victory", GameState.score, _victory_record)
+		overlays.show_only("victory")
+		return
+	GameState.level_index += 1
+	_show_episode_title(Lore.episode_of(GameState.level_index))
+
+
+## The title card; dismissing it (any input, or a timeout) opens the briefing.
+func _show_episode_title(e: int) -> void:
+	state = State.EPISODE
+	overlays.set_episode_title(e)
+	overlays.show_only("episode_title")
 
 
 func _on_retry() -> void:
@@ -1631,7 +1713,7 @@ func _refresh_continue() -> void:
 
 func _on_new_campaign() -> void:
 	GameState.reset_run()
-	_show_briefing()
+	_show_episode_title(0)
 
 
 # ---------- per-frame ----------
@@ -1639,7 +1721,7 @@ func _on_new_campaign() -> void:
 func _process(delta: float) -> void:
 	world.animate(delta)
 	# 3.0: the title screen is translucent over the attract flythrough — no cockpit
-	hud.visible = state != State.MENU
+	hud.visible = state != State.MENU and not _still_grab
 	if state == State.MENU:
 		_attract(delta)
 	# M4b: touch_ui's own active/visible state used to be set once by enable() and
@@ -1881,6 +1963,43 @@ func _on_boss_killed() -> void:
 	hud.show_message("SIGNATURE ELIMINATED — GATE OPEN", 3.0)
 	AudioSys.play_portal()
 	player.shake = 0.6
+	_schedule_boss_still()
+
+
+## v4d: an episode's last boss falling leaves a still of the room ~1.2 s later, for the
+## ending screen. Headless (no renderer) has no image, so the ending shows without one.
+func _schedule_boss_still() -> void:
+	if _gauntlet or not Lore.is_episode_end(GameState.level_index):
+		return
+	_boss_still = null
+	_boss_still_gen += 1
+	var gen := _boss_still_gen
+	get_tree().create_timer(1.2, true, false, true).timeout.connect(func() -> void:
+		if gen == _boss_still_gen and state == State.PLAYING:
+			_grab_boss_still(gen))
+
+
+## The still is the 320x200 game view (world + dither, no window chrome) with the
+## in-flight HUD hidden for the one frame it takes to grab it.
+func _grab_boss_still(gen: int) -> void:
+	_still_grab = true   # _process keeps the HUD hidden while this is set
+	hud.visible = false
+	for i in 2:   # the SubViewport readback trails by a frame
+		await RenderingServer.frame_post_draw
+	var img := _capture_still()
+	_still_grab = false
+	if gen == _boss_still_gen:
+		_boss_still = img
+
+
+func _capture_still() -> Image:
+	var tex := view.get_texture() if view else get_viewport().get_texture()
+	if tex == null:
+		return null
+	var img := tex.get_image()
+	if img == null or img.is_empty():
+		return null
+	return img
 
 
 func _on_boss_phase(phase: int) -> void:

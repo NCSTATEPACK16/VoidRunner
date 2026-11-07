@@ -101,7 +101,7 @@ func _run() -> void:
 			minis += 1
 	assert(boss_deaths[0] == 3 and mini_deaths[0] == minis and minis == 3)
 	assert(completed == game.levels.size())
-	assert(game.state == game.State.VICTORY)
+	assert(game.state == game.State.LEVEL_CLEAR)   # v4d: L9 tallies before its ending
 	print("SOAK PROBE COMPLETE — %d sectors, %d types, %d bosses and %d mini-bosses down" % [
 		completed, seen.size(), boss_deaths[0], mini_deaths[0]])
 	for f in saved:

@@ -65,8 +65,12 @@ func _run() -> void:
 	GameState.apply_settings()
 
 	# 3) level-clear screen with the full 4-line body (overlay = native window res)
-	game.overlays.set_level_clear("L1 · STARLIGHT APPROACH", 500, 2125,
-		"L2 · SUPPLY ARTERY", 9, 7, 95.0, "B", false, 1, 1)
+	game.overlays.set_level_clear("E1 · L1 · STARLIGHT APPROACH", [
+		{"text": "KILLS %d · ACCURACY %d%% · TIME %s", "vals": [9, 7, "1:35"]},
+		{"text": "SECRETS %d/%d", "vals": [1, 1]},
+		{"text": "EXIT BONUS +%d · SCORE %d", "vals": [500, 2125]},
+		{"text": "NEXT: E1 · L2 · SUPPLY ARTERY", "vals": []}], "B")
+	game.overlays.tally_skip()
 	game.overlays.show_only("level_clear")
 	await get_tree().process_frame
 	await get_tree().process_frame
