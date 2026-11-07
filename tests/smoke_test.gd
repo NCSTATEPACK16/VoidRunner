@@ -2349,7 +2349,10 @@ func _run() -> void:
 	# 2x size scaled 0.5 — no such label is on this panel today, but measuring the
 	# painted rect (size * scale) keeps this honest if one is ever added.
 	var design_box := Rect2(Vector2.ZERO, Vector2(320, 200))
-	for child in set_p.get_children():
+	var box_nodes: Array[Node] = set_p.get_children()
+	for g in game.overlays._setup_groups:
+		box_nodes.append_array(g.get_children())   # v4d: rows live in the group containers
+	for child in box_nodes:
 		if child is Button or child is Label:
 			var c := child as Control
 			assert(design_box.encloses(Rect2(c.position, c.size * c.scale)))
@@ -2505,8 +2508,11 @@ func _run() -> void:
 			(child as Button).pressed.emit()
 	assert(ov._panels.start.visible and ov._start_open)   # back on the card row
 	assert(ov._start_card == 1)
-	ov._cards[3].pressed.emit()                            # SETUP -> settings
+	ov._cards[3].pressed.emit()                            # SETUP -> the SETUP window
 	assert(ov._panels.settings.visible)
+	ov._setup_back.pressed.emit()
+	assert(ov._panels.start.visible and ov._start_open and ov._start_card == 3)
+	ov.show_only("settings")
 	ov.show_only("start")
 	assert(ov._start_open and ov._start_card == 3)
 	ov._close_start_menu()
@@ -2517,6 +2523,99 @@ func _run() -> void:
 	assert(not ov._start_open)
 	ov.set_continue("")
 	print("TITLE ok — attract, card row, NEW GAME window, BACK returns to the row")
+	# --- v4d: menu feel + the SETUP window ---
+	ov.set_continue("")
+	ov.show_only("start")
+	ov._open_start_menu()
+	for _i in 8:
+		await get_tree().process_frame
+	# opening a panel is silent; the card that takes focus wears the ">" marker
+	var su_b0: int = AudioSys.blip_plays
+	await get_tree().process_frame
+	var su_card: Button = ov._cards[ov._start_card]
+	assert(su_card.has_focus() and (su_card.get_meta("marker") as Label).visible)
+	for c in ov._cards:
+		if c != su_card:
+			assert(not (c.get_meta("marker") as Label).visible)
+	# a user-driven move blips once and the marker follows the focus
+	var su_other: Button = ov._cards[2]
+	su_other.grab_focus()
+	assert(AudioSys.blip_plays == su_b0 + 1)
+	assert((su_other.get_meta("marker") as Label).visible and not (su_card.get_meta("marker") as Label).visible)
+	# blinks at ~2 Hz, steady under REDUCE FLASH
+	GameState.reduce_flashing = false
+	ov._mark_t = 0.1
+	assert(ov.marker_alpha() == 1.0)
+	ov._mark_t = 0.4
+	assert(ov.marker_alpha() == 0.0)
+	GameState.reduce_flashing = true
+	assert(ov.marker_alpha() == 1.0)
+	ov._mark_t = 0.4
+	ov._process(0.0)
+	assert((su_other.get_meta("marker") as Label).modulate.a == 1.0)
+	GameState.reduce_flashing = false
+	# presses play the confirm chirp
+	var su_c0: int = AudioSys.confirm_plays
+	var su_b1: int = AudioSys.blip_plays
+	ov._cards[3].pressed.emit()                            # SETUP card
+	assert(AudioSys.confirm_plays == su_c0 + 1)
+	assert(ov._panels.settings.visible and ov._setup_group == 0)
+	for _i in 3:
+		await get_tree().process_frame
+	assert(AudioSys.blip_plays == su_b1)                   # opening the window: no blip
+	assert(ov._setup_tabs[0].has_focus())
+	# each group shows its own rows
+	var su_rows := [["volume"], ["sens", "invert_y", "gamepad", "dpad"],
+		["fov", "crt", "dither", "amber", "shake", "reduce_flash", "reduce_roll"]]
+	for gi in 3:
+		ov._setup_tabs[gi].grab_focus()                    # focusing a tab shows its group
+		assert(ov._setup_group == gi)
+		for gj in 3:
+			assert(ov._setup_groups[gj].visible == (gj == gi))
+		for k in su_rows[gi]:
+			var ctl: Control = ov._settings_labels[k]
+			assert(ctl.is_visible_in_tree() and ov._setup_groups[gi].is_ancestor_of(ctl))
+		assert(ov._setup_tabs[gi].text.begins_with("[ "))
+	# the mouse (hover grabs focus, then click) and a press on a tab drop into the group
+	ov._setup_tabs[2].pressed.emit()
+	assert((ov._settings_labels["fov"] as Control).get_parent() == ov._setup_groups[2])
+	# rows keep their behaviour: steppers and toggles persist to GameState
+	GameState.view_fov = 80.0
+	var su_fov := GameState.view_fov
+	ov._adjust_setting("fov", -1)
+	assert(GameState.view_fov == su_fov - 4.0)
+	var su_dith := GameState.dither_enabled
+	(ov._settings_labels["dither"] as Button).pressed.emit()
+	assert(GameState.dither_enabled == not su_dith)
+	(ov._settings_labels["dither"] as Button).pressed.emit()
+	ov._setup_tabs[1].grab_focus()
+	var su_inv := GameState.invert_y
+	(ov._settings_labels["invert_y"] as Button).pressed.emit()
+	assert(GameState.invert_y == not su_inv)
+	(ov._settings_labels["invert_y"] as Button).pressed.emit()
+	ov._setup_tabs[0].grab_focus()
+	var su_vol := GameState.master_volume
+	ov._adjust_setting("volume", -1)
+	assert(not is_equal_approx(GameState.master_volume, su_vol))
+	ov._adjust_setting("volume", 1)
+	# a marker rides the focused SETUP row too
+	var su_row: Button = ov._settings_labels["dither"]
+	ov._setup_tabs[2].grab_focus()
+	su_row.grab_focus()
+	assert((su_row.get_meta("marker") as Label).visible)
+	# BACK returns to the card row it came from
+	ov._setup_back.pressed.emit()
+	assert(ov._panels.start.visible and ov._start_open and ov._start_card == 3)
+	# the pause menu's SETTINGS row opens it and BACK returns to pause
+	ov.show_only("pause")
+	for child in ov._panels.pause.get_children():
+		if child is Button and (child as Button).text == "SETTINGS":
+			(child as Button).pressed.emit()
+	assert(ov._panels.settings.visible and ov._settings_return == "pause")
+	ov._setup_back.pressed.emit()
+	assert(ov._panels.pause.visible)
+	ov.show_only("start")
+	print("SETUP ok — su_ marker + blip + confirm, three groups, toggles persist, BACK from card and pause")
 	# --- M3: feedback path + anonymous counters ---
 	# the five questions are the single source shared by the form, the post and the
 	# in-game prompt; drift between them makes answers incomparable
@@ -2959,7 +3058,7 @@ func _run() -> void:
 	# ...and so does SETTINGS
 	(pause_rows["SETTINGS"] as Button).pressed.emit()
 	assert((game.overlays._panels["settings"] as Control).visible)
-	(game.overlays._focus["settings"] as Button).pressed.emit()
+	game.overlays._setup_back.pressed.emit()
 	assert(pause_panel.visible)
 	(pause_rows["> RESUME"] as Button).pressed.emit()
 	assert(game.state == game.State.PLAYING)

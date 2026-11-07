@@ -146,6 +146,10 @@ func _run() -> void:
 	for i in 30:   # past the stepped slide
 		await get_tree().process_frame
 	await _capture_root("shot_start_menu.png", dir)
+	for ci in 4:   # v4d: the focus chevron clears the label on every card
+		game.overlays._cards[ci].grab_focus()
+		await get_tree().process_frame
+		await _capture_root("shot_card_%d.png" % ci, dir)
 	game.overlays._new_btn.pressed.emit()
 	await _capture_root("shot_new_game.png", dir)
 	# M1/M2: the two panels this session changed most — the settings grid now packs
@@ -153,7 +157,19 @@ func _run() -> void:
 	game.overlays.show_only("warning")
 	await _capture_root("shot_warning.png", dir)
 	game.overlays.show_only("settings")
+	for gi in [0, 1, 2]:
+		game.overlays._setup_tabs[gi].grab_focus()
+		await get_tree().process_frame
+		await _capture_root("shot_setup_%s.png" % ["sound", "controls", "display"][gi], dir)
 	await _capture_root("shot_settings.png", dir)
+	game.overlays.show_only("briefing")   # v4d: LAUNCH focused, its own ">" is the marker
+	for i in 3:
+		await get_tree().process_frame
+	await _capture_root("shot_briefing_focus.png", dir)
+	game.overlays.show_only("pause")
+	for i in 3:
+		await get_tree().process_frame
+	await _capture_root("shot_pause_focus.png", dir)
 	game.overlays.show_only("help")
 	await _capture_root("shot_help.png", dir)   # M3 privacy + feedback lines
 	game.overlays.touch_mode = true          # re-audit Step 5: the manual's touch page

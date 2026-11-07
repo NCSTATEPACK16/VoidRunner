@@ -62,6 +62,17 @@ var _panels := {}
 var _focus := {}                 # panel name -> Button that takes keyboard focus on show
 var _settings_labels := {}       # H: setting key -> its value Label/Button
 var _settings_return := "start"  # where the settings BACK button returns to
+# v4d: the SETUP window ("settings" panel) has three groups behind a tab row
+var _setup_tabs: Array[Button] = []
+var _setup_groups: Array[Control] = []
+var _setup_group := 0
+var _setup_back: Button
+# v4d: blinking ">" on the focused control; focus blips stay quiet while a panel opens
+var _markers: Array[Label] = []
+var _marker_cur: Label
+var _mark_t := 0.0
+var _quiet := false
+const GROUP_NAMES := ["SOUND", "CONTROLS", "DISPLAY"]
 var _help_return := "start"      # re-audit Step 2: the manual opens from pause too
 var _help_start: Button          # "> START" — only offered when opened from the title
 var _help_back: Button
@@ -154,6 +165,62 @@ func _ready() -> void:
 	show_only("warning" if not GameState.seen_warning else "start")
 
 
+## Programmatic focus (a panel opening) is silent; only user-driven moves blip.
+func _grab_quiet(c: Control) -> void:
+	if not is_instance_valid(c) or not c.is_inside_tree() or not c.is_visible_in_tree():
+		return
+	_quiet = true
+	c.grab_focus()
+	_quiet = false
+
+
+## Every menu control routes through here: the blinking ">" marker, the focus blip.
+## `inside` puts the marker in the control's left margin (title cards), otherwise
+## just outside its left edge.
+func _decorate(b: Button, inside := false, color := TITLE_COL) -> void:
+	var cover := ColorRect.new()   # hides a label's own leading ">" under the bar
+	cover.color = color
+	cover.size = Vector2(6, 9)
+	cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cover.visible = false
+	b.add_child(cover)
+	var m := _text(b, Vector2(1.0 if inside else -7.0, 3.0 if inside else 1.0), ">", KEY_COL)
+	m.visible = false
+	_markers.append(m)
+	b.set_meta("marker", m)
+	b.focus_entered.connect(func() -> void:
+		# a label that already starts with "> " keeps that glyph as the marker: it is
+		# redrawn over the bar and blinks in place, so nothing doubles up
+		var own := not inside and b.text.begins_with("> ")
+		cover.visible = own
+		if own:
+			var x := 3.0
+			if b.alignment == HORIZONTAL_ALIGNMENT_CENTER:
+				x = roundf((b.size.x - b.text.length() * PixelFont.ADVANCE) * 0.5)
+			cover.position = Vector2(x, 1.0)
+			m.position = Vector2(x, 1.0)
+			m.add_theme_color_override("font_color", BAR_FG)
+		elif not inside:
+			m.position = Vector2(-7.0, 1.0)
+			m.add_theme_color_override("font_color", KEY_COL)
+		m.visible = true
+		_marker_cur = m
+		_mark_t = 0.0
+		m.modulate.a = 1.0
+		if not _quiet:
+			AudioSys.play_blip())
+	b.focus_exited.connect(func() -> void:
+		m.visible = false
+		cover.visible = false
+		if _marker_cur == m:
+			_marker_cur = null)
+
+
+## Alpha of the focus marker right now: ~2 Hz blink, steady under REDUCE FLASH.
+func marker_alpha() -> float:
+	return 1.0 if GameState.reduce_flashing or fmod(_mark_t, 0.5) < 0.3 else 0.0
+
+
 func show_only(panel_name: String) -> void:
 	for key in _panels:
 		_panels[key].visible = key == panel_name
@@ -189,7 +256,7 @@ func show_only(panel_name: String) -> void:
 		var fb: Button = _focus.get(panel_name)
 		# (the tally's NEXT is hidden until the reveal ends, and takes focus then)
 		if fb and fb.is_inside_tree() and not (panel_name == "level_clear" and _tally_active):
-			fb.grab_focus.call_deferred()
+			_grab_quiet.call_deferred(fb)
 	_title_live = panel_name == "episode_title"
 	_title_t = 0.0
 
@@ -305,10 +372,10 @@ func _layout_cards() -> void:
 			shown.append(c)
 	var total := -4.0
 	for c in shown:
-		total += c.text.length() * PixelFont.ADVANCE + 12 + 4
+		total += c.text.length() * PixelFont.ADVANCE + 14 + 4
 	var x := roundf(160.0 - total * 0.5)
 	for c in shown:
-		var w := float(c.text.length() * PixelFont.ADVANCE + 12)
+		var w := float(c.text.length() * PixelFont.ADVANCE + 14)
 		c.position = Vector2(x, CARD_Y)
 		c.size = Vector2(w, 13)
 		x += w + 4
@@ -348,7 +415,7 @@ func _apply_start_state(animate: bool) -> void:
 		_focus["start"] = _press_btn
 	var fb: Button = _focus["start"]
 	if _panels.start.visible and fb.is_inside_tree():
-		fb.grab_focus.call_deferred()
+		_grab_quiet.call_deferred(fb)
 
 
 func _open_start_menu() -> void:
@@ -369,6 +436,9 @@ func _start_sub(card: int, panel_name: String) -> void:
 
 
 func _process(delta: float) -> void:
+	_mark_t += delta
+	if _marker_cur:
+		_marker_cur.modulate.a = marker_alpha()
 	if _tally_active and _panels.level_clear.visible:
 		tally_step(delta)
 	if _title_live:
@@ -527,7 +597,7 @@ func _tally_finish() -> void:
 	_tally_done = true
 	_tally_next.visible = true
 	if _panels.level_clear.visible and _tally_next.is_inside_tree():
-		_tally_next.grab_focus.call_deferred()
+		_grab_quiet.call_deferred(_tally_next)
 
 
 ## Jump to the totals. A press (`grace`) holds NEXT back for a moment so the same
@@ -608,7 +678,7 @@ func _build_start() -> void:
 	for state in ["normal", "hover", "pressed", "focus", "hover_pressed"]:
 		_press_btn.add_theme_stylebox_override(state, none)
 	_press_btn.pressed.connect(_open_start_menu)
-	_press_btn.pressed.connect(AudioSys.play_select)
+	_press_btn.pressed.connect(AudioSys.play_confirm)
 	p.add_child(_press_btn)
 	_press_btn.position = Vector2.ZERO
 	_press_btn.size = Vector2(320, 200)
@@ -708,7 +778,7 @@ func _card_button(p: Control, text: String, idx: int, on_press: Callable) -> But
 	b.add_theme_color_override("font_disabled_color", DIM_COL)
 	for state in ["normal", "hover", "pressed", "focus", "disabled", "hover_pressed"]:
 		var sb := StyleBoxFlat.new()
-		sb.content_margin_left = 6.0
+		sb.content_margin_left = 8.0
 		sb.content_margin_right = 6.0
 		sb.content_margin_top = 3.0
 		sb.content_margin_bottom = 2.0
@@ -720,10 +790,11 @@ func _card_button(p: Control, text: String, idx: int, on_press: Callable) -> But
 			sb.border_color = WIN_EDGE
 		b.add_theme_stylebox_override(state, sb)
 	b.pressed.connect(on_press)
-	b.pressed.connect(AudioSys.play_select)
+	b.pressed.connect(AudioSys.play_confirm)
 	b.mouse_entered.connect(func() -> void:
 		if not b.disabled:
 			b.grab_focus())
+	_decorate(b, true)
 	b.focus_entered.connect(func() -> void:
 		_start_card = idx
 		_card_sub.text = _card_text(idx))
@@ -1027,34 +1098,73 @@ func suggest_recruit() -> void:
 ## can turn them on.
 func _build_settings() -> void:
 	var p := _panel("settings")
-	_window(p, Rect2(6, 6, 308, 188), "SETTINGS")
-	_setting_row(p, 22, "VOLUME", "volume")
-	_setting_row(p, 35, "MOUSE SENS", "sens")
-	_setting_row(p, 48, "FIELD OF VIEW", "fov")
-	_setting_row(p, 61, "CRT FILTER", "crt")
-	_window(p, Rect2(12, 80, 296, 72), "COMFORT & DISPLAY", WIN_EDGE_DIM)
-	# left column
-	_toggle_row(p, Vector2(20, 94), "DITHER", "dither", func() -> void:
-		GameState.dither_enabled = not GameState.dither_enabled)
-	_toggle_row(p, Vector2(20, 108), "AMBER TERM", "amber", func() -> void:
-		GameState.amber_mode = not GameState.amber_mode)
-	_toggle_row(p, Vector2(20, 122), "GAMEPAD", "gamepad", func() -> void:
-		GameState.gamepad_enabled = not GameState.gamepad_enabled)
-	_toggle_row(p, Vector2(20, 136), "INVERT Y", "invert_y", func() -> void:
-		GameState.invert_y = not GameState.invert_y)
-	# right column
-	_toggle_row(p, Vector2(166, 94), "SCREEN SHAKE", "shake", func() -> void:
-		GameState.screen_shake = not GameState.screen_shake)
-	_toggle_row(p, Vector2(166, 108), "REDUCE FLASH", "reduce_flash", func() -> void:
-		GameState.reduce_flashing = not GameState.reduce_flashing)
-	_toggle_row(p, Vector2(166, 122), "REDUCE ROLL", "reduce_roll", func() -> void:
-		GameState.reduce_roll = not GameState.reduce_roll)
-	_toggle_row(p, Vector2(166, 136), "TOUCH D-PAD", "dpad", func() -> void:
-		GameState.touch_dpad_enabled = not GameState.touch_dpad_enabled)
-	var back := _menu_button(p, Rect2(130, 170, 60, 11), "< BACK", func() -> void:
+	_window(p, Rect2(6, 6, 308, 188), "SETUP")
+	# v4d: three groups behind a tab row. A tab shows its group the moment it takes
+	# focus (arrow keys, pad, hover or tap), and pressing it drops into the group.
+	var tx := 18.0
+	for i in GROUP_NAMES.size():
+		var gi := i
+		var tab := _menu_button(p, Rect2(tx, 20, 92, 11), GROUP_NAMES[i], func() -> void:
+			_select_group(gi)
+			_focus_group_first(gi), TITLE_COL, true)
+		tab.focus_entered.connect(func() -> void: _select_group(gi))
+		_setup_tabs.append(tab)
+		tx += 96.0
+	_window(p, Rect2(12, 38, 296, 116), "", WIN_EDGE_DIM)
+	for i in GROUP_NAMES.size():
+		var g := Control.new()
+		g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		g.size = Vector2(320, 200)
+		p.add_child(g)
+		_setup_groups.append(g)
+	# SOUND
+	_setting_row(_setup_groups[0], 46, "VOLUME", "volume")
+	# CONTROLS
+	var c: Control = _setup_groups[1]
+	_setting_row(c, 46, "MOUSE SENS", "sens")
+	_toggle_row(c, Vector2(20, 60), "INVERT Y", "invert_y", func() -> void:
+		GameState.invert_y = not GameState.invert_y, 233.0)
+	_toggle_row(c, Vector2(20, 74), "GAMEPAD", "gamepad", func() -> void:
+		GameState.gamepad_enabled = not GameState.gamepad_enabled, 233.0)
+	_toggle_row(c, Vector2(20, 88), "TOUCH D-PAD", "dpad", func() -> void:
+		GameState.touch_dpad_enabled = not GameState.touch_dpad_enabled, 233.0)
+	# DISPLAY
+	var d: Control = _setup_groups[2]
+	_setting_row(d, 44, "FIELD OF VIEW", "fov")
+	_setting_row(d, 57, "CRT FILTER", "crt")
+	_toggle_row(d, Vector2(20, 71), "DITHER", "dither", func() -> void:
+		GameState.dither_enabled = not GameState.dither_enabled, 233.0)
+	_toggle_row(d, Vector2(20, 84), "AMBER TERM", "amber", func() -> void:
+		GameState.amber_mode = not GameState.amber_mode, 233.0)
+	_toggle_row(d, Vector2(20, 97), "SCREEN SHAKE", "shake", func() -> void:
+		GameState.screen_shake = not GameState.screen_shake, 233.0)
+	_toggle_row(d, Vector2(20, 110), "REDUCE FLASH", "reduce_flash", func() -> void:
+		GameState.reduce_flashing = not GameState.reduce_flashing, 233.0)
+	_toggle_row(d, Vector2(20, 123), "REDUCE ROLL", "reduce_roll", func() -> void:
+		GameState.reduce_roll = not GameState.reduce_roll, 233.0)
+	_setup_back = _menu_button(p, Rect2(130, 170, 60, 11), "< BACK", func() -> void:
 		show_only(_settings_return), TEXT_COL, true)
-	_focus["settings"] = back
+	_select_group(0)
 	_refresh_settings()
+
+
+## Shows one SETUP group and restyles the tab row; the open window focuses its tab.
+func _select_group(i: int) -> void:
+	_setup_group = i
+	for gi in _setup_groups.size():
+		_setup_groups[gi].visible = gi == i
+		var t := _setup_tabs[gi]
+		var on := gi == i
+		t.text = ("[ %s ]" if on else "  %s  ") % GROUP_NAMES[gi]
+		t.add_theme_color_override("font_color", KEY_COL if on else DIM_COL)
+	_focus["settings"] = _setup_tabs[i]
+
+
+func _focus_group_first(i: int) -> void:
+	for ch in _setup_groups[i].get_children():
+		if ch is Button:
+			(ch as Button).grab_focus()
+			return
 
 
 func _setting_row(p: Control, y: float, label: String, key: String) -> void:
@@ -1072,9 +1182,10 @@ func _setting_row(p: Control, y: float, label: String, key: String) -> void:
 ## One label + ON/OFF button pair. The callable flips the GameState field; saving
 ## and refreshing are handled here so no caller can forget either.
 func _toggle_row(p: Control, pos: Vector2, label: String, key: String,
-		flip: Callable) -> void:
+		flip: Callable, btn_x := -1.0) -> void:
 	_text(p, pos + Vector2(0, 1), label, TEXT_COL)
-	var b := _menu_button(p, Rect2(pos.x + 96, pos.y, 34, 11), "", func() -> void:
+	var bx := pos.x + 96.0 if btn_x < 0.0 else btn_x
+	var b := _menu_button(p, Rect2(bx, pos.y, 34, 11), "", func() -> void:
 		flip.call()
 		GameState.apply_settings()
 		_refresh_settings(), TEXT_COL, true)
@@ -1383,11 +1494,12 @@ func _menu_button(p: Control, rect: Rect2, text: String, on_press: Callable,
 			sb.bg_color = color.lightened(0.3)
 		b.add_theme_stylebox_override(state, sb)
 	b.pressed.connect(on_press)
-	b.pressed.connect(AudioSys.play_select)
+	b.pressed.connect(AudioSys.play_confirm)
 	b.mouse_entered.connect(func() -> void:
 		if not b.disabled:
 			b.grab_focus())
 	p.add_child(b)
+	_decorate(b, false, color)
 	# geometry LAST: a Control's size only ever clamps UP to its minimum, and the
 	# default stylebox (before the overrides above) makes that minimum 17 px tall
 	b.position = rect.position

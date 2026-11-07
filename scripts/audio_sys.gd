@@ -52,6 +52,8 @@ var _stamp: AudioStreamWAV     # v4d: tally rank stamp
 var _blip: AudioStreamWAV      # v4d: menu focus move
 var _confirm: AudioStreamWAV   # v4d: menu button press
 const TICK_GAP_MS := 45        # play_tick ignores calls closer together than this
+var blip_plays := 0            # menu focus moves / presses, counted for tests
+var confirm_plays := 0
 var tick_plays := 0            # ticks that passed the gap check (counted even before unlock(), so the limit is testable)
 var _last_tick_ms := -1000000
 var _gib_voices: Array[AudioStreamPlayer] = []   # V2.2 L1f: dedicated, caps ticks at 2
@@ -250,10 +252,12 @@ func play_stamp() -> void:
 
 
 func play_blip() -> void:
+	blip_plays += 1
 	_play(_blip)
 
 
 func play_confirm() -> void:
+	confirm_plays += 1
 	_play(_confirm)
 
 
