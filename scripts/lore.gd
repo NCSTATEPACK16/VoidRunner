@@ -11,6 +11,12 @@ class_name Lore
 ## briefing's 260-design-px band at font 8 (~125 chars). Load lines render in the HTML
 ## shell at small size — keep each <= ~44 chars. Index -1 = the Void Gauntlet; any
 ## other out-of-range index falls back to the sector-1 entry rather than "".
+##
+## v4d episodes: three of three sectors each (E1 L1-3, E2 L4-6, E3 L7-9). Sizing contract
+## for the presentation panels: a subtitle is one line, <= 40 chars (<= 240 px at font 8's
+## 6 px advance, inside the 320 px screen); an ending is <= 200 chars so it wraps to <= 5
+## lines in a ~260 px band (~43 chars a line). sector_label() builds "E2 · L4 · REACTOR
+## MAZE" (the · is in PixelFont's glyph table) and is <= ~34 chars for the current names.
 
 const _GAUNTLET_STORY := "No map. No exit. The Void remembers every run and answers " \
 	+ "with a longer tunnel. Fly until the dark blinks first."
@@ -90,6 +96,78 @@ const _LOAD_LINES: Array = [
 		"FINISH IT",
 	],
 ]
+
+
+const EPISODE_COUNT := 3
+
+const _EPISODES: Array[Dictionary] = [
+	{
+		"id": "E1", "name": "THE OUTER LANES", "first": 0, "last": 2,
+		"subtitle": "Starlight Station needs a hero",
+		"ending": "The Sentinel powers down and the station's lights flicker back on. "
+			+ "The outer lanes are safe again. But the swarm is still out there, "
+			+ "deeper in the dark.",
+	},
+	{
+		"id": "E2", "name": "THE HIVE", "first": 3, "last": 5,
+		"subtitle": "Follow the swarm home",
+		"ending": "The Brood Mother goes quiet and the whole nest calms down. "
+			+ "The Hive is not buzzing anymore. Just one thing is left: "
+			+ "the glowing Rift.",
+	},
+	{
+		"id": "E3", "name": "THE RIFT", "first": 6, "last": 8,
+		"subtitle": "One last run into the light",
+		"ending": "The Maw closes and the Rift folds shut like a book. "
+			+ "Stars shine over Starlight Station again. "
+			+ "Thank you, Runner. You brought everyone home.",
+	},
+]
+
+
+static func episode_of(level_index: int) -> int:
+	for e in EPISODE_COUNT:
+		if level_index >= int(_EPISODES[e]["first"]) and level_index <= int(_EPISODES[e]["last"]):
+			return e
+	return -1
+
+
+static func _ep(e: int) -> Dictionary:
+	return _EPISODES[clampi(e, 0, EPISODE_COUNT - 1)]
+
+
+static func episode_id(e: int) -> String:
+	return _ep(e)["id"]
+
+
+static func episode_name(e: int) -> String:
+	return _ep(e)["name"]
+
+
+static func episode_subtitle(e: int) -> String:
+	return _ep(e)["subtitle"]
+
+
+static func episode_ending(e: int) -> String:
+	return _ep(e)["ending"]
+
+
+static func is_episode_start(level_index: int) -> bool:
+	var e: int = episode_of(level_index)
+	return e >= 0 and level_index == int(_EPISODES[e]["first"])
+
+
+static func is_episode_end(level_index: int) -> bool:
+	var e: int = episode_of(level_index)
+	return e >= 0 and level_index == int(_EPISODES[e]["last"])
+
+
+## "E2 · L4 · REACTOR MAZE"; the gauntlet (and anything out of range) keeps its plain name.
+static func sector_label(level_index: int, level_name: String) -> String:
+	var e: int = episode_of(level_index)
+	if e < 0:
+		return level_name
+	return "%s · L%d · %s" % [_EPISODES[e]["id"], level_index + 1, level_name.to_upper()]
 
 
 static func story(level_index: int) -> String:

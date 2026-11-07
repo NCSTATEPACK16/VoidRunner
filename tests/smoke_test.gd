@@ -2266,6 +2266,23 @@ func _run() -> void:
 	await get_tree().process_frame
 	assert(game.player.ring_idx <= rz_portal - 2 + 3)
 	print("L4 RESUME ok — every checkpoint (sector start + each cleared bulkhead), reactor standing or gone")
+	# --- v4d LORE/EPISODES: three episodes of three sectors, labels, text limits ---
+	assert(Lore.EPISODE_COUNT == 3)
+	for ep_l in 9:
+		assert(Lore.episode_of(ep_l) == ep_l / 3)
+		assert(Lore.is_episode_start(ep_l) == (ep_l % 3 == 0))
+		assert(Lore.is_episode_end(ep_l) == (ep_l % 3 == 2))
+	assert(Lore.episode_of(-1) == -1 and Lore.episode_of(9) == -1)
+	assert(not Lore.is_episode_start(-1) and not Lore.is_episode_end(9))
+	assert(Lore.sector_label(3, "Reactor Maze") == "E2 · L4 · REACTOR MAZE")
+	assert(Lore.sector_label(-1, "Void Gauntlet") == "Void Gauntlet")
+	for ep_e in Lore.EPISODE_COUNT:
+		assert(Lore.episode_id(ep_e) == "E%d" % (ep_e + 1))
+		assert(Lore.episode_name(ep_e).length() > 0)
+		assert(Lore.episode_subtitle(ep_e).length() > 0 and Lore.episode_subtitle(ep_e).length() <= 40)
+		assert(Lore.episode_ending(ep_e).length() > 20 and Lore.episode_ending(ep_e).length() <= 200)
+	assert(PixelFont.glyph_rows("·").size() > 0)
+	print("LORE EPISODES ok — 3 episodes, labels, text limits, middle-dot glyph")
 	# --- V2.2 story pass: lore coverage + the briefing bands never overlap ---
 	for lidx in 9:
 		assert(Lore.story(lidx).length() > 20)            # every sector has a story
