@@ -1127,6 +1127,20 @@ func _run() -> void:
 	assert(AudioSys._stem_gains(AudioSys._mix_weights(1.5)).is_equal_approx(Vector3(1, 1, 0.5)))
 	print("mixes ok — 3 phase-aligned music stems, %.1f s song, rendered in %d frame slices" % [
 		mix_a.get_length(), music_slices])
+	# --- v4d: tally / menu one-shots exist and tick is rate-limited ---
+	for au_s: AudioStreamWAV in [AudioSys._tick, AudioSys._stamp, AudioSys._blip, AudioSys._confirm]:
+		assert(au_s != null)
+		var au_samples: int = au_s.data.size() / 2
+		assert(au_samples > 0 and au_samples < int(AudioSys.SAMPLE_RATE * 0.3))
+	await get_tree().create_timer(0.1).timeout   # clear any earlier tick's gap
+	var au_before: int = AudioSys.tick_plays
+	for au_i in 10:
+		AudioSys.play_tick()
+	assert(AudioSys.tick_plays == au_before + 1)
+	AudioSys.play_stamp()
+	AudioSys.play_blip()
+	AudioSys.play_confirm()
+	print("audio ok — tick/stamp/blip/confirm streams, tick rate-limit holds (10 calls -> 1)")
 	# --- V2.2 L2b: combat-intensity engine — boss forces frenzy, calm decays ---
 	GameState.boss_active = true
 	AudioSys._update_intensity(0.1, game.player.position)
