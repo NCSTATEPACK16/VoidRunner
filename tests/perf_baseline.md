@@ -318,3 +318,26 @@ build or spawn in that step, gone on rerun), L9 rail 2.3 ms, gauntlet 5.3 / 5.5 
 2.5 / 2.8 ms. The perf rail now flies with `tests/rail_assist.gd`: it kills guards one by one
 within 15 rings instead of a 60 u splash, and leaves main bosses alone, so the L9 run samples
 the whole 240 s of the boss fight instead of ending at the boss's death.
+
+## v4d: tally, episodes, message log, SETUP window (2026-11-07)
+
+No sprite or world code changed, so the bake is unchanged. The new sounds are four short
+one-shots rendered at boot (about 0.33 s of audio in all).
+
+| Run (same container, alternating) | `main` (48dc3fd) | This PR |
+|---|---|---|
+| Forge probe boot bake (xvfb) | — | 306 ms |
+| Deferred boss / objects sheet | — | 188 / 42 ms |
+| Rendered dense L8, average frame ×2 | 20.33 / 19.12 ms | 21.34 / 18.61 ms |
+| Rendered dense L8, `[draw]` peak ×2 | 72 / 77 | 81 / 74 |
+| Web bake (SwiftShader) | 1170 / 1288 ms | 1130 ms |
+| Web title up | 6.3 / 6.5 s | 6.6 s |
+| Web first flight (L1) | 21.0 / 18.8 s | 21.7 s |
+
+Headless perf (this PR): L8 rail worst step 3.4 / 3.8 ms, L9 rail 1.3 ms, gauntlet 5.9 / 4.3 ms,
+dense L8 3.0 / 4.9 ms; no spikes over 8 ms. The web first flight now includes one extra key
+press for the episode title card. `tests/campaign_probe.tscn` (L1→L9 through the menus, rail,
+immortal) takes 36–41 s; its worst step was 7.4 ms (L4).
+
+The GLES3 pass (`opengl3_es`) needs Mesa's EGL in the container: `apt-get install -y libegl1
+libgles2 libegl-mesa0`. Without it Godot can't create the display and the probe prints nothing.

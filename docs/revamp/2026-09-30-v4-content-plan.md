@@ -5,7 +5,7 @@
 verification). Steps 3–6 make the game finishable. v4 makes it feel like a full mid-90s DOS
 shooter before the public launch in Step 8.*
 
-## Progress (2026-10-11)
+## Progress (2026-11-07)
 
 | Sub-step | Status |
 |---|---|
@@ -14,7 +14,25 @@ shooter before the public launch in Step 8.*
 | v4b part 1: parts kit; LAYER, RAMMER, MENDER, SPLITTER (sectors 3–5) | Done (PR #13) |
 | v4b part 2: WRAITH, CRAWLER, WARDEN, CARRIER (sectors 7–8); heavy variants; mini-bosses | Done (PR #14) |
 | v4c hubs, keys and objectives | Done (PR #19) |
-| v4d tally, episodes and menu feel | Next (spec: `docs/revamp/2026-10-11-v4-spec.md` §6) |
+| v4d tally, episodes and menu feel | Done (PR #20) |
+
+**How v4d landed (PR #20):**
+- **Tally.** The SECTOR CLEAR window reveals its lines one by one, counting the numbers up with
+  a rate-limited FM tick, then stamps the rank. Any key, click, pad button or tap skips to the
+  totals; NEXT appears after. L9 gets a tally too.
+- **Episodes.** E1 THE OUTER LANES (L1–3), E2 THE HIVE (L4–6), E3 THE RIFT (L7–9). A title
+  card shows on starting or advancing into an episode (never on CONTINUE or a retry); each
+  episode ends on EPISODE COMPLETE and a short ending over a still of the boss room, captured
+  from the 320×200 game view with the HUD hidden. Sector names read "E2 · L4 · REACTOR MAZE",
+  and the new_game picker shows the episode.
+- **Message log.** The last 3 HUD lines sit above the console, newest at the bottom, older ones
+  dimmer, each fading on its own; a repeat refreshes instead of stacking.
+- **Menus.** A blinking `>` marks the focused control (steady under REDUCE FLASH), with a blip
+  on each move and a confirm chirp on press. The SETUP window groups the settings into SOUND,
+  CONTROLS and DISPLAY tabs, and the pause menu's SETTINGS opens it too.
+- **Tests:** `tests/campaign_probe.tscn` plays L1→L9 through the real buttons (every tally,
+  title card, ending and the victory) and keeps the soak run's type and boss checks; the soak
+  probe is gone.
 
 **How v4c landed (PR #19):**
 - **Hubs.** L2, L4, L5, L7 and L8 grow a keycard branch and a switch branch off the room
