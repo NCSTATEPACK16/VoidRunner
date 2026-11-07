@@ -132,7 +132,7 @@ Hard rule 2 still applies: nothing committed names the '95 game or its studio. T
 
 - `godot --headless --import` (needed for new `class_name` scripts).
 - Smoke test: `timeout 1500 godot --headless --path . tests/smoke_test.tscn`. It must print `SMOKE TEST COMPLETE` with 0 `SCRIPT ERROR`.
-- Probes: warmup, soak, `fx_parity` (must print `FX PARITY OK`), forge (bake times), and perf with `VR_PERF_RAIL=1 VR_PERF_LEVEL=7` (worst step under 8 ms).
+- Probes: warmup, campaign, `fx_parity` (must print `FX PARITY OK`), forge (bake times), and perf with `VR_PERF_RAIL=1 VR_PERF_LEVEL=7` (worst step under 8 ms).
 - Web gate: `./build.sh` then `node tests/web_check.mjs <out> dist`.
 - PR D only: a real-device TestFlight pass with the SN30 Pro, per `docs/ios/TESTFLIGHT.md`.
 - PR E onward: `tools/check_budgets.py` in CI.

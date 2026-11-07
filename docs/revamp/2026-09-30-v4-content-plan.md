@@ -156,7 +156,7 @@ for sectors 3–5 here; the other four, the heavy variants and the mini-bosses n
 - **Tests:**
   - the smoke ROSTER block (one check per rule, the intro rule, pools, briefings);
   - a SOAK block: every type runs 10 s beside the ship;
-  - `tests/soak_probe.tscn` flies L1–L9 and fails if any type never spawns.
+  - `tests/campaign_probe.tscn` flies L1–L9 and fails if any type never spawns.
 - **Cost.**
   - Bake: 339 → 448 ms (median of 8, A/B with the kit commit on software GL); the 4 kit
     models are busier than 3.0's.
@@ -198,7 +198,7 @@ for sectors 3–5 here; the other four, the heavy variants and the mini-bosses n
   the bosses, mini-bosses and the carrier would add about another boss sheet.
 - **Tests:** the smoke ROSTER2 and MINIBOSS blocks (one check per rule, the heavies, the L7 and
   L8 intros, each mini-boss's room, sleep, phases, patterns, bulkhead and checkpoint); the
-  SOAK block covers all 18 types; `tests/soak_probe.tscn` also wakes and kills all three
+  SOAK block covers all 18 types; `tests/campaign_probe.tscn` also wakes and kills all three
   mini-bosses; the screenshot probe adds `shot_roster2`, `shot_heavies` and `shot_miniboss`.
 
 **Next:** v4c (hubs, keys, switches, objectives) and v4d (tally, episodes, message log, menu
@@ -366,7 +366,7 @@ especially on iPad.
 | perf groundwork (batched layers + probes) | — | draw calls for shots and gibs about 1 each; smoke test green |
 | v4b roster + mini-bosses | the building-block expansion | the soak run spawns every type; each rule reads in a cold playtest; the bake time is measured |
 | v4c hubs, keys, objectives | Step 4 checkpoints | every sector is completable from its checkpoint; the automap shows keys and doors |
-| v4d tally, episodes, menu feel | — | the full campaign runs end to end in the soak run |
+| v4d tally, episodes, menu feel | — | the full campaign runs end to end in `tests/campaign_probe.tscn` |
 
 Each sub-step is one PR with the standard gates:
 - headless smoke test with zero `SCRIPT ERROR`;
