@@ -60,7 +60,8 @@ await page.mouse.click(480, 300);
 await page.keyboard.press('Enter'); await wait(1500); await shot('1_attract');   // UNDERSTOOD
 await page.keyboard.press('Enter'); await wait(1500); await shot('2_cards');     // PRESS ENTER
 await page.keyboard.press('Enter'); await wait(1500); await shot('3_new_game');  // NEW GAME
-await page.keyboard.press('Enter'); await wait(2500); await shot('4_briefing');  // > LAUNCH
+await page.keyboard.press('Enter'); await wait(1500); await shot('4_episode');    // > LAUNCH
+await page.keyboard.press('Enter'); await wait(2500); await shot('4_briefing');  // title card -> briefing
 await page.keyboard.press('Enter'); await wait(4000);                            // briefing LAUNCH
 await page.keyboard.down('Space'); await wait(8000); await page.keyboard.up('Space');
 await shot('5_flight');

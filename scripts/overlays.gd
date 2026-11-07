@@ -22,6 +22,8 @@ extends CanvasLayer
 signal launch_requested       # from start screen or a briefing's LAUNCH
 signal gauntlet_requested     # K5: endless mode from the start screen
 signal next_level_requested
+signal episode_continue_requested   # v4d: the ending's CONTINUE
+signal episode_title_done           # v4d: the title card was dismissed or timed out
 signal retry_requested
 signal new_campaign_requested
 signal warning_acknowledged   # M1.2: photosensitivity notice dismissed
@@ -60,6 +62,17 @@ var _panels := {}
 var _focus := {}                 # panel name -> Button that takes keyboard focus on show
 var _settings_labels := {}       # H: setting key -> its value Label/Button
 var _settings_return := "start"  # where the settings BACK button returns to
+# v4d: the SETUP window ("settings" panel) has three groups behind a tab row
+var _setup_tabs: Array[Button] = []
+var _setup_groups: Array[Control] = []
+var _setup_group := 0
+var _setup_back: Button
+# v4d: blinking ">" on the focused control; focus blips stay quiet while a panel opens
+var _markers: Array[Label] = []
+var _marker_cur: Label
+var _mark_t := 0.0
+var _quiet := false
+const GROUP_NAMES := ["SOUND", "CONTROLS", "DISPLAY"]
 var _help_return := "start"      # re-audit Step 2: the manual opens from pause too
 var _help_start: Button          # "> START" — only offered when opened from the title
 var _help_back: Button
@@ -107,6 +120,27 @@ var _go_restart: Button
 var _go_difficulty: Button
 var _go_feedback: Button
 var _difficulty_return := "start"   # where the difficulty panel's BACK returns to
+# v4d: the tally reveal and the episode screens
+const TALLY_GAP := 0.5        # s between one line starting and the next
+const TALLY_COUNT := 0.4      # s a line's numbers take to count up
+const TALLY_RANK_PAD := 0.15  # s after the last line finishes counting, before the rank stamp
+const TALLY_END_PAD := 0.45   # s after the stamp before NEXT appears
+const TALLY_GRACE := 0.25     # s NEXT stays hidden after a skip (the skip press can't hit it)
+const TITLE_SECS := 4.0       # the episode title card dismisses itself after this
+const TITLE_ARM := 0.3        # s before a press may dismiss the card
+var _tally_lines: Array = []
+var _tally_clock := 0.0
+var _tally_active := false    # revealing (or in the post-skip grace); input is consumed
+var _tally_done := false      # the totals are up and NEXT is showing
+var _tally_shown := 0
+var _tally_rank_shown := false
+var _tally_grace := 0.0
+var _tally_next: Button
+var _title_live := false
+var _title_t := 0.0
+var _title_prompt: Label
+var _episode_btn: Button
+var _episode_label: Label     # new_game: "E2 · THE HIVE" over the sector picker
 var _help_pad: Label   # K6: gamepad line on the controls screen, shown only when enabled
 
 # D11: install-nudge buttons (start/game_over/victory), built once at boot but
@@ -122,11 +156,69 @@ func _ready() -> void:
 	_build_game_over()
 	_build_level_clear()
 	_build_victory()
+	_build_episode_title()
+	_build_episode_end()
 	_build_settings()
 	_build_difficulty()
 	_build_bay()
 	_build_warning()
 	show_only("warning" if not GameState.seen_warning else "start")
+
+
+## Programmatic focus (a panel opening) is silent; only user-driven moves blip.
+func _grab_quiet(c: Control) -> void:
+	if not is_instance_valid(c) or not c.is_inside_tree() or not c.is_visible_in_tree():
+		return
+	_quiet = true
+	c.grab_focus()
+	_quiet = false
+
+
+## Every menu control routes through here: the blinking ">" marker, the focus blip.
+## `inside` puts the marker in the control's left margin (title cards), otherwise
+## just outside its left edge.
+func _decorate(b: Button, inside := false, color := TITLE_COL) -> void:
+	var cover := ColorRect.new()   # hides a label's own leading ">" under the bar
+	cover.color = color
+	cover.size = Vector2(6, 9)
+	cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cover.visible = false
+	b.add_child(cover)
+	var m := _text(b, Vector2(1.0 if inside else -7.0, 3.0 if inside else 1.0), ">", KEY_COL)
+	m.visible = false
+	_markers.append(m)
+	b.set_meta("marker", m)
+	b.focus_entered.connect(func() -> void:
+		# a label that already starts with "> " keeps that glyph as the marker: it is
+		# redrawn over the bar and blinks in place, so nothing doubles up
+		var own := not inside and b.text.begins_with("> ")
+		cover.visible = own
+		if own:
+			var x := 3.0
+			if b.alignment == HORIZONTAL_ALIGNMENT_CENTER:
+				x = roundf((b.size.x - b.text.length() * PixelFont.ADVANCE) * 0.5)
+			cover.position = Vector2(x, 1.0)
+			m.position = Vector2(x, 1.0)
+			m.add_theme_color_override("font_color", BAR_FG)
+		elif not inside:
+			m.position = Vector2(-7.0, 1.0)
+			m.add_theme_color_override("font_color", KEY_COL)
+		m.visible = true
+		_marker_cur = m
+		_mark_t = 0.0
+		m.modulate.a = 1.0
+		if not _quiet:
+			AudioSys.play_blip())
+	b.focus_exited.connect(func() -> void:
+		m.visible = false
+		cover.visible = false
+		if _marker_cur == m:
+			_marker_cur = null)
+
+
+## Alpha of the focus marker right now: ~2 Hz blink, steady under REDUCE FLASH.
+func marker_alpha() -> float:
+	return 1.0 if GameState.reduce_flashing or fmod(_mark_t, 0.5) < 0.3 else 0.0
 
 
 func show_only(panel_name: String) -> void:
@@ -162,8 +254,11 @@ func show_only(panel_name: String) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		# 3.0: keyboard-drivable menus — the panel's first action takes focus
 		var fb: Button = _focus.get(panel_name)
-		if fb and fb.is_inside_tree():
-			fb.grab_focus.call_deferred()
+		# (the tally's NEXT is hidden until the reveal ends, and takes focus then)
+		if fb and fb.is_inside_tree() and not (panel_name == "level_clear" and _tally_active):
+			_grab_quiet.call_deferred(fb)
+	_title_live = panel_name == "episode_title"
+	_title_t = 0.0
 
 
 ## Phase J: called once by game.gd with all level display names; the picker is
@@ -221,6 +316,10 @@ func _refresh_start() -> void:
 	var max_sector: int = mini(GameState.unlocked_level, _sector_names.size() - 1)
 	_sector = clampi(_sector, 0, max_sector)
 	_sector_label.text = "SECTOR: %s" % _sector_names[_sector]
+	if _episode_label:
+		var ep := Lore.episode_of(_sector)
+		_episode_label.text = "%s · %s" % [Lore.episode_id(ep), Lore.episode_name(ep)] \
+			if ep >= 0 else ""
 	if _difficulty_btn:
 		_difficulty_btn.text = "DIFFICULTY: %s" % GameState.difficulty_name()
 	if _continue_btn:
@@ -253,6 +352,7 @@ func _card_text(i: int) -> String:
 				maxi(_sector_names.size() - 1, 0))
 			if _continue_tag == "" or _sector_names.is_empty():
 				return "NO SAVED RUN YET"
+			# v4d: "E2 · L4 · REACTOR MAZE · RUNNER" (the names are already labelled)
 			return "%s · %s" % [_sector_names[li], GameState.difficulty_name()]
 		1:
 			return "PICK A SECTOR AND DIFFICULTY"
@@ -272,10 +372,10 @@ func _layout_cards() -> void:
 			shown.append(c)
 	var total := -4.0
 	for c in shown:
-		total += c.text.length() * PixelFont.ADVANCE + 12 + 4
+		total += c.text.length() * PixelFont.ADVANCE + 14 + 4
 	var x := roundf(160.0 - total * 0.5)
 	for c in shown:
-		var w := float(c.text.length() * PixelFont.ADVANCE + 12)
+		var w := float(c.text.length() * PixelFont.ADVANCE + 14)
 		c.position = Vector2(x, CARD_Y)
 		c.size = Vector2(w, 13)
 		x += w + 4
@@ -315,7 +415,7 @@ func _apply_start_state(animate: bool) -> void:
 		_focus["start"] = _press_btn
 	var fb: Button = _focus["start"]
 	if _panels.start.visible and fb.is_inside_tree():
-		fb.grab_focus.call_deferred()
+		_grab_quiet.call_deferred(fb)
 
 
 func _open_start_menu() -> void:
@@ -336,6 +436,17 @@ func _start_sub(card: int, panel_name: String) -> void:
 
 
 func _process(delta: float) -> void:
+	_mark_t += delta
+	if _marker_cur:
+		_marker_cur.modulate.a = marker_alpha()
+	if _tally_active and _panels.level_clear.visible:
+		tally_step(delta)
+	if _title_live:
+		_title_t += delta
+		_title_prompt.modulate.a = 1.0 if GameState.reduce_flashing \
+			or fmod(_title_t, 1.0) < 0.6 else 0.0
+		if _title_t >= TITLE_SECS:
+			episode_title_dismiss()
 	if _logo_root == null or not _panels.start.visible:
 		return
 	_ticker.position.x -= TICKER_SPEED * delta
@@ -344,6 +455,30 @@ func _process(delta: float) -> void:
 	_blink_t += delta
 	_press_label.modulate.a = 1.0 if GameState.reduce_flashing \
 		or fmod(_blink_t, 1.0) < 0.6 else 0.0
+
+
+## v4d: while the tally is revealing, any key, click, pad button or tap skips to the
+## totals, and is consumed here so it can't also press NEXT. The episode title card
+## takes the same presses (after a short arm time) as its dismissal.
+func _input(event: InputEvent) -> void:
+	if not (_tally_active or _title_live):
+		return
+	var pressed := false
+	if event is InputEventKey:
+		var ke := event as InputEventKey
+		pressed = ke.pressed and not ke.echo
+	elif event is InputEventMouseButton or event is InputEventJoypadButton \
+			or event is InputEventScreenTouch:
+		pressed = event.is_pressed()
+	if not pressed:
+		return
+	if _tally_active and _panels.level_clear.visible:
+		tally_skip(true)
+		get_viewport().set_input_as_handled()
+	elif _title_live:
+		if _title_t >= TITLE_ARM:
+			episode_title_dismiss()
+		get_viewport().set_input_as_handled()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -356,9 +491,21 @@ func hide_all() -> void:
 	show_only("")
 
 
+## "L4 · REACTOR MAZE" (a level's display_name) -> "E2 · L4 · REACTOR MAZE"; names
+## that aren't a campaign sector (the gauntlet) come back unchanged.
+static func sector_name(display_name: String) -> String:
+	var parts := display_name.split(" · ", true, 1)
+	if parts.size() == 2 and parts[0].begins_with("L") and parts[0].substr(1).is_valid_int():
+		return Lore.sector_label(parts[0].substr(1).to_int() - 1, parts[1])
+	return display_name
+
+
 func set_briefing(level: LevelDef) -> void:
 	var p: Control = _panels.briefing
-	(p.get_node("Title") as Label).text = level.display_name
+	# v4d: "E2 · L4 · REACTOR MAZE"; the longest ones step down to 1x to fit the window
+	var t := p.get_node("Title") as Label
+	t.text = sector_name(level.display_name)
+	t.add_theme_font_size_override("font_size", 16 if t.text.length() <= 24 else 8)
 	var objective := "PRIMARY: " + level.objective
 	if level.kind == "tunnel":
 		objective += "\nSECONDARY: DESTROY ALL FUEL CELLS"   # K3 (not boss/endless)
@@ -371,39 +518,108 @@ func set_briefing(level: LevelDef) -> void:
 		Lore.story(-1 if GameState.gauntlet_mode else GameState.level_index)
 
 
-func set_level_clear(level_name: String, bonus: int, score: int, next_name: String,
-		kills: int, acc: int, time: float, rank: String, secondary := false,
-		secrets := 0, secrets_total := 0, style_peak := 0, salvage := 0,
-		caches := 0, caches_total := 0, objective_line := "", escape_bonus := 0) -> void:
+## v4d: `lines` is an Array of {text: String, vals: Array}. `text` is a format string;
+## the ints in `vals` count up from 0 while the line reveals, anything else (a time
+## string) is shown as is. A line with no vals simply appears (write a literal % as %%). At most 6 lines fit.
+## `rank` is stamped after the last line. Drive it with tally_step()/tally_skip().
+func set_level_clear(level_name: String, lines: Array, rank: String,
+		next_text := "> NEXT LEVEL") -> void:
 	var p: Control = _panels.level_clear
 	(p.get_node("Title") as Label).text = "%s CLEAR · %s" % [level_name,
 		GameState.difficulty_name()]   # Step 3: the tally names the preset
-	var extras: Array[String] = []
-	if objective_line != "":   # v4c: PODS 3/3, GENERATORS 4/4, REACTOR DOWN...
-		extras.append(objective_line)
-	if escape_bonus > 0:   # v4c: beat the clock
-		extras.append("ESCAPE BONUS +%d" % escape_bonus)
-	if secondary:
-		extras.append("SECONDARY COMPLETE +400")
-	if secrets_total > 0:   # V2.0 phantom-wall caches
-		extras.append("SECRETS %d/%d" % [secrets, secrets_total])
-	if style_peak > 0:   # V2.2 L2c: best style grade pays out
-		extras.append("STYLE: %s +%d" % [GameState.STYLE_NAMES[style_peak], style_peak * 100])
-	if salvage > 0:   # V2.2 L3: salvage hauled this level (banked at completion)
-		extras.append("SALVAGE +%d" % salvage)
-	if caches_total > 0:   # V2.2 L5: optional supply caches collected
-		extras.append("CACHES %d/%d" % [caches, caches_total])
-	var lines := PackedStringArray([
-		"KILLS %d · ACCURACY %d%% · TIME %s" % [kills, acc, _fmt_time(time)]])
-	# two extras per line keeps every line inside the window
-	for i in range(0, extras.size(), 2):
-		lines.append(" · ".join(extras.slice(i, i + 2)))
-	lines.append("EXIT BONUS +%d · SCORE %d" % [bonus, score])
-	lines.append("NEXT: %s" % next_name)
-	(p.get_node("Body") as Label).text = "\n".join(lines)
+	_tally_lines = lines
+	_tally_clock = 0.0
+	_tally_shown = 0
+	_tally_rank_shown = false
+	_tally_grace = 0.0
+	_tally_done = false
+	_tally_active = true
+	(p.get_node("Body") as Label).text = ""
 	var r := p.get_node("Rank") as Label
 	r.text = "RANK " + rank
 	r.add_theme_color_override("font_color", _rank_color(rank))
+	r.visible = false
+	_tally_next.text = next_text
+	_tally_next.visible = false
+
+
+## One reveal step. The numbers are a pure function of the clock, so tests can drive it.
+func tally_step(delta: float) -> void:
+	if not _tally_active:
+		return
+	if _tally_grace > 0.0:
+		_tally_grace -= delta
+		if _tally_grace <= 0.0:
+			_tally_finish()
+		return
+	_tally_clock += delta
+	_tally_refresh(false)
+	var rank_at := _tally_rank_time()
+	if _tally_clock >= rank_at + TALLY_END_PAD:
+		_tally_finish()
+
+
+func _tally_rank_time() -> float:
+	return maxf(_tally_lines.size() - 1, 0) * TALLY_GAP + TALLY_COUNT + TALLY_RANK_PAD
+
+
+func _tally_line_text(line: Dictionary, prog: float) -> String:
+	var vals: Array = line.get("vals", [])
+	var shown: Array = []
+	for v in vals:
+		shown.append(roundi(float(v) * prog) if v is int else v)
+	return str(line.text) % shown
+
+
+func _tally_refresh(silent: bool) -> void:
+	var n := _tally_lines.size()
+	var revealed := mini(n, int(_tally_clock / TALLY_GAP) + 1)
+	var parts: Array[String] = []
+	var ticking := revealed > _tally_shown
+	for i in revealed:
+		var line: Dictionary = _tally_lines[i]
+		var prog := clampf((_tally_clock - i * TALLY_GAP) / TALLY_COUNT, 0.0, 1.0)
+		if prog < 1.0 and not (line.get("vals", []) as Array).is_empty():
+			ticking = true
+		parts.append(_tally_line_text(line, prog))
+	_tally_shown = revealed
+	(_panels.level_clear.get_node("Body") as Label).text = "\n".join(parts)
+	if ticking and not silent:
+		AudioSys.play_tick()
+	if _tally_clock >= _tally_rank_time() and not _tally_rank_shown:
+		_tally_rank_shown = true
+		(_panels.level_clear.get_node("Rank") as Label).visible = true
+		AudioSys.play_stamp()
+
+
+func _tally_finish() -> void:
+	_tally_active = false
+	_tally_done = true
+	_tally_next.visible = true
+	if _panels.level_clear.visible and _tally_next.is_inside_tree():
+		_grab_quiet.call_deferred(_tally_next)
+
+
+## Jump to the totals. A press (`grace`) holds NEXT back for a moment so the same
+## press can't land on it; calling it directly (tests, scripts) shows NEXT at once.
+func tally_skip(grace := false) -> void:
+	if not _tally_active:
+		return
+	_tally_clock = _tally_rank_time() + TALLY_END_PAD
+	_tally_refresh(true)
+	if grace:
+		_tally_grace = TALLY_GRACE
+	else:
+		_tally_finish()
+
+
+func tally_done() -> bool:
+	return _tally_done
+
+
+## Lines revealed so far (for tests).
+func tally_revealed() -> int:
+	return _tally_shown
 
 
 ## dist >= 0 marks a gauntlet run (K5): the tally shows distance and compares
@@ -462,7 +678,7 @@ func _build_start() -> void:
 	for state in ["normal", "hover", "pressed", "focus", "hover_pressed"]:
 		_press_btn.add_theme_stylebox_override(state, none)
 	_press_btn.pressed.connect(_open_start_menu)
-	_press_btn.pressed.connect(AudioSys.play_select)
+	_press_btn.pressed.connect(AudioSys.play_confirm)
 	p.add_child(_press_btn)
 	_press_btn.position = Vector2.ZERO
 	_press_btn.size = Vector2(320, 200)
@@ -525,23 +741,25 @@ func _build_start() -> void:
 func _build_new_game() -> void:
 	var p := _panel("new_game", START_BG)
 	_shade(p, Rect2(0, 44, 320, 102), 0.5)
-	_window(p, Rect2(36, 56, 248, 78), "NEW GAME")
+	_window(p, Rect2(36, 52, 248, 88), "NEW GAME")
+	# v4d: the picker is grouped by episode; the header names the one the sector is in
+	_episode_label = _center(p, 62, "", TITLE_COL)
 	# M1.5: the sector label is centred on the window and the arrows sit at the
 	# window's edges, outside the span of even the longest sector name.
-	_menu_button(p, Rect2(40, 70, 12, 11), "<", func() -> void: _adjust_sector(-1),
+	_menu_button(p, Rect2(40, 74, 12, 11), "<", func() -> void: _adjust_sector(-1),
 		KEY_COL, true)
-	_sector_label = _center(p, 72, "", KEY_COL)
-	_menu_button(p, Rect2(268, 70, 12, 11), ">", func() -> void: _adjust_sector(1),
+	_sector_label = _center(p, 76, "", KEY_COL)
+	_menu_button(p, Rect2(268, 74, 12, 11), ">", func() -> void: _adjust_sector(1),
 		KEY_COL, true)
-	_difficulty_btn = _menu_button(p, Rect2(58, 86, 204, 11), "", func() -> void:
+	_difficulty_btn = _menu_button(p, Rect2(58, 90, 204, 11), "", func() -> void:
 		open_difficulty("new_game"), KEY_COL)
-	_menu_button(p, Rect2(58, 98, 204, 11), "FLIGHT MANUAL", func() -> void:
+	_menu_button(p, Rect2(58, 102, 204, 11), "FLIGHT MANUAL", func() -> void:
 		_help_return = "new_game"
 		show_only("help"))
-	var launch := _menu_button(p, Rect2(58, 116, 100, 11), "> LAUNCH", func() -> void:
+	var launch := _menu_button(p, Rect2(58, 120, 100, 11), "> LAUNCH", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit(), TITLE_COL, true)
-	_menu_button(p, Rect2(162, 116, 100, 11), "< BACK", func() -> void:
+	_menu_button(p, Rect2(162, 120, 100, 11), "< BACK", func() -> void:
 		show_only("start"), TEXT_COL, true)
 	_focus["new_game"] = launch
 
@@ -560,7 +778,7 @@ func _card_button(p: Control, text: String, idx: int, on_press: Callable) -> But
 	b.add_theme_color_override("font_disabled_color", DIM_COL)
 	for state in ["normal", "hover", "pressed", "focus", "disabled", "hover_pressed"]:
 		var sb := StyleBoxFlat.new()
-		sb.content_margin_left = 6.0
+		sb.content_margin_left = 8.0
 		sb.content_margin_right = 6.0
 		sb.content_margin_top = 3.0
 		sb.content_margin_bottom = 2.0
@@ -572,10 +790,11 @@ func _card_button(p: Control, text: String, idx: int, on_press: Callable) -> But
 			sb.border_color = WIN_EDGE
 		b.add_theme_stylebox_override(state, sb)
 	b.pressed.connect(on_press)
-	b.pressed.connect(AudioSys.play_select)
+	b.pressed.connect(AudioSys.play_confirm)
 	b.mouse_entered.connect(func() -> void:
 		if not b.disabled:
 			b.grab_focus())
+	_decorate(b, true)
 	b.focus_entered.connect(func() -> void:
 		_start_card = idx
 		_card_sub.text = _card_text(idx))
@@ -742,9 +961,81 @@ func _build_level_clear() -> void:
 	b.add_theme_constant_override("line_spacing", 1)
 	var r := _center(p, 124, "", KEY_COL, 16)
 	r.name = "Rank"
-	var next := _menu_button(p, Rect2(110, 160, 100, 11), "> NEXT LEVEL", func() -> void:
+	var next := _menu_button(p, Rect2(100, 160, 120, 11), "> NEXT LEVEL", func() -> void:
 		next_level_requested.emit(), TITLE_COL, true)
 	_focus["level_clear"] = next
+	_tally_next = next
+
+
+## v4d: the title card for an episode, shown on starting or advancing into it.
+func _build_episode_title() -> void:
+	var p := _panel("episode_title")
+	_window(p, Rect2(30, 48, 260, 104), "EPISODE")
+	var n := _center(p, 62, "", KEY_COL)
+	n.name = "Number"
+	var t := _center(p, 78, "", TITLE_COL, 16)
+	t.name = "Name"
+	var s := _wrap(p, Rect2(40, 104, 240, 20), "", Color("5fb6d8"))
+	s.name = "Sub"
+	_title_prompt = _center(p, 134, "", TEXT_COL)
+	_title_prompt.name = "Prompt"
+
+
+func set_episode_title(e: int) -> void:
+	var p: Control = _panels.episode_title
+	(p.get_node("Number") as Label).text = "EPISODE %d OF %d" % [e + 1, Lore.EPISODE_COUNT]
+	(p.get_node("Name") as Label).text = Lore.episode_name(e)
+	(p.get_node("Sub") as Label).text = Lore.episode_subtitle(e)
+	_title_prompt.text = "TAP TO CONTINUE" if touch_mode else "PRESS ANY KEY"
+
+
+## Any press (or the timer) ends the card; game.gd goes on to the briefing.
+func episode_title_dismiss() -> void:
+	if _title_live:
+		_title_live = false
+		episode_title_done.emit()
+
+
+## v4d: the ending text over a still of the boss room, then EPISODE COMPLETE.
+func _build_episode_end() -> void:
+	var p := _panel("episode_end")
+	var still := TextureRect.new()
+	still.name = "Still"
+	still.position = Vector2.ZERO
+	still.size = Vector2(320, 200)
+	still.stretch_mode = TextureRect.STRETCH_SCALE
+	still.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	still.modulate = Color(0.55, 0.55, 0.62)
+	still.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	still.visible = false
+	p.add_child(still)
+	var big := _center(p, 16, "EPISODE COMPLETE", KEY_COL, 16)
+	big.name = "Complete"
+	var h := _center(p, 38, "", TITLE_COL)
+	h.name = "Heading"
+	_window(p, Rect2(12, 88, 296, 104), "")
+	var t := _wrap(p, Rect2(22, 98, 276, 56), "", TEXT_COL)
+	t.name = "Ending"
+	_episode_btn = _menu_button(p, Rect2(100, 174, 120, 11), "> CONTINUE", func() -> void:
+		episode_continue_requested.emit(), TITLE_COL, true)
+	_focus["episode_end"] = _episode_btn
+
+
+## `still` is the captured boss room (null headless, or if the capture failed).
+func set_episode_end(e: int, still: Image = null) -> void:
+	var p: Control = _panels.episode_end
+	(p.get_node("Heading") as Label).text = "%s · %s" % [Lore.episode_id(e), Lore.episode_name(e)]
+	(p.get_node("Ending") as Label).text = Lore.episode_ending(e)
+	var tr := p.get_node("Still") as TextureRect
+	var has_still := still != null and not still.is_empty()
+	tr.visible = has_still
+	if has_still:
+		var img := still.duplicate() as Image
+		img.convert(Image.FORMAT_RGB8)
+		if img.get_size() != Vector2i(320, 200):
+			img.resize(320, 200, Image.INTERPOLATE_NEAREST)
+		tr.texture = ImageTexture.create_from_image(img)
+	(p as ColorRect).color = Color(0, 0, 0, 1) if has_still else BG
 
 
 func _build_victory() -> void:
@@ -807,34 +1098,73 @@ func suggest_recruit() -> void:
 ## can turn them on.
 func _build_settings() -> void:
 	var p := _panel("settings")
-	_window(p, Rect2(6, 6, 308, 188), "SETTINGS")
-	_setting_row(p, 22, "VOLUME", "volume")
-	_setting_row(p, 35, "MOUSE SENS", "sens")
-	_setting_row(p, 48, "FIELD OF VIEW", "fov")
-	_setting_row(p, 61, "CRT FILTER", "crt")
-	_window(p, Rect2(12, 80, 296, 72), "COMFORT & DISPLAY", WIN_EDGE_DIM)
-	# left column
-	_toggle_row(p, Vector2(20, 94), "DITHER", "dither", func() -> void:
-		GameState.dither_enabled = not GameState.dither_enabled)
-	_toggle_row(p, Vector2(20, 108), "AMBER TERM", "amber", func() -> void:
-		GameState.amber_mode = not GameState.amber_mode)
-	_toggle_row(p, Vector2(20, 122), "GAMEPAD", "gamepad", func() -> void:
-		GameState.gamepad_enabled = not GameState.gamepad_enabled)
-	_toggle_row(p, Vector2(20, 136), "INVERT Y", "invert_y", func() -> void:
-		GameState.invert_y = not GameState.invert_y)
-	# right column
-	_toggle_row(p, Vector2(166, 94), "SCREEN SHAKE", "shake", func() -> void:
-		GameState.screen_shake = not GameState.screen_shake)
-	_toggle_row(p, Vector2(166, 108), "REDUCE FLASH", "reduce_flash", func() -> void:
-		GameState.reduce_flashing = not GameState.reduce_flashing)
-	_toggle_row(p, Vector2(166, 122), "REDUCE ROLL", "reduce_roll", func() -> void:
-		GameState.reduce_roll = not GameState.reduce_roll)
-	_toggle_row(p, Vector2(166, 136), "TOUCH D-PAD", "dpad", func() -> void:
-		GameState.touch_dpad_enabled = not GameState.touch_dpad_enabled)
-	var back := _menu_button(p, Rect2(130, 170, 60, 11), "< BACK", func() -> void:
+	_window(p, Rect2(6, 6, 308, 188), "SETUP")
+	# v4d: three groups behind a tab row. A tab shows its group the moment it takes
+	# focus (arrow keys, pad, hover or tap), and pressing it drops into the group.
+	var tx := 18.0
+	for i in GROUP_NAMES.size():
+		var gi := i
+		var tab := _menu_button(p, Rect2(tx, 20, 92, 11), GROUP_NAMES[i], func() -> void:
+			_select_group(gi)
+			_focus_group_first(gi), TITLE_COL, true)
+		tab.focus_entered.connect(func() -> void: _select_group(gi))
+		_setup_tabs.append(tab)
+		tx += 96.0
+	_window(p, Rect2(12, 38, 296, 116), "", WIN_EDGE_DIM)
+	for i in GROUP_NAMES.size():
+		var g := Control.new()
+		g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		g.size = Vector2(320, 200)
+		p.add_child(g)
+		_setup_groups.append(g)
+	# SOUND
+	_setting_row(_setup_groups[0], 46, "VOLUME", "volume")
+	# CONTROLS
+	var c: Control = _setup_groups[1]
+	_setting_row(c, 46, "MOUSE SENS", "sens")
+	_toggle_row(c, Vector2(20, 60), "INVERT Y", "invert_y", func() -> void:
+		GameState.invert_y = not GameState.invert_y, 233.0)
+	_toggle_row(c, Vector2(20, 74), "GAMEPAD", "gamepad", func() -> void:
+		GameState.gamepad_enabled = not GameState.gamepad_enabled, 233.0)
+	_toggle_row(c, Vector2(20, 88), "TOUCH D-PAD", "dpad", func() -> void:
+		GameState.touch_dpad_enabled = not GameState.touch_dpad_enabled, 233.0)
+	# DISPLAY
+	var d: Control = _setup_groups[2]
+	_setting_row(d, 44, "FIELD OF VIEW", "fov")
+	_setting_row(d, 57, "CRT FILTER", "crt")
+	_toggle_row(d, Vector2(20, 71), "DITHER", "dither", func() -> void:
+		GameState.dither_enabled = not GameState.dither_enabled, 233.0)
+	_toggle_row(d, Vector2(20, 84), "AMBER TERM", "amber", func() -> void:
+		GameState.amber_mode = not GameState.amber_mode, 233.0)
+	_toggle_row(d, Vector2(20, 97), "SCREEN SHAKE", "shake", func() -> void:
+		GameState.screen_shake = not GameState.screen_shake, 233.0)
+	_toggle_row(d, Vector2(20, 110), "REDUCE FLASH", "reduce_flash", func() -> void:
+		GameState.reduce_flashing = not GameState.reduce_flashing, 233.0)
+	_toggle_row(d, Vector2(20, 123), "REDUCE ROLL", "reduce_roll", func() -> void:
+		GameState.reduce_roll = not GameState.reduce_roll, 233.0)
+	_setup_back = _menu_button(p, Rect2(130, 170, 60, 11), "< BACK", func() -> void:
 		show_only(_settings_return), TEXT_COL, true)
-	_focus["settings"] = back
+	_select_group(0)
 	_refresh_settings()
+
+
+## Shows one SETUP group and restyles the tab row; the open window focuses its tab.
+func _select_group(i: int) -> void:
+	_setup_group = i
+	for gi in _setup_groups.size():
+		_setup_groups[gi].visible = gi == i
+		var t := _setup_tabs[gi]
+		var on := gi == i
+		t.text = ("[ %s ]" if on else "  %s  ") % GROUP_NAMES[gi]
+		t.add_theme_color_override("font_color", KEY_COL if on else DIM_COL)
+	_focus["settings"] = _setup_tabs[i]
+
+
+func _focus_group_first(i: int) -> void:
+	for ch in _setup_groups[i].get_children():
+		if ch is Button:
+			(ch as Button).grab_focus()
+			return
 
 
 func _setting_row(p: Control, y: float, label: String, key: String) -> void:
@@ -852,9 +1182,10 @@ func _setting_row(p: Control, y: float, label: String, key: String) -> void:
 ## One label + ON/OFF button pair. The callable flips the GameState field; saving
 ## and refreshing are handled here so no caller can forget either.
 func _toggle_row(p: Control, pos: Vector2, label: String, key: String,
-		flip: Callable) -> void:
+		flip: Callable, btn_x := -1.0) -> void:
 	_text(p, pos + Vector2(0, 1), label, TEXT_COL)
-	var b := _menu_button(p, Rect2(pos.x + 96, pos.y, 34, 11), "", func() -> void:
+	var bx := pos.x + 96.0 if btn_x < 0.0 else btn_x
+	var b := _menu_button(p, Rect2(bx, pos.y, 34, 11), "", func() -> void:
 		flip.call()
 		GameState.apply_settings()
 		_refresh_settings(), TEXT_COL, true)
@@ -1163,11 +1494,12 @@ func _menu_button(p: Control, rect: Rect2, text: String, on_press: Callable,
 			sb.bg_color = color.lightened(0.3)
 		b.add_theme_stylebox_override(state, sb)
 	b.pressed.connect(on_press)
-	b.pressed.connect(AudioSys.play_select)
+	b.pressed.connect(AudioSys.play_confirm)
 	b.mouse_entered.connect(func() -> void:
 		if not b.disabled:
 			b.grab_focus())
 	p.add_child(b)
+	_decorate(b, false, color)
 	# geometry LAST: a Control's size only ever clamps UP to its minimum, and the
 	# default stylebox (before the overrides above) makes that minimum 17 px tall
 	b.position = rect.position

@@ -146,6 +146,10 @@ func _run() -> void:
 	for i in 30:   # past the stepped slide
 		await get_tree().process_frame
 	await _capture_root("shot_start_menu.png", dir)
+	for ci in 4:   # v4d: the focus chevron clears the label on every card
+		game.overlays._cards[ci].grab_focus()
+		await get_tree().process_frame
+		await _capture_root("shot_card_%d.png" % ci, dir)
 	game.overlays._new_btn.pressed.emit()
 	await _capture_root("shot_new_game.png", dir)
 	# M1/M2: the two panels this session changed most — the settings grid now packs
@@ -153,7 +157,19 @@ func _run() -> void:
 	game.overlays.show_only("warning")
 	await _capture_root("shot_warning.png", dir)
 	game.overlays.show_only("settings")
+	for gi in [0, 1, 2]:
+		game.overlays._setup_tabs[gi].grab_focus()
+		await get_tree().process_frame
+		await _capture_root("shot_setup_%s.png" % ["sound", "controls", "display"][gi], dir)
 	await _capture_root("shot_settings.png", dir)
+	game.overlays.show_only("briefing")   # v4d: LAUNCH focused, its own ">" is the marker
+	for i in 3:
+		await get_tree().process_frame
+	await _capture_root("shot_briefing_focus.png", dir)
+	game.overlays.show_only("pause")
+	for i in 3:
+		await get_tree().process_frame
+	await _capture_root("shot_pause_focus.png", dir)
 	game.overlays.show_only("help")
 	await _capture_root("shot_help.png", dir)   # M3 privacy + feedback lines
 	game.overlays.touch_mode = true          # re-audit Step 5: the manual's touch page
@@ -203,6 +219,13 @@ func _run() -> void:
 		game.shot_mgr.fire_player(game.weapons[0])
 		await _fly(game, 2)
 	await _capture(game, "shot_combat.png", dir)
+	# 2b'') v4d message log: three live lines, newest at the bottom, older dimmer
+	game.hud.show_message("SHIELD CELL +25", 30.0)
+	game.hud.show_message("KEYCARD ACQUIRED", 30.0)
+	game.hud.show_message("HAULER DESTROYED · BULKHEAD OPEN", 30.0)
+	await _fly(game, 2)
+	await _capture(game, "shot_message_log.png", dir)
+	game.hud._tick_log(1000.0)
 	# 2b') v4 hot debris: a kill's chunks, yellow-hot and cooling down the fire ramp
 	game.gib_mgr.burst(game.player.position + fwd * 14.0, Vector3.ZERO,
 		game.player.ring_idx, 20, EnemyManager.GIB_TINTS["drone"])
@@ -465,6 +488,37 @@ func _run() -> void:
 	game.overlays.set_final_score("victory", 15800, true)
 	game.overlays.show_only("victory")
 	await _capture_root("shot_victory.png", dir)
+	# v4d: the tally (full, with every extra line), the episode title card and an ending
+	# over a still of the flight view
+	var ov: Overlays = game.overlays
+	ov.set_level_clear("E2 · L5 · HIVE TRENCHES", [
+		{"text": "KILLS %d · ACCURACY %d%% · TIME %s", "vals": [64, 71, "3:41"]},
+		{"text": "GENERATORS %d/%d · SECRETS %d/%d", "vals": [4, 4, 2, 3]},
+		{"text": "STYLE: ACE +%d · SALVAGE +%d", "vals": [300, 120]},
+		{"text": "CACHES %d/%d · ESCAPE BONUS +%d", "vals": [2, 2, 1120]},
+		{"text": "EXIT BONUS +%d · SCORE %d", "vals": [1850, 23450]},
+		{"text": "NEXT: E2 · L6 · BROOD MOTHER", "vals": []}], "A")
+	ov.show_only("level_clear")
+	ov.tally_step(1.2)
+	await _capture_root("shot_tally_mid.png", dir)
+	ov.tally_skip()
+	await _capture_root("shot_tally.png", dir)
+	ov.set_episode_title(1)
+	ov.show_only("episode_title")
+	await _capture_root("shot_episode_title.png", dir)
+	ov.hide_all()   # (in the game the overlays are down when the still is taken)
+	await _fly(game, 2)
+	game._boss_still_gen += 1
+	await game._grab_boss_still(game._boss_still_gen)   # the in-game path: HUD hidden
+	var still_img: Image = game._boss_still
+	ov.set_episode_end(0, still_img)
+	ov.show_only("episode_end")
+	await _capture_root("shot_episode_end.png", dir)
+	ov.set_episode_end(2, null)
+	await _capture_root("shot_episode_end_nostill.png", dir)
+	ov.set_briefing(game.levels[0])
+	ov.show_only("briefing")
+	await _capture_root("shot_briefing_e1.png", dir)
 	print("SCREENSHOT PROBE COMPLETE")
 	for f in saved:
 		if saved[f] == null:

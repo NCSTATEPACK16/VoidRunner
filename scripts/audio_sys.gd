@@ -47,6 +47,15 @@ var _gib_tick: AudioStreamWAV
 var _sting: AudioStreamWAV   # V2.2 L2c: style-grade fanfare, repitched per grade
 var _powerup: AudioStreamWAV   # 3.0: timed power-up grabbed
 var _warn: AudioStreamWAV      # 3.0: stinger wind-up / mine arming tell
+var _tick: AudioStreamWAV      # v4d: tally count-up blip
+var _stamp: AudioStreamWAV     # v4d: tally rank stamp
+var _blip: AudioStreamWAV      # v4d: menu focus move
+var _confirm: AudioStreamWAV   # v4d: menu button press
+const TICK_GAP_MS := 45        # play_tick ignores calls closer together than this
+var blip_plays := 0            # menu focus moves / presses, counted for tests
+var confirm_plays := 0
+var tick_plays := 0            # ticks that passed the gap check (counted even before unlock(), so the limit is testable)
+var _last_tick_ms := -1000000
 var _gib_voices: Array[AudioStreamPlayer] = []   # V2.2 L1f: dedicated, caps ticks at 2
 
 
@@ -60,6 +69,10 @@ func _ready() -> void:
 	_boom_big = _render_boom(true)
 	_hit = _render_hit()
 	_select = _render_select()
+	_tick = _render_tick()
+	_stamp = _render_stamp()
+	_blip = _render_blip()
+	_confirm = _render_confirm()
 	_overheat = _render_overheat()
 	_portal = _render_portal()
 	_clank = _render_clank()
@@ -220,6 +233,32 @@ func play_hit() -> void:
 
 func play_select() -> void:
 	_play(_select)
+
+
+func play_tick() -> void:
+	# Rate-limited: a tally can spin numbers every frame, so calls inside
+	# TICK_GAP_MS of the last accepted tick are dropped. tick_plays counts accepted
+	# ticks whether or not the audio is unlocked yet.
+	var now := Time.get_ticks_msec()
+	if now - _last_tick_ms < TICK_GAP_MS:
+		return
+	_last_tick_ms = now
+	tick_plays += 1
+	_play(_tick)
+
+
+func play_stamp() -> void:
+	_play(_stamp)
+
+
+func play_blip() -> void:
+	blip_plays += 1
+	_play(_blip)
+
+
+func play_confirm() -> void:
+	confirm_plays += 1
+	_play(_confirm)
 
 
 func play_overheat() -> void:
@@ -422,6 +461,69 @@ func _render_select() -> AudioStreamWAV:
 		var t := float(i) / SAMPLE_RATE
 		phase += 620.0 / SAMPLE_RATE
 		out[i] = (1.0 if fmod(phase, 1.0) < 0.5 else -1.0) * 0.08 * exp(-t * 60.0)
+	return _make_wav(out)
+
+
+func _render_tick() -> AudioStreamWAV:
+	# v4d: ~30 ms bright FM blip (2:1 ratio, quick-decaying index) for count-up numbers.
+	var n := int(SAMPLE_RATE * 0.03)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		phase += 1320.0 / SAMPLE_RATE
+		out[i] = sin(TAU * phase + 2.0 * exp(-t * 120.0) * sin(TAU * 2.0 * phase)) \
+			* 0.09 * exp(-t * 70.0)
+	return _make_wav(out)
+
+
+func _render_stamp() -> AudioStreamWAV:
+	# v4d: ~190 ms rank stamp — a dropping sine thud plus a short inharmonic FM ring.
+	var n := int(SAMPLE_RATE * 0.19)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 95
+	var thud := 0.0
+	var ring := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		thud += (50.0 + 90.0 * exp(-t * 40.0)) / SAMPLE_RATE
+		ring += 880.0 / SAMPLE_RATE
+		var bell := sin(TAU * ring + 2.4 * exp(-t * 25.0) * sin(TAU * 1.41 * ring))
+		out[i] = sin(TAU * thud) * 0.3 * exp(-t * 20.0) \
+			+ bell * 0.07 * exp(-t * 22.0) \
+			+ rng.randf_range(-1.0, 1.0) * 0.1 * exp(-t * 300.0)
+	return _make_wav(out)
+
+
+func _render_blip() -> AudioStreamWAV:
+	# v4d: ~35 ms soft square blip, quieter than play_select.
+	var n := int(SAMPLE_RATE * 0.035)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		phase += 740.0 / SAMPLE_RATE
+		out[i] = (1.0 if fmod(phase, 1.0) < 0.5 else -1.0) * 0.045 * exp(-t * 55.0)
+	return _make_wav(out)
+
+
+func _render_confirm() -> AudioStreamWAV:
+	# v4d: ~105 ms two-note rising chirp (a fourth up) with a light FM edge.
+	var n := int(SAMPLE_RATE * 0.105)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / SAMPLE_RATE
+		var second := t >= 0.05
+		var lt := t - 0.05 if second else t
+		phase += (880.0 if second else 660.0) / SAMPLE_RATE
+		out[i] = sin(TAU * phase + 1.2 * exp(-lt * 60.0) * sin(TAU * 2.0 * phase)) \
+			* 0.1 * exp(-lt * 28.0)
 	return _make_wav(out)
 
 

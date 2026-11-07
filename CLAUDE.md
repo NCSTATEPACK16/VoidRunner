@@ -69,3 +69,7 @@ v4 is half done. The spec for everything left is `docs/revamp/2026-10-11-v4-spec
 
 It's built by an orchestrator session with Sonnet subagents (§1 of the spec). The web gate is
 `node tests/web_check.mjs`. Delete this section when PR C lands.
+
+After PR C, follow `docs/revamp/2026-11-07-v2-mobile-roadmap.md`: PR D (native iOS export and
+controller), then the v2 tracks (PR E asset pipeline and rule change, PR F content pilot, PR G
+hangar upgrades). Keep this pointer when you delete the v4 section above.

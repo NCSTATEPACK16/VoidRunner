@@ -26,7 +26,7 @@ const POD_RINGS := 2           ## a pod is fetched once it is this close ahead (
 
 
 ## Everything for one step: steer, guards, the hub key, the objectives.
-## `boss_hits` also walks a main boss down through its phases (the soak does; a perf
+## `boss_hits` also walks a main boss down through its phases (the campaign probe does; a perf
 ## run leaves bosses to the player).
 static func step(game: Node3D, frame: int, boss_hits := false) -> void:
 	steer(game)

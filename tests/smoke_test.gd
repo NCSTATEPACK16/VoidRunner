@@ -192,7 +192,9 @@ func _run() -> void:
 	# that would launch a later (even boss) level and break the L1 asserts below
 	GameState.unlocked_level = 0
 	game.overlays._sector = 0
-	game._on_launch()   # MENU -> BRIEFING
+	game._on_launch()   # MENU -> episode title card
+	assert(game.state == game.State.EPISODE)
+	game.overlays.episode_title_dismiss()   # -> BRIEFING
 	# V2.1: the briefing pump must finish the whole finite level before launch
 	for f in 20:
 		game._process(1.0 / 60.0)
@@ -974,7 +976,7 @@ func _run() -> void:
 	assert(cr.bays and cr_said.is_empty())
 	em.hit_enemy(em.enemies.find(cr), 1)
 	assert(not cr.bays and cr_said.size() == 1 and cr_said[0] == "CARRIER BAYS DOWN")
-	assert(game.hud._msg.text == "CARRIER BAYS DOWN")
+	assert(game.hud.last_message() == "CARRIER BAYS DOWN")
 	em.announced.disconnect(hear)
 	em.remove_where(func(en: Dictionary) -> bool: return en.get("parent") == cr.node)
 	for tick in 3:
@@ -1127,6 +1129,20 @@ func _run() -> void:
 	assert(AudioSys._stem_gains(AudioSys._mix_weights(1.5)).is_equal_approx(Vector3(1, 1, 0.5)))
 	print("mixes ok — 3 phase-aligned music stems, %.1f s song, rendered in %d frame slices" % [
 		mix_a.get_length(), music_slices])
+	# --- v4d: tally / menu one-shots exist and tick is rate-limited ---
+	for au_s: AudioStreamWAV in [AudioSys._tick, AudioSys._stamp, AudioSys._blip, AudioSys._confirm]:
+		assert(au_s != null)
+		var au_samples: int = au_s.data.size() / 2
+		assert(au_samples > 0 and au_samples < int(AudioSys.SAMPLE_RATE * 0.3))
+	await get_tree().create_timer(0.1).timeout   # clear any earlier tick's gap
+	var au_before: int = AudioSys.tick_plays
+	for au_i in 10:
+		AudioSys.play_tick()
+	assert(AudioSys.tick_plays == au_before + 1)
+	AudioSys.play_stamp()
+	AudioSys.play_blip()
+	AudioSys.play_confirm()
+	print("audio ok — tick/stamp/blip/confirm streams, tick rate-limit holds (10 calls -> 1)")
 	# --- V2.2 L2b: combat-intensity engine — boss forces frenzy, calm decays ---
 	GameState.boss_active = true
 	AudioSys._update_intensity(0.1, game.player.position)
@@ -1339,7 +1355,7 @@ func _run() -> void:
 	mb_em.update_enemies(dt)
 	assert(hl.engaged and hl_woke.size() == 1 and hl_woke[0] == "HAULER")
 	assert(mb_em.boss_visible() and GameState.boss_active)
-	assert(game.hud._msg.text == "WARNING · HAULER")
+	assert(game.hud.last_message() == "WARNING · HAULER")
 	assert(game.hud.boss_gates(hl) == [0.5])         # one phase tick, at 50%
 	# ...it sows mines from the rack at its tail...
 	var hl_mines := func() -> int:
@@ -1366,7 +1382,7 @@ func _run() -> void:
 	hl.summon_t = 0.0
 	mb_em.update_enemies(dt)
 	assert(mb_phases.size() == 1 and mb_phases[0] == 2 and hl.phase == 2)
-	assert(game.hud._msg.text == "ESCORTS INBOUND — STAY MOBILE")
+	assert(game.hud.last_message() == "ESCORTS INBOUND — STAY MOBILE")
 	var hl_escorts := 0
 	for en in mb_em.enemies:
 		if en.get("summoned", false):
@@ -1395,7 +1411,8 @@ func _run() -> void:
 	assert(mb_em.boss.is_empty() and game._miniboss_down and not GameState.boss_active)
 	assert(game.world.is_door_open(hl_room.id) and hl_boss_deaths[0] == 0)
 	assert(GameState.score > hl_score)
-	assert(game.hud._msg.text == "HAULER DESTROYED · BULKHEAD OPEN")
+	assert(game.hud.last_message() == "HAULER DESTROYED · BULKHEAD OPEN")
+	assert("HAULER DESTROYED" in game.hud.messages())   # v4d: same-frame messages both survive
 	mb_em.boss_killed.disconnect(hear_boss)
 	mb_em.boss_phase.disconnect(hear_phase)
 	# the bulkhead's checkpoint knows it fell, so a resume past it doesn't bring it back
@@ -1485,7 +1502,7 @@ func _run() -> void:
 	gw.hp = gw.max_hp / 2
 	mb_em.update_enemies(dt)
 	assert(gw.phase == 2 and not gw.shielded and gw.tint == EnemyManager.GATEWARDEN_BARE_TINT)
-	assert(game.hud._msg.text == "SHIELD DOWN — OPEN FIRE")
+	assert(game.hud.last_message() == "SHIELD DOWN — OPEN FIRE")
 	gw_hp = gw.hp
 	gw.facing = -gw_fwd
 	mb_em.hit_enemy(mb_em.enemies.find(gw), 1, gw_fwd)
@@ -1699,8 +1716,9 @@ func _run() -> void:
 			break
 	assert(e_done)                   # full in-cache-out pass completed
 	assert(game.spur_mgr.caches_found == 1)
-	game.overlays.set_level_clear("L2", 0, 0, "L3", 0, 0, 0.0, "C", false, 0, 0, 0, 0,
-		game.spur_mgr.caches_found, game.spur_mgr.supply_count())
+	game.overlays.set_level_clear("L2", [{"text": "CACHES %d/%d", "vals": [
+		game.spur_mgr.caches_found, game.spur_mgr.supply_count()]}], "C")
+	game.overlays.tally_skip()
 	var clear_body: String = \
 		(game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert("CACHES 1/1" in clear_body)
@@ -1728,7 +1746,7 @@ func _run() -> void:
 		game._on_enemy_killed(hb_hub)
 	assert(not game.world.is_door_open(hb_hub))
 	assert(game.world.door_hint(int(hb_room.door_ring)) == "KEYCARD REQUIRED")
-	assert(game.hud._msg.text == "ROOM CLEAR · KEYCARD REQUIRED")
+	assert(game.hud.last_message() == "ROOM CLEAR · KEYCARD REQUIRED")
 	# the keycard is a station in the key branch; flying onto it takes it, and the cleared
 	# room's bulkhead opens at once
 	var hb_kp: Vector3 = game.spur_mgr.key_pos()
@@ -1781,7 +1799,7 @@ func _run() -> void:
 	game.spur_mgr.update(0.0)
 	assert(hb_flips[0] == 1 and game.spur_mgr.switch_on)
 	game.spur_mgr.switch_flipped.disconnect(hb_hear)
-	assert(game.hud._msg.text == "YOU HEAR A DOOR OPEN" and hb_v.get("open", false))
+	assert(game.hud.last_message() == "YOU HEAR A DOOR OPEN" and hb_v.get("open", false))
 	assert(game.spur_mgr.collected_ids().is_empty())
 	# the vault: its panel is gone and the cache pays once
 	game.player.place_at_ring(int(hb_v.ring))
@@ -1917,19 +1935,19 @@ func _run() -> void:
 	var rs_score := GameState.score
 	game.pickup_mgr.update_pickups(0.0)
 	game.pickup_mgr.update_pickups(0.0)
-	assert(game._obj_done == 1 and game.hud._msg.text == "POD RESCUED 1/3")
+	assert(game._obj_done == 1 and game.hud.last_message() == "POD RESCUED 1/3")
 	assert(game.hud._obj_label.text == "PODS 1/3" and not game.world.portal_active)
 	assert(GameState.score == rs_score and GameState.missiles == GameState.missile_cap())
 	game.player.position = rs_pods[1].pos
 	game.pickup_mgr.update_pickups(0.0)
-	assert(game._obj_done == 2 and game.hud._msg.text == "POD RESCUED 2/3")
+	assert(game._obj_done == 2 and game.hud.last_message() == "POD RESCUED 2/3")
 	# a checkpoint with two pods safe: a resume has them gone, the third waiting, the exit dark
 	var rs_cp := GameState.save_checkpoint(game._checkpoint_data(40, []))
 	assert(rs_cp.objective.done.size() == 2 and float(rs_cp.objective.escape_left) == -1.0)
 	game.player.position = rs_pods[2].pos
 	game.pickup_mgr.update_pickups(0.0)
 	assert(game._obj_done == 3 and game.world.portal_active)
-	assert(game.hud._msg.text == "ALL PODS SAFE · EXIT OPEN" and game.hud._obj_label.text == "PODS 3/3")
+	assert(game.hud.last_message() == "ALL PODS SAFE · EXIT OPEN" and game.hud._obj_label.text == "PODS 3/3")
 	assert(game.pickup_mgr.live_stations("pod").is_empty())
 	var rs_full := GameState.save_checkpoint(game._checkpoint_data(60, []))
 	assert(rs_full.objective.done.size() == 3)
@@ -1964,6 +1982,7 @@ func _run() -> void:
 	game.player.position = game.world.portal_position
 	game._check_portal()
 	assert(game.state == game.State.LEVEL_CLEAR and GameState.score == rs_score + 500 + 1 * 250)
+	game.overlays.tally_skip()
 	var rs_body: String = (game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert("PODS 3/3" in rs_body and not ("ESCAPE" in rs_body))
 	var rs_next := GameState.load_checkpoint(ob_lc)       # the next sector starts fresh
@@ -2008,7 +2027,7 @@ func _run() -> void:
 	assert(game.prop_mgr.props[ob_flash].hp < 30.0 and game.prop_mgr.props[ob_flash].flash_t > 0.0)
 	game.prop_mgr.splash(ob_gen_pos[3], 12.0, 100.0)
 	game.prop_mgr.update_props(0.0)
-	assert(game._obj_done == 1 and game.hud._msg.text == "GENERATOR DOWN 1/4")
+	assert(game._obj_done == 1 and game.hud.last_message() == "GENERATOR DOWN 1/4")
 	assert(game.hud._obj_label.text == "GENERATORS 1/4")
 	for k in 2:
 		for pi in game.prop_mgr.props.size():
@@ -2017,7 +2036,7 @@ func _run() -> void:
 				break
 		game.prop_mgr.update_props(0.0)
 		assert(game._obj_done == 2 + k)
-	assert(not game.world.portal_active and game.hud._msg.text == "GENERATOR DOWN 3/4")
+	assert(not game.world.portal_active and game.hud.last_message() == "GENERATOR DOWN 3/4")
 	var ob_cp: Dictionary = game._checkpoint_data(30, [])                        # 3 down: saved as such
 	assert(ob_cp.objective.done.size() == 3)
 	for pi in game.prop_mgr.props.size():
@@ -2026,7 +2045,7 @@ func _run() -> void:
 			break
 	game.prop_mgr.update_props(0.0)
 	assert(game._obj_done == 4 and game.world.portal_active and game._escape_left < 0.0)
-	assert(game.hud._msg.text == "ALL GENERATORS DOWN · EXIT OPEN" and game.hud._obj_label.text == "GENERATORS 4/4")
+	assert(game.hud.last_message() == "ALL GENERATORS DOWN · EXIT OPEN" and game.hud._obj_label.text == "GENERATORS 4/4")
 	assert(GameState.level_props_total == ob_cells and game.prop_mgr.cell_count() <= ob_cells)
 	assert(game.prop_mgr.objectives_left() == 0)
 	# a resume with three down: that generator stays down and the other waits
@@ -2076,7 +2095,7 @@ func _run() -> void:
 	es_boom.call()
 	assert(game.world.portal_active and game._obj_done == 1)
 	assert(is_equal_approx(game._escape_left, game.escape_time(es_rings, es_detour)))
-	assert(game.hud._msg.text == "REACTOR DOWN · ESCAPE!" and game.hud._obj_label.text == "REACTOR 1/1")
+	assert(game.hud.last_message() == "REACTOR DOWN · ESCAPE!" and game.hud._obj_label.text == "REACTOR 1/1")
 	assert(is_equal_approx(game.hud._escape_left, game._escape_left) and game.hud._time_label.text == "EXIT")
 	assert(GameState.score >= 1200)                                    # the reactor pays
 	var es_total: float = game._escape_left
@@ -2106,6 +2125,7 @@ func _run() -> void:
 	assert(game.state == game.State.LEVEL_CLEAR and game._escape_left < 0.0)
 	var es_bonus := 1000 + 10 * int(es_left)
 	assert(GameState.score == 500 + 3 * 250 + es_bonus)
+	game.overlays.tally_skip()
 	var es_body: String = (game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert(("ESCAPE BONUS +%d" % es_bonus) in es_body and "REACTOR DESTROYED" in es_body)
 	assert(not game.hud._time_label.text == "EXIT" and game.hud._escape_left < 0.0)
@@ -2120,7 +2140,7 @@ func _run() -> void:
 		es_boom.call()
 		game._escape_left = 0.4
 		game._update_escape(0.5)
-		assert(game._escape_left == 0.0 and game.hud._msg.text == "OUT OF TIME · SHIELDS DRAINING — RUN!")
+		assert(game._escape_left == 0.0 and game.hud.last_message() == "OUT OF TIME · SHIELDS DRAINING — RUN!")
 		assert(game.state == game.State.PLAYING and not GameState.is_dead)
 		var es_sh: float = GameState.shields
 		game._update_escape(1.0)
@@ -2134,6 +2154,7 @@ func _run() -> void:
 	game.player.position = game.world.portal_position
 	game._check_portal()
 	assert(game.state == game.State.LEVEL_CLEAR and GameState.score == 500 + 3 * 250)
+	game.overlays.tally_skip()
 	es_body = (game.overlays._panels.level_clear.get_node("Body") as Label).text
 	assert(not ("ESCAPE BONUS" in es_body))
 	print("REACTOR ok — clock %.0f s (rings x 12/18 x 1.5 + 8), detour if no key, bonus, drain" % es_total)
@@ -2151,7 +2172,7 @@ func _run() -> void:
 	assert(game.path.rings[es_aring].arena_id == game._hub_arena)
 	game.player.place_at_ring(es_aring)
 	es_boom.call()
-	assert(game.world.portal_active and game._escape_left > 8.0 and game.hud._msg.text == "ANCHOR DOWN · ESCAPE!")
+	assert(game.world.portal_active and game._escape_left > 8.0 and game.hud.last_message() == "ANCHOR DOWN · ESCAPE!")
 	assert(game.prop_mgr.objectives_left() == 0)
 	print("ANCHOR ok — in the mini-boss room, same escape")
 	# ---- L4: resume from each checkpoint it can save, with the reactor standing and gone
@@ -2252,6 +2273,23 @@ func _run() -> void:
 	await get_tree().process_frame
 	assert(game.player.ring_idx <= rz_portal - 2 + 3)
 	print("L4 RESUME ok — every checkpoint (sector start + each cleared bulkhead), reactor standing or gone")
+	# --- v4d LORE/EPISODES: three episodes of three sectors, labels, text limits ---
+	assert(Lore.EPISODE_COUNT == 3)
+	for ep_l in 9:
+		assert(Lore.episode_of(ep_l) == ep_l / 3)
+		assert(Lore.is_episode_start(ep_l) == (ep_l % 3 == 0))
+		assert(Lore.is_episode_end(ep_l) == (ep_l % 3 == 2))
+	assert(Lore.episode_of(-1) == -1 and Lore.episode_of(9) == -1)
+	assert(not Lore.is_episode_start(-1) and not Lore.is_episode_end(9))
+	assert(Lore.sector_label(3, "Reactor Maze") == "E2 · L4 · REACTOR MAZE")
+	assert(Lore.sector_label(-1, "Void Gauntlet") == "Void Gauntlet")
+	for ep_e in Lore.EPISODE_COUNT:
+		assert(Lore.episode_id(ep_e) == "E%d" % (ep_e + 1))
+		assert(Lore.episode_name(ep_e).length() > 0)
+		assert(Lore.episode_subtitle(ep_e).length() > 0 and Lore.episode_subtitle(ep_e).length() <= 40)
+		assert(Lore.episode_ending(ep_e).length() > 20 and Lore.episode_ending(ep_e).length() <= 200)
+	assert(PixelFont.glyph_rows("·").size() > 0)
+	print("LORE EPISODES ok — 3 episodes, labels, text limits, middle-dot glyph")
 	# --- V2.2 story pass: lore coverage + the briefing bands never overlap ---
 	for lidx in 9:
 		assert(Lore.story(lidx).length() > 20)            # every sector has a story
@@ -2311,7 +2349,10 @@ func _run() -> void:
 	# 2x size scaled 0.5 — no such label is on this panel today, but measuring the
 	# painted rect (size * scale) keeps this honest if one is ever added.
 	var design_box := Rect2(Vector2.ZERO, Vector2(320, 200))
-	for child in set_p.get_children():
+	var box_nodes: Array[Node] = set_p.get_children()
+	for g in game.overlays._setup_groups:
+		box_nodes.append_array(g.get_children())   # v4d: rows live in the group containers
+	for child in box_nodes:
 		if child is Button or child is Label:
 			var c := child as Control
 			assert(design_box.encloses(Rect2(c.position, c.size * c.scale)))
@@ -2451,13 +2492,13 @@ func _run() -> void:
 			row_r = maxf(row_r, c.position.x + c.size.x)
 	assert(absf((row_l + row_r) * 0.5 - 160.0) <= 1.0 and row_l >= 0.0 and row_r <= 320.0)
 	ov.set_continue("L4")
-	assert(ov._continue_btn.visible and ov._card_text(0).begins_with("L4 · "))
+	assert(ov._continue_btn.visible and ov._card_text(0).begins_with("E2 · L4 · REACTOR MAZE"))
 	for c in ov._cards:
 		var cap: String = ov._card_text(ov._cards.find(c))
 		assert(cap.length() * PixelFont.ADVANCE <= 316)   # captions fit the screen
 	ov._new_btn.pressed.emit()
 	assert(ov._panels.new_game.visible and ov._focus["new_game"].text == "> LAUNCH")
-	assert(ov._sector_label.text.begins_with("SECTOR: L"))
+	assert(ov._sector_label.text.begins_with("SECTOR: E"))
 	ov._difficulty_btn.pressed.emit()
 	assert(ov._panels.difficulty.visible)
 	(ov._focus["difficulty"] as Button).pressed.emit()   # BACK -> NEW GAME
@@ -2467,8 +2508,11 @@ func _run() -> void:
 			(child as Button).pressed.emit()
 	assert(ov._panels.start.visible and ov._start_open)   # back on the card row
 	assert(ov._start_card == 1)
-	ov._cards[3].pressed.emit()                            # SETUP -> settings
+	ov._cards[3].pressed.emit()                            # SETUP -> the SETUP window
 	assert(ov._panels.settings.visible)
+	ov._setup_back.pressed.emit()
+	assert(ov._panels.start.visible and ov._start_open and ov._start_card == 3)
+	ov.show_only("settings")
 	ov.show_only("start")
 	assert(ov._start_open and ov._start_card == 3)
 	ov._close_start_menu()
@@ -2479,6 +2523,99 @@ func _run() -> void:
 	assert(not ov._start_open)
 	ov.set_continue("")
 	print("TITLE ok — attract, card row, NEW GAME window, BACK returns to the row")
+	# --- v4d: menu feel + the SETUP window ---
+	ov.set_continue("")
+	ov.show_only("start")
+	ov._open_start_menu()
+	for _i in 8:
+		await get_tree().process_frame
+	# opening a panel is silent; the card that takes focus wears the ">" marker
+	var su_b0: int = AudioSys.blip_plays
+	await get_tree().process_frame
+	var su_card: Button = ov._cards[ov._start_card]
+	assert(su_card.has_focus() and (su_card.get_meta("marker") as Label).visible)
+	for c in ov._cards:
+		if c != su_card:
+			assert(not (c.get_meta("marker") as Label).visible)
+	# a user-driven move blips once and the marker follows the focus
+	var su_other: Button = ov._cards[2]
+	su_other.grab_focus()
+	assert(AudioSys.blip_plays == su_b0 + 1)
+	assert((su_other.get_meta("marker") as Label).visible and not (su_card.get_meta("marker") as Label).visible)
+	# blinks at ~2 Hz, steady under REDUCE FLASH
+	GameState.reduce_flashing = false
+	ov._mark_t = 0.1
+	assert(ov.marker_alpha() == 1.0)
+	ov._mark_t = 0.4
+	assert(ov.marker_alpha() == 0.0)
+	GameState.reduce_flashing = true
+	assert(ov.marker_alpha() == 1.0)
+	ov._mark_t = 0.4
+	ov._process(0.0)
+	assert((su_other.get_meta("marker") as Label).modulate.a == 1.0)
+	GameState.reduce_flashing = false
+	# presses play the confirm chirp
+	var su_c0: int = AudioSys.confirm_plays
+	var su_b1: int = AudioSys.blip_plays
+	ov._cards[3].pressed.emit()                            # SETUP card
+	assert(AudioSys.confirm_plays == su_c0 + 1)
+	assert(ov._panels.settings.visible and ov._setup_group == 0)
+	for _i in 3:
+		await get_tree().process_frame
+	assert(AudioSys.blip_plays == su_b1)                   # opening the window: no blip
+	assert(ov._setup_tabs[0].has_focus())
+	# each group shows its own rows
+	var su_rows := [["volume"], ["sens", "invert_y", "gamepad", "dpad"],
+		["fov", "crt", "dither", "amber", "shake", "reduce_flash", "reduce_roll"]]
+	for gi in 3:
+		ov._setup_tabs[gi].grab_focus()                    # focusing a tab shows its group
+		assert(ov._setup_group == gi)
+		for gj in 3:
+			assert(ov._setup_groups[gj].visible == (gj == gi))
+		for k in su_rows[gi]:
+			var ctl: Control = ov._settings_labels[k]
+			assert(ctl.is_visible_in_tree() and ov._setup_groups[gi].is_ancestor_of(ctl))
+		assert(ov._setup_tabs[gi].text.begins_with("[ "))
+	# the mouse (hover grabs focus, then click) and a press on a tab drop into the group
+	ov._setup_tabs[2].pressed.emit()
+	assert((ov._settings_labels["fov"] as Control).get_parent() == ov._setup_groups[2])
+	# rows keep their behaviour: steppers and toggles persist to GameState
+	GameState.view_fov = 80.0
+	var su_fov := GameState.view_fov
+	ov._adjust_setting("fov", -1)
+	assert(GameState.view_fov == su_fov - 4.0)
+	var su_dith := GameState.dither_enabled
+	(ov._settings_labels["dither"] as Button).pressed.emit()
+	assert(GameState.dither_enabled == not su_dith)
+	(ov._settings_labels["dither"] as Button).pressed.emit()
+	ov._setup_tabs[1].grab_focus()
+	var su_inv := GameState.invert_y
+	(ov._settings_labels["invert_y"] as Button).pressed.emit()
+	assert(GameState.invert_y == not su_inv)
+	(ov._settings_labels["invert_y"] as Button).pressed.emit()
+	ov._setup_tabs[0].grab_focus()
+	var su_vol := GameState.master_volume
+	ov._adjust_setting("volume", -1)
+	assert(not is_equal_approx(GameState.master_volume, su_vol))
+	ov._adjust_setting("volume", 1)
+	# a marker rides the focused SETUP row too
+	var su_row: Button = ov._settings_labels["dither"]
+	ov._setup_tabs[2].grab_focus()
+	su_row.grab_focus()
+	assert((su_row.get_meta("marker") as Label).visible)
+	# BACK returns to the card row it came from
+	ov._setup_back.pressed.emit()
+	assert(ov._panels.start.visible and ov._start_open and ov._start_card == 3)
+	# the pause menu's SETTINGS row opens it and BACK returns to pause
+	ov.show_only("pause")
+	for child in ov._panels.pause.get_children():
+		if child is Button and (child as Button).text == "SETTINGS":
+			(child as Button).pressed.emit()
+	assert(ov._panels.settings.visible and ov._settings_return == "pause")
+	ov._setup_back.pressed.emit()
+	assert(ov._panels.pause.visible)
+	ov.show_only("start")
+	print("SETUP ok — su_ marker + blip + confirm, three groups, toggles persist, BACK from card and pause")
 	# --- M3: feedback path + anonymous counters ---
 	# the five questions are the single source shared by the form, the post and the
 	# in-game prompt; drift between them makes answers incomparable
@@ -2921,7 +3058,7 @@ func _run() -> void:
 	# ...and so does SETTINGS
 	(pause_rows["SETTINGS"] as Button).pressed.emit()
 	assert((game.overlays._panels["settings"] as Control).visible)
-	(game.overlays._focus["settings"] as Button).pressed.emit()
+	game.overlays._setup_back.pressed.emit()
 	assert(pause_panel.visible)
 	(pause_rows["> RESUME"] as Button).pressed.emit()
 	assert(game.state == game.State.PLAYING)
@@ -2968,7 +3105,9 @@ func _run() -> void:
 	assert(not game.player.active)
 	# ...and the title still launches a campaign from there
 	game.overlays._sector = 0
-	game._on_launch()   # MENU -> BRIEFING
+	game._on_launch()   # MENU -> episode title card
+	assert(game.state == game.State.EPISODE)
+	game.overlays.episode_title_dismiss()   # -> BRIEFING
 	assert(game.state == game.State.BRIEFING)
 	for f in 20:
 		game._process(1.0 / 60.0)
@@ -3202,7 +3341,7 @@ func _run() -> void:
 	# the title's CONTINUE row follows the save
 	game._refresh_continue()
 	assert(not game.overlays._continue_btn.disabled and game.overlays._continue_btn.visible)
-	assert(game.overlays._card_text(0).begins_with("L1 · "))
+	assert(game.overlays._card_text(0).begins_with("E1 · L1 · "))
 	# a sector clear saves the next sector's start; the campaign's end clears it
 	game._level_complete()
 	var next_cp := GameState.load_checkpoint(lc)
@@ -3282,12 +3421,12 @@ func _run() -> void:
 	assert(first_contact)   # the guaranteed sector-1 drone
 	assert(game._tips_on and game._tip_stage == game.TIP_STEER)
 	game._update_tips(1.6)
-	assert(game.hud._msg.text == game.tip_text(game.TIP_STEER))
+	assert(game.hud.last_message() == game.tip_text(game.TIP_STEER))
 	game.player.yaw += 0.3                     # steering answers STEER
 	game._update_tips(0.1)
 	assert(game._tip_stage == game.TIP_FIRE)
 	game._update_tips(0.1)
-	assert(game.hud._msg.text == game.tip_text(game.TIP_FIRE))
+	assert(game.hud.last_message() == game.tip_text(game.TIP_FIRE))
 	GameState.level_shots += 1                 # a shot answers FIRE
 	game._update_tips(0.1)
 	assert(game._tip_stage == game.TIP_BOOST)
@@ -3297,10 +3436,10 @@ func _run() -> void:
 	Input.action_release("boost")
 	assert(game._tip_stage == game.TIP_EVADE)
 	game._update_tips(0.1)
-	assert(game.hud._msg.text != game.tip_text(game.TIP_EVADE))   # waits for a bolt
+	assert(game.hud.last_message() != game.tip_text(game.TIP_EVADE))   # waits for a bolt
 	game.shot_mgr.threat_near = true
 	game._update_tips(4.0)
-	assert(game.hud._msg.text == game.tip_text(game.TIP_EVADE))
+	assert(game.hud.last_message() == game.tip_text(game.TIP_EVADE))
 	game.player.dodged.emit(Vector3.RIGHT)     # a roll answers EVADE
 	game._update_tips(0.1)
 	assert(not game._tips_on and GameState.seen_flight_tips)
@@ -3478,7 +3617,7 @@ func _run() -> void:
 	assert(vhud._tint_flash.color.a > 0.0 and vhud._tint_flash.color.r > 0.9)
 	GameState.difficulty = 0
 	game._on_pickup_collected("shield")
-	assert(vhud._msg.text == "SHIELD CELL +%d" % roundi(PickupManager.EFFECT.shield * 1.5))
+	assert(vhud.last_message() == "SHIELD CELL +%d" % roundi(PickupManager.EFFECT.shield * 1.5))
 	GameState.difficulty = 1
 	# richer blasts: more frames, and a big one leaves lingering smoke
 	assert(FxGen.fireball_frames().size() == FxGen.FIREBALL_FRAMES)
@@ -3556,6 +3695,191 @@ func _run() -> void:
 				inks[px] = true
 		assert(inks.size() >= 8)   # actually painted, not a blank fill
 	print("ICONS ok — 144/180/512 icons + 1200x630 card, code-painted, palette-only")
+	# --- v4d: the tally reveal and the episode flow ---
+	var tl_ov: Overlays = game.overlays
+	var tl_panel: Control = tl_ov._panels.level_clear
+	var tl_body := tl_panel.get_node("Body") as Label
+	var tl_rank := tl_panel.get_node("Rank") as Label
+	var tl_next: Button = tl_ov._focus["level_clear"]
+	var tl_lines: Array = [
+		{"text": "KILLS %d · ACCURACY %d%% · TIME %s", "vals": [40, 75, "1:23"]},
+		{"text": "SECRETS %d/%d · SALVAGE +%d", "vals": [2, 3, 90]},
+		{"text": "EXIT BONUS +%d · SCORE %d", "vals": [750, 5000]},
+		{"text": "NEXT: E1 · L2 · SUPPLY ARTERY", "vals": []}]
+	tl_ov.set_level_clear("E1 · L1 · STARLIGHT APPROACH", tl_lines, "A")
+	tl_ov.show_only("level_clear")
+	assert(tl_body.text == "" and not tl_next.visible and not tl_rank.visible)
+	var tl_ticks0: int = AudioSys.tick_plays
+	tl_ov.tally_step(0.1)
+	assert(tl_ov.tally_revealed() == 1 and not tl_next.visible and not tl_ov.tally_done())
+	assert(tl_body.text.begins_with("KILLS ") and not ("KILLS 40" in tl_body.text))   # still counting
+	assert("TIME 1:23" in tl_body.text and AudioSys.tick_plays > tl_ticks0)
+	tl_ov.tally_step(0.5)
+	assert(tl_ov.tally_revealed() == 2 and "SECRETS" in tl_body.text and not tl_rank.visible)
+	tl_ov.tally_skip()   # straight to the totals
+	assert(tl_ov.tally_done() and tl_next.visible and tl_rank.visible)
+	assert("KILLS 40 · ACCURACY 75% · TIME 1:23" in tl_body.text and "SCORE 5000" in tl_body.text)
+	assert("NEXT: E1 · L2" in tl_body.text and tl_ov.tally_revealed() == 4)
+	# left alone it reaches the same totals by itself, and NEXT stays hidden until then
+	tl_ov.set_level_clear("E1 · L1 · STARLIGHT APPROACH", tl_lines, "A")
+	tl_ov.show_only("level_clear")
+	var tl_t := 0.0
+	while not tl_ov.tally_done() and tl_t < 10.0:
+		assert(not tl_next.visible)
+		tl_ov.tally_step(0.05)
+		tl_t += 0.05
+	assert(tl_ov.tally_done() and tl_t > 2.0 and tl_t < 6.0 and "SCORE 5000" in tl_body.text)
+	# a key press skips (and is consumed); NEXT waits a beat so the same press can't hit it
+	tl_ov.set_level_clear("E1 · L1 · STARLIGHT APPROACH", tl_lines, "A")
+	tl_ov.show_only("level_clear")
+	var tl_echo := InputEventKey.new()
+	tl_echo.keycode = KEY_SPACE
+	tl_echo.pressed = true
+	tl_echo.echo = true
+	tl_ov._input(tl_echo)
+	assert(not tl_ov.tally_done() and tl_body.text == "")   # an auto-repeat is not a press
+	var tl_key := InputEventKey.new()
+	tl_key.keycode = KEY_SPACE
+	tl_key.pressed = true
+	tl_ov._input(tl_key)
+	assert("SCORE 5000" in tl_body.text and tl_rank.visible and not tl_next.visible)
+	tl_ov.tally_step(0.1)
+	assert(not tl_ov.tally_done())
+	tl_ov.tally_step(0.3)
+	assert(tl_ov.tally_done() and tl_next.visible)
+	await get_tree().process_frame
+	assert(tl_next.has_focus())
+	# the real tally, all inside the 300x160 window
+	GameState.reset_run()
+	game._gauntlet = false
+	GameState.gauntlet_mode = false
+	game._resume = {}
+	GameState.level_index = 1
+	game._level_complete()
+	tl_ov.tally_skip()
+	assert(game.state == game.State.LEVEL_CLEAR and "NEXT: E1 · L3 · DOCK SENTINEL" in tl_body.text)
+	assert((tl_panel.get_node("Title") as Label).text.begins_with("E1 · L2 · SUPPLY ARTERY CLEAR"))
+	assert(tl_next.text == "> NEXT LEVEL")
+	for tl_line in tl_body.text.split("\n"):
+		assert(tl_line.length() * PixelFont.ADVANCE <= 292)
+	tl_next.pressed.emit()   # L2 is mid-episode: straight to the next briefing
+	assert(game.state == game.State.BRIEFING and GameState.level_index == 2)
+	assert((tl_ov._panels.briefing.get_node("Title") as Label).text == "E1 · L3 · DOCK SENTINEL")
+	# L3 closes episode 1: tally -> ending -> E2's title card -> briefing
+	GameState.level_index = 2
+	game._level_complete()
+	tl_ov.tally_skip()
+	assert(tl_next.text == "> CONTINUE" and "NEXT: E2 · L4 · REACTOR MAZE" in tl_body.text)
+	tl_next.pressed.emit()
+	assert(game.state == game.State.EPISODE and tl_ov._panels.episode_end.visible)
+	var tl_end: Control = tl_ov._panels.episode_end
+	assert((tl_end.get_node("Heading") as Label).text == "E1 · THE OUTER LANES")
+	assert(not (tl_end.get_node("Still") as TextureRect).visible)   # headless: no still
+	assert(Lore.episode_ending(0) == (tl_end.get_node("Ending") as Label).text)
+	tl_ov._episode_btn.pressed.emit()
+	assert(game.state == game.State.EPISODE and tl_ov._panels.episode_title.visible)
+	assert(GameState.level_index == 3)
+	assert((tl_ov._panels.episode_title.get_node("Name") as Label).text == "THE HIVE")
+	assert((tl_ov._panels.episode_title.get_node("Number") as Label).text == "EPISODE 2 OF 3")
+	tl_ov.episode_title_dismiss()
+	assert(game.state == game.State.BRIEFING and tl_ov._panels.briefing.visible)
+	assert((tl_ov._panels.briefing.get_node("Title") as Label).text == "E2 · L4 · REACTOR MAZE")
+	# CONTINUE and a retry never show a title card (L4's start was saved at the L3 clear)
+	game._on_continue()
+	assert(game.state == game.State.BRIEFING and GameState.level_index == 3)
+	game._on_retry()
+	assert(game.state == game.State.BRIEFING)
+	# the title card: any press (after it arms) or the timer ends it
+	var tl_done := [0]
+	var tl_cb := func() -> void:
+		tl_done[0] += 1
+	tl_ov.episode_title_done.connect(tl_cb)
+	tl_ov.set_episode_title(2)
+	tl_ov.show_only("episode_title")
+	tl_ov._input(tl_key)   # too early: consumed, not acted on
+	assert(tl_done[0] == 0)
+	tl_ov._process(0.4)
+	tl_ov._input(tl_key)
+	assert(tl_done[0] == 1)
+	tl_ov.show_only("episode_title")
+	tl_ov._process(2.0)
+	assert(tl_done[0] == 1)
+	tl_ov._process(2.5)
+	assert(tl_done[0] == 2)
+	tl_ov.episode_title_done.disconnect(tl_cb)
+	# NEW GAME: the picker is grouped by episode, and LAUNCH shows that episode's card
+	GameState.reset_run()
+	game.state = game.State.MENU
+	tl_ov.show_only("start")
+	GameState.unlocked_level = 8
+	tl_ov._sector = 4
+	tl_ov._refresh_start()
+	assert(tl_ov._episode_label.text == "E2 · THE HIVE")
+	assert(tl_ov._sector_label.text == "SECTOR: E2 · L5 · HIVE TRENCHES")
+	game._on_launch()
+	assert(game.state == game.State.EPISODE and GameState.level_index == 4)
+	tl_ov.episode_title_dismiss()
+	assert(game.state == game.State.BRIEFING)
+	# L9 gets a tally, then the last ending, then the victory panel
+	GameState.level_index = 8
+	game._level_complete()
+	assert(game.state == game.State.LEVEL_CLEAR and tl_panel.visible)
+	tl_ov.tally_skip()
+	assert(tl_next.text == "> CONTINUE" and not ("NEXT: " in tl_body.text))
+	tl_next.pressed.emit()
+	assert(game.state == game.State.EPISODE and tl_end.visible)
+	assert((tl_end.get_node("Heading") as Label).text == "E3 · THE RIFT")
+	tl_ov._episode_btn.pressed.emit()
+	assert(game.state == game.State.VICTORY and tl_ov._panels.victory.visible)
+	# a still of the boss room shows when there is one
+	tl_ov.set_episode_end(1, Image.create(64, 40, false, Image.FORMAT_RGBA8))
+	assert((tl_end.get_node("Still") as TextureRect).visible)
+	tl_ov.set_episode_end(1, null)
+	assert(not (tl_end.get_node("Still") as TextureRect).visible)
+	# NEW CAMPAIGN opens episode 1's card
+	tl_ov.new_campaign_requested.emit()
+	assert(game.state == game.State.EPISODE and GameState.level_index == 0)
+	tl_ov.episode_title_dismiss()
+	assert(game.state == game.State.BRIEFING)
+	print("TALLY ok — lines reveal and tick, skip jumps to totals, NEXT waits; "
+		+ "EPISODES ok — L3 ending -> E2 card -> briefing, L9 tally -> ending -> victory, no card on CONTINUE")
+	# --- v4d: the message log ---
+	var ml_hud = game.hud
+	ml_hud._tick_log(1000.0)
+	assert(ml_hud.last_message() == "" and ml_hud.messages().is_empty())
+	ml_hud.show_message("ONE", 3.0)
+	ml_hud.show_message("TWO", 3.0)
+	ml_hud.show_message("THREE", 3.0)
+	ml_hud.show_message("FOUR", 3.0)
+	assert(ml_hud.messages() == PackedStringArray(["FOUR", "THREE", "TWO"]))   # 4th drops the oldest
+	assert(ml_hud.last_message() == "FOUR")
+	var ml_labels: Array = ml_hud._log_labels
+	assert(ml_labels[0].text == "FOUR" and ml_labels[2].text == "TWO")
+	assert(ml_labels[0].position.y > ml_labels[1].position.y and ml_labels[1].position.y > ml_labels[2].position.y)
+	assert(ml_labels[0].position.y + 9 <= ml_hud.CONSOLE_Y)   # the strip clears the console plate
+	ml_hud.show_message("FOUR", 3.0)   # a repeat refreshes, never stacks
+	assert(ml_hud.messages().size() == 3 and ml_hud.messages()[1] == "THREE")
+	ml_hud._tick_log(2.0)
+	ml_hud.show_message("FOUR", 3.0)   # ...and restarts its clock
+	ml_hud._tick_log(2.0)
+	assert(ml_hud.last_message() == "FOUR" and ml_hud.messages().size() == 1)   # THREE/TWO ran out
+	# lines expire independently, and fade in their last half second
+	ml_hud._tick_log(1000.0)
+	ml_hud.show_message("LONG", 4.0)
+	ml_hud.show_message("SHORT", 1.0)
+	ml_hud._tick_log(0.75)
+	assert(ml_hud.messages().size() == 2 and ml_labels[0].modulate.a < 1.0 and ml_labels[1].modulate.a == 1.0)
+	ml_hud._tick_log(0.5)   # SHORT is gone, LONG remains
+	assert(ml_hud.messages() == PackedStringArray(["LONG"]) and not ml_labels[1].visible)
+	ml_hud._tick_log(1000.0)
+	assert(ml_hud.last_message() == "" and not ml_labels[0].visible)
+	# several messages in one frame all survive
+	ml_hud.show_message("A", 2.0)
+	ml_hud.show_message("B", 2.0)
+	ml_hud.show_message("C", 2.0)
+	assert(ml_hud.messages().size() == 3)
+	ml_hud._tick_log(1000.0)
+	print("MESSAGE LOG ok — 3 lines, newest at the bottom, repeats refresh, lines fade on their own")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

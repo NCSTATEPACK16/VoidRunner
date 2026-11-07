@@ -61,8 +61,15 @@ var _power_draw: Control
 var _power_labels := {}      # kind -> Label
 var _c_power_live := false
 var _c_xmode := -1           # crosshair colour state (overheat / power-ups)
-var _msg: Label
-var _msg_t := 0.0
+## v4d: the message log. Up to LOG_LINES live lines, newest first; each has its
+## own timer and fades on its own. The labels sit just above the console plate,
+## newest at the bottom.
+const LOG_LINES := 3
+const LOG_FADE := 0.5
+const LOG_Y := [CONSOLE_Y - 18, CONSOLE_Y - 27, CONSOLE_Y - 36]   # 146 / 137 / 128
+const LOG_SHADE := [13, 9, 6]   # RED ramp shade per age rank: newest brightest
+var _log_labels: Array[Label] = []
+var _log: Array = []             # [{text, t, life}], newest first
 var _level_speed: Label
 var _score: Label
 var _wpn_name: Label
@@ -157,9 +164,12 @@ func _ready() -> void:
 	_crosshair.position = Vector2(W / 2.0, H / 2.0)
 	_crosshair.draw.connect(_draw_crosshair)
 	root.add_child(_crosshair)
-	_msg = _label(root, Vector2(0, 33), "", Color("ff7b5a"), 8)
-	_msg.size = Vector2(W, 10)
-	_msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	for i in LOG_LINES:
+		var ml := _label(root, Vector2(0, LOG_Y[i]), "", Palette.ramp(Palette.RED, LOG_SHADE[i]), 8)
+		ml.size = Vector2(W, 10)
+		ml.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ml.visible = false
+		_log_labels.append(ml)
 	# Phase J: boss name over the boss health bar (the 3x5 font is digits-only)
 	_boss_name = _label(root, Vector2(0, 22), "", Color("ff7050"), 8)
 	_boss_name.size = Vector2(W, 10)
@@ -266,8 +276,56 @@ func set_escape(left: float) -> void:
 
 
 func show_message(text: String, t := 1.2) -> void:
-	_msg.text = text
-	_msg_t = t
+	if not _log.is_empty() and _log[0].text == text:
+		_log[0].t = t            # a repeat of the newest line refreshes it
+		_log[0].life = t
+	else:
+		_log.push_front({"text": text, "t": t, "life": t})
+		if _log.size() > LOG_LINES:
+			_log.resize(LOG_LINES)   # the oldest drops off
+	_refresh_log()
+
+
+## v4d: the newest live message, "" when none is showing.
+func last_message() -> String:
+	return "" if _log.is_empty() else String(_log[0].text)
+
+
+## v4d: every live message, newest first.
+func messages() -> PackedStringArray:
+	var out := PackedStringArray()
+	for e in _log:
+		out.append(String(e.text))
+	return out
+
+
+func _tick_log(delta: float) -> void:
+	var changed := false
+	for e in _log:
+		e.t -= delta
+	while not _log.is_empty() and _log.back().t <= 0.0:
+		_log.pop_back()
+		changed = true
+	# a middle line can run out before an older one (shorter life): drop it too
+	for i in range(_log.size() - 1, -1, -1):
+		if _log[i].t <= 0.0:
+			_log.remove_at(i)
+			changed = true
+	if changed or not _log.is_empty():
+		_refresh_log()
+
+
+func _refresh_log() -> void:
+	# slot 0 (bottom) shows the newest line; older lines stack upward
+	for i in LOG_LINES:
+		var l := _log_labels[i]
+		if i < _log.size():
+			var e: Dictionary = _log[i]
+			l.text = e.text
+			l.modulate.a = clampf(e.t / LOG_FADE, 0.0, 1.0)
+			l.visible = true
+		else:
+			l.visible = false
 
 
 ## v4a: a whole-screen tint pop that fades over FLASH_FADE. Returns false (and
@@ -315,8 +373,7 @@ func show_damage_from(world_pos: Vector3) -> void:
 
 
 func _process(delta: float) -> void:
-	_msg_t -= delta
-	_msg.visible = _msg_t > 0.0
+	_tick_log(delta)
 	_bomb_flash.color.a = maxf(0.0, _bomb_flash.color.a - delta * 1.4)
 	if _tint_flash.color.a > 0.0:
 		_tint_flash.color.a = maxf(0.0, _tint_flash.color.a - delta * _tint_a0 / FLASH_FADE)

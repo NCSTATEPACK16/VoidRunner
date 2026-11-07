@@ -5,7 +5,7 @@
 verification). Steps 3–6 make the game finishable. v4 makes it feel like a full mid-90s DOS
 shooter before the public launch in Step 8.*
 
-## Progress (2026-10-11)
+## Progress (2026-11-07)
 
 | Sub-step | Status |
 |---|---|
@@ -14,7 +14,25 @@ shooter before the public launch in Step 8.*
 | v4b part 1: parts kit; LAYER, RAMMER, MENDER, SPLITTER (sectors 3–5) | Done (PR #13) |
 | v4b part 2: WRAITH, CRAWLER, WARDEN, CARRIER (sectors 7–8); heavy variants; mini-bosses | Done (PR #14) |
 | v4c hubs, keys and objectives | Done (PR #19) |
-| v4d tally, episodes and menu feel | Next (spec: `docs/revamp/2026-10-11-v4-spec.md` §6) |
+| v4d tally, episodes and menu feel | Done (PR #20) |
+
+**How v4d landed (PR #20):**
+- **Tally.** The SECTOR CLEAR window reveals its lines one by one, counting the numbers up with
+  a rate-limited FM tick, then stamps the rank. Any key, click, pad button or tap skips to the
+  totals; NEXT appears after. L9 gets a tally too.
+- **Episodes.** E1 THE OUTER LANES (L1–3), E2 THE HIVE (L4–6), E3 THE RIFT (L7–9). A title
+  card shows on starting or advancing into an episode (never on CONTINUE or a retry); each
+  episode ends on EPISODE COMPLETE and a short ending over a still of the boss room, captured
+  from the 320×200 game view with the HUD hidden. Sector names read "E2 · L4 · REACTOR MAZE",
+  and the new_game picker shows the episode.
+- **Message log.** The last 3 HUD lines sit above the console, newest at the bottom, older ones
+  dimmer, each fading on its own; a repeat refreshes instead of stacking.
+- **Menus.** A blinking `>` marks the focused control (steady under REDUCE FLASH), with a blip
+  on each move and a confirm chirp on press. The SETUP window groups the settings into SOUND,
+  CONTROLS and DISPLAY tabs, and the pause menu's SETTINGS opens it too.
+- **Tests:** `tests/campaign_probe.tscn` plays L1→L9 through the real buttons (every tally,
+  title card, ending and the victory) and keeps the soak run's type and boss checks; the soak
+  probe is gone.
 
 **How v4c landed (PR #19):**
 - **Hubs.** L2, L4, L5, L7 and L8 grow a keycard branch and a switch branch off the room
@@ -156,7 +174,7 @@ for sectors 3–5 here; the other four, the heavy variants and the mini-bosses n
 - **Tests:**
   - the smoke ROSTER block (one check per rule, the intro rule, pools, briefings);
   - a SOAK block: every type runs 10 s beside the ship;
-  - `tests/soak_probe.tscn` flies L1–L9 and fails if any type never spawns.
+  - `tests/campaign_probe.tscn` flies L1–L9 and fails if any type never spawns.
 - **Cost.**
   - Bake: 339 → 448 ms (median of 8, A/B with the kit commit on software GL); the 4 kit
     models are busier than 3.0's.
@@ -198,7 +216,7 @@ for sectors 3–5 here; the other four, the heavy variants and the mini-bosses n
   the bosses, mini-bosses and the carrier would add about another boss sheet.
 - **Tests:** the smoke ROSTER2 and MINIBOSS blocks (one check per rule, the heavies, the L7 and
   L8 intros, each mini-boss's room, sleep, phases, patterns, bulkhead and checkpoint); the
-  SOAK block covers all 18 types; `tests/soak_probe.tscn` also wakes and kills all three
+  SOAK block covers all 18 types; `tests/campaign_probe.tscn` also wakes and kills all three
   mini-bosses; the screenshot probe adds `shot_roster2`, `shot_heavies` and `shot_miniboss`.
 
 **Next:** v4c (hubs, keys, switches, objectives) and v4d (tally, episodes, message log, menu
@@ -366,7 +384,7 @@ especially on iPad.
 | perf groundwork (batched layers + probes) | — | draw calls for shots and gibs about 1 each; smoke test green |
 | v4b roster + mini-bosses | the building-block expansion | the soak run spawns every type; each rule reads in a cold playtest; the bake time is measured |
 | v4c hubs, keys, objectives | Step 4 checkpoints | every sector is completable from its checkpoint; the automap shows keys and doors |
-| v4d tally, episodes, menu feel | — | the full campaign runs end to end in the soak run |
+| v4d tally, episodes, menu feel | — | the full campaign runs end to end in `tests/campaign_probe.tscn` |
 
 Each sub-step is one PR with the standard gates:
 - headless smoke test with zero `SCRIPT ERROR`;
