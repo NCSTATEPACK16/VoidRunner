@@ -203,6 +203,13 @@ func _run() -> void:
 		game.shot_mgr.fire_player(game.weapons[0])
 		await _fly(game, 2)
 	await _capture(game, "shot_combat.png", dir)
+	# 2b'') v4d message log: three live lines, newest at the bottom, older dimmer
+	game.hud.show_message("SHIELD CELL +25", 30.0)
+	game.hud.show_message("KEYCARD ACQUIRED", 30.0)
+	game.hud.show_message("HAULER DESTROYED · BULKHEAD OPEN", 30.0)
+	await _fly(game, 2)
+	await _capture(game, "shot_message_log.png", dir)
+	game.hud._tick_log(1000.0)
 	# 2b') v4 hot debris: a kill's chunks, yellow-hot and cooling down the fire ramp
 	game.gib_mgr.burst(game.player.position + fwd * 14.0, Vector3.ZERO,
 		game.player.ring_idx, 20, EnemyManager.GIB_TINTS["drone"])
