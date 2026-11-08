@@ -356,3 +356,18 @@ bake and the rendered numbers aren't re-measured.
 `tests/web_check.mjs` no longer ignores Pointer Lock page errors and passed with none. Headless:
 L8 rail worst step 3.2 ms (0 spikes over 8 ms); the campaign probe finished L1→L9 in 32 s; the
 warm-up probe completed.
+
+## PR D: iOS export + controller (2026-11-08)
+
+Input and export settings only; no world, sprite or render code changed.
+
+| Run (this container) | This PR |
+|---|---|
+| Web bake (SwiftShader) | 1178 ms |
+| Web title up | 5.8 s |
+| Web first flight (L1) | 20.3 s |
+| Web `.pck` (tests/tools/docs now excluded) | 0.46 MB |
+
+Headless: L8 rail worst step 1.5 ms (0 spikes over 8 ms); the campaign probe finished L1→L9 in
+33 s. The iOS export (a trial with a placeholder Team ID) wrote an Xcode project with a 0.46 MB
+`.pck`.
