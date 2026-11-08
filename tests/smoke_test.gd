@@ -3880,6 +3880,12 @@ func _run() -> void:
 	assert(ml_hud.messages().size() == 3)
 	ml_hud._tick_log(1000.0)
 	print("MESSAGE LOG ok — 3 lines, newest at the bottom, repeats refresh, lines fade on their own")
+	# --- PR C: pointer capture (web arms it; native captures at once) ---
+	game._capture_armed = true
+	game._capture_mouse()
+	assert(not game._capture_armed)   # not web: the request goes straight through
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	print("POINTER CAPTURE ok — native captures at once and disarms")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
