@@ -3886,6 +3886,87 @@ func _run() -> void:
 	assert(not game._capture_armed)   # not web: the request goes straight through
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	print("POINTER CAPTURE ok — native captures at once and disarms")
+	# --- PR D: pad labels, hot-plug, the launch press, the safe area ---
+	assert(PadGlyphs.layout_for("8BitDo SN30 Pro") == PadGlyphs.Layout.NINTENDO)
+	assert(PadGlyphs.layout_for("Nintendo Switch Pro Controller") == PadGlyphs.Layout.NINTENDO)
+	assert(PadGlyphs.layout_for("Pro Controller") == PadGlyphs.Layout.NINTENDO)
+	assert(PadGlyphs.layout_for("Xbox Wireless Controller") == PadGlyphs.Layout.XBOX)
+	assert(PadGlyphs.layout_for("") == PadGlyphs.Layout.XBOX)
+	var pd_n := PadGlyphs.Layout.NINTENDO
+	var pd_x := PadGlyphs.Layout.XBOX
+	assert(PadGlyphs.label(JOY_BUTTON_A, pd_n) == "B" and PadGlyphs.label(JOY_BUTTON_B, pd_n) == "A")
+	assert(PadGlyphs.label(JOY_BUTTON_X, pd_n) == "Y" and PadGlyphs.label(JOY_BUTTON_Y, pd_n) == "X")
+	assert(PadGlyphs.label(JOY_BUTTON_A, pd_x) == "A" and PadGlyphs.label(JOY_BUTTON_X, pd_x) == "X")
+	assert(PadGlyphs.label(JOY_BUTTON_RIGHT_SHOULDER, pd_n) == "R")
+	assert(PadGlyphs.trigger(JOY_AXIS_TRIGGER_RIGHT, pd_n) == "ZR")
+	assert(PadGlyphs.trigger(JOY_AXIS_TRIGGER_LEFT, pd_x) == "LT")
+	var pd_tips_n: Array = game.pad_tip_lines(pd_n)
+	var pd_tips_x: Array = game.pad_tip_lines(pd_x)
+	assert(pd_tips_x[1] == "A OR RT TO FIRE" and pd_tips_x[3] == "INCOMING! X OR B TO ROLL CLEAR")
+	assert(pd_tips_n[1] == "B OR ZR TO FIRE" and pd_tips_n[2] == "HOLD R OR ZL TO BOOST")
+	assert(pd_tips_n[3] == "INCOMING! Y OR A TO ROLL CLEAR")
+	assert(Overlays.pad_help_line(pd_n) == "PAD  stick · B/ZR fire · Y/A roll")
+	# hot-plug: a connect on mobile turns the pad on; losing it mid-flight pauses
+	var pd_watch = game.pad_watch
+	var pd_saved_pad: bool = GameState.gamepad_enabled
+	var pd_saved_auto: bool = pd_watch.auto_enable
+	GameState.gamepad_enabled = false
+	InputSetup.set_gamepad(false)
+	pd_watch.auto_enable = false   # web / desktop: the K6 opt-in stands
+	pd_watch.on_connected(2)
+	assert(GameState.pad_device == 2 and not GameState.gamepad_enabled and not pd_watch.live)
+	pd_watch.auto_enable = true    # native mobile
+	pd_watch.on_connected(3)
+	assert(GameState.pad_device == 3 and GameState.gamepad_enabled and pd_watch.live)
+	assert(InputMap.action_has_event("fire", InputSetup._gamepad_events[0][1]))
+	game._launch_level()
+	assert(game.state == game.State.PLAYING)
+	pd_watch.on_disconnected(5, [3])   # some other pad: ignored
+	assert(game.state == game.State.PLAYING and pd_watch.live)
+	pd_watch.on_disconnected(3, [3, 4])   # hands over to the pad still connected
+	assert(GameState.pad_device == 4 and game.state == game.State.PLAYING and pd_watch.live)
+	pd_watch.on_disconnected(4, [4])   # the last pad drops out mid-flight
+	assert(game.state == game.State.PAUSED and not pd_watch.live)
+	game._toggle_pause()
+	assert(game.state == game.State.PLAYING)
+	# the press that launched or resumed doesn't fire (pad A is accept and fire)
+	Input.action_press("fire")
+	game._toggle_pause()
+	game._toggle_pause()   # RESUME pressed with fire held
+	assert(game._fire_lock)
+	var pd_shots: int = game.shot_mgr._pshots.size()
+	game._fire_cd = 0.0
+	GameState.heat = 0.0
+	game._update_firing(0.0)
+	assert(game.shot_mgr._pshots.size() == pd_shots)   # held from the menu: no shot
+	Input.action_release("fire")
+	game._update_firing(0.0)
+	assert(not game._fire_lock)
+	Input.action_press("fire")
+	game._fire_cd = 0.0
+	game._update_firing(0.0)
+	assert(game.shot_mgr._pshots.size() > pd_shots)   # a fresh press fires
+	Input.action_release("fire")
+	game._toggle_pause()
+	GameState.gamepad_enabled = pd_saved_pad
+	InputSetup.set_gamepad(pd_saved_pad)
+	pd_watch.auto_enable = pd_saved_auto
+	pd_watch.live = false
+	GameState.pad_device = 0
+	# the safe area, mapped into the 320x200 canvas (stretch "keep", letterboxed)
+	assert(TouchControls.safe_insets(Rect2i(0, 0, 1280, 800), Vector2i(1280, 800),
+		Vector2(320, 200)) == Rect2())
+	# an iPhone in landscape: the side notch sits inside the letterbox bars, the
+	# home indicator doesn't
+	var pd_ins := TouchControls.safe_insets(Rect2i(177, 0, 2202, 1116), Vector2i(2556, 1179),
+		Vector2(320, 200))
+	assert(pd_ins.position.x == 0.0 and pd_ins.size.x == 0.0 and pd_ins.position.y == 0.0)
+	assert(absf(pd_ins.size.y - 63.0 / (1179.0 / 200.0)) < 0.01)
+	# an iPad: a 4:3 screen letterboxes top and bottom, so its insets vanish
+	assert(TouchControls.safe_insets(Rect2i(0, 24, 2732, 1980), Vector2i(2732, 2048),
+		Vector2(320, 200)) == Rect2())
+	print("PAD ok — Nintendo/Xbox labels, mobile auto-enable, pause on loss, "
+		+ "LAUNCH press swallowed, safe-area insets")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

@@ -188,8 +188,8 @@ func update_flight(delta: float) -> void:
 	# --- K6: opt-in gamepad — analog left-stick steer (buttons ride the Input Map;
 	# no pad connected reads 0, so this is inert unless the setting is on) ---
 	if GameState.gamepad_enabled:
-		var jx := Input.get_joy_axis(0, JOY_AXIS_LEFT_X)
-		var jy := Input.get_joy_axis(0, JOY_AXIS_LEFT_Y)
+		var jx := Input.get_joy_axis(GameState.pad_device, JOY_AXIS_LEFT_X)
+		var jy := Input.get_joy_axis(GameState.pad_device, JOY_AXIS_LEFT_Y)
 		if absf(jx) > 0.15:
 			yaw -= jx * KB_YAW_RATE * delta
 			_turn_sm -= jx * ts * 0.6
