@@ -67,6 +67,7 @@ func set_gamepad(enabled: bool) -> void:
 
 func _pad_button(action: StringName, button: JoyButton) -> void:
 	var ev := InputEventJoypadButton.new()
+	ev.device = -1   # PR D: any pad, not just device 0 (a re-paired pad gets a new id)
 	ev.button_index = button
 	InputMap.action_add_event(action, ev)
 	_gamepad_events.append([action, ev])
@@ -74,6 +75,7 @@ func _pad_button(action: StringName, button: JoyButton) -> void:
 
 func _pad_axis(action: StringName, axis: JoyAxis, direction: float) -> void:
 	var ev := InputEventJoypadMotion.new()
+	ev.device = -1
 	ev.axis = axis
 	ev.axis_value = direction
 	InputMap.action_add_event(action, ev)

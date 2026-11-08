@@ -103,9 +103,41 @@ func _ready() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 	_build()
+	if OS.has_feature("mobile"):
+		# PR D: native iOS/Android — keep the controls clear of the notch and the
+		# home indicator, and again after a rotation between the two landscapes
+		apply_safe_area()
+		get_viewport().size_changed.connect(apply_safe_area)
 	visible = false
 	set_process(false)
 	set_process_input(false)
+
+
+## PR D: inset the layer by the display's safe area, in canvas units. Web and
+## desktop report the whole screen as safe, so nothing moves there.
+func apply_safe_area() -> void:
+	var r := safe_insets(DisplayServer.get_display_safe_area(), DisplayServer.window_get_size(),
+		get_viewport().get_visible_rect().size)
+	_root.offset_left = r.position.x
+	_root.offset_top = r.position.y
+	_root.offset_right = -r.size.x
+	_root.offset_bottom = -r.size.y
+
+
+## The unsafe margins of a `window`-sized screen, mapped into a `canvas`-sized
+## view drawn with stretch aspect "keep" (centred, letterboxed). Returns
+## Rect2(left, top, right, bottom). The letterbox bars already absorb part of a
+## notch, so only what reaches into the drawn view counts.
+static func safe_insets(safe: Rect2i, window: Vector2i, canvas: Vector2) -> Rect2:
+	if window.x <= 0 or window.y <= 0 or safe.size.x <= 0 or safe.size.y <= 0:
+		return Rect2()
+	var scale := minf(window.x / canvas.x, window.y / canvas.y)
+	var bar := (Vector2(window) - canvas * scale) * 0.5
+	var left := maxf(0.0, safe.position.x - bar.x) / scale
+	var top := maxf(0.0, safe.position.y - bar.y) / scale
+	var right := maxf(0.0, (window.x - safe.end.x) - bar.x) / scale
+	var bottom := maxf(0.0, (window.y - safe.end.y) - bar.y) / scale
+	return Rect2(left, top, right, bottom)
 
 
 func _build() -> void:

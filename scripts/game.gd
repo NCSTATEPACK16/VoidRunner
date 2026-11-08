@@ -76,6 +76,7 @@ var _warmup_rig: Node3D
 var touch_ui: TouchControls   # M4a spike: null unless the build is in touch mode
 var _page_hidden_cb: JavaScriptObject   # re-audit Step 2 (web): keeps the listener alive
 var _touch_mode := false
+var pad_watch: PadWatch       # PR D: pad hot-plug (auto-enable on mobile, pause on loss)
 ## Re-audit Step 4: the latest checkpoint (as saved or loaded), and the one a
 ## pending CONTINUE / RETRY FROM CHECKPOINT will resume at the next launch
 var _checkpoint := {}
@@ -98,6 +99,7 @@ var _tip_shots := 0
 var _tip_dodged := false
 var _first_flight_reported := false
 var _capture_armed := false   # PR C (web): capture waits for the next press in flight
+var _fire_lock := false       # PR D: the press that launched or resumed doesn't fire
 ## Step 3: deaths in the current sector, for game over's "try RECRUIT" hint
 var _deaths_here := 0
 var _deaths_level := -1
@@ -211,6 +213,8 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		_touch_mode = str(JavaScriptBridge.eval(
 			"window.vrTouchMode ? '1' : '0'", true)) == "1"
+	elif OS.has_feature("mobile"):
+		_touch_mode = true   # PR D: native iOS/Android builds are touch-first
 	overlays.touch_mode = _touch_mode   # re-audit Step 5: the manual's touch page
 	if _touch_mode:
 		touch_ui = TouchControls.new()
@@ -227,6 +231,9 @@ func _ready() -> void:
 			_select_weapon((GameState.weapon_index + 1) % weapons.size()))
 		touch_ui.bomb_tapped.connect(_fire_plasma_bomb)
 		touch_ui.pause_tapped.connect(_toggle_pause)   # re-audit Step 2
+	pad_watch = PadWatch.new()
+	add_child(pad_watch)
+	pad_watch.pad_lost.connect(_on_pad_lost)
 	# re-audit Step 2: a hidden tab pauses the run. Canvas blur already arrives as a
 	# focus-out notification; this catches a tab switch the blur might miss.
 	if OS.has_feature("web"):
@@ -1119,6 +1126,7 @@ func _launch_level() -> void:
 	_set_flight_time(true)   # Step 3: GAME SPEED assist
 	overlays.hide_all()
 	hud.show_message(_current_level().display_name)
+	_fire_lock = Input.is_action_pressed("fire")
 	_capture_mouse()
 	_report_first_flight()
 
@@ -1182,15 +1190,26 @@ func _update_tips(delta: float) -> void:
 		hud.show_message(tip_text(_tip_stage), TIP_REPEAT - 0.4)
 
 
+## PR D: the pad callouts, with the buttons named as the pad prints them.
+static func pad_tip_lines(layout: PadGlyphs.Layout) -> Array:
+	return ["LEFT STICK TO STEER",
+		"%s OR %s TO FIRE" % [PadGlyphs.label(JOY_BUTTON_A, layout),
+			PadGlyphs.trigger(JOY_AXIS_TRIGGER_RIGHT, layout)],
+		"HOLD %s OR %s TO BOOST" % [PadGlyphs.label(JOY_BUTTON_RIGHT_SHOULDER, layout),
+			PadGlyphs.trigger(JOY_AXIS_TRIGGER_LEFT, layout)],
+		"INCOMING! %s OR %s TO ROLL CLEAR" % [PadGlyphs.label(JOY_BUTTON_X, layout),
+			PadGlyphs.label(JOY_BUTTON_B, layout)]]
+
+
 ## The callout for a stage, worded for the controls in use.
 func tip_text(stage: int) -> String:
 	var lines: Array
-	if _touch_mode:
+	var pad_on := GameState.gamepad_enabled and not Input.get_connected_joypads().is_empty()
+	if _touch_mode and not pad_on:
 		lines = ["DRAG LEFT THUMB TO STEER", "HOLD FIRE TO SHOOT",
 			"DOUBLE-TAP LEFT SIDE TO BOOST", "INCOMING! FLICK STICK TWICE TO ROLL"]
-	elif GameState.gamepad_enabled and not Input.get_connected_joypads().is_empty():
-		lines = ["LEFT STICK TO STEER", "A OR RT TO FIRE",
-			"HOLD RB OR LT TO BOOST", "INCOMING! X OR B TO ROLL CLEAR"]
+	elif pad_on:
+		lines = pad_tip_lines(PadGlyphs.current_layout())
 	else:
 		lines = ["MOUSE OR ARROWS TO STEER", "CLICK OR SPACE TO FIRE",
 			"HOLD W OR RIGHT-CLICK TO BOOST", "INCOMING! A OR D TO ROLL CLEAR"]
@@ -1732,7 +1751,8 @@ func _process(delta: float) -> void:
 	# game-over screen, and every other non-flight state. This line is the fix — it
 	# has to run before the State.PLAYING early-return below, not after.
 	if touch_ui != null:
-		touch_ui.set_flight_active(state == State.PLAYING)
+		# PR D: a live pad flies the ship, so the touch layer stays out of the way
+		touch_ui.set_flight_active(state == State.PLAYING and not pad_watch.live)
 	if state == State.BRIEFING:
 		# finish building the whole level behind the briefing overlay, 4 ms/frame —
 		# geometry + buffer uploads land here so flight never builds a chunk
@@ -1851,6 +1871,10 @@ func _update_heat(delta: float) -> void:
 func _update_firing(delta: float) -> void:
 	_fire_cd -= delta
 	_lowfire_cd -= delta
+	if _fire_lock:
+		if Input.is_action_pressed("fire"):
+			return   # still the LAUNCH / RESUME press (pad A is both accept and fire)
+		_fire_lock = false
 	if not Input.is_action_pressed("fire") or _fire_cd > 0.0 or GameState.is_overheated:
 		return
 	var w := weapons[GameState.weapon_index]
@@ -2306,6 +2330,12 @@ func _notification(what: int) -> void:
 		_auto_pause()
 
 
+## PR D: the pad dropped out (battery, out of range). Pause rather than let the
+## ship fly on unattended; the touch layer comes back with the next flight frame.
+func _on_pad_lost(_device: int) -> void:
+	_auto_pause()
+
+
 func _auto_pause() -> void:
 	# an open automap already hard-pauses the tree; the pause menu can wait for it
 	if state == State.PLAYING and not get_tree().paused:
@@ -2351,4 +2381,5 @@ func _toggle_pause() -> void:
 		_set_flight_time(true)   # picks up an assist changed from the pause menu
 		player.active = true
 		overlays.hide_all()
+		_fire_lock = Input.is_action_pressed("fire")
 		_capture_mouse()

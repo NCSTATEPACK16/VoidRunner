@@ -2,6 +2,30 @@
 
 _Status: approved 2026-11-07. Picks up after v4 PR C. Hard rule 1 stays as written until PR E lands._
 
+## Progress (2026-11-08)
+
+| Track | Status |
+|---|---|
+| Track 0: v4 PR B, PR C | Done (PRs #20, #21); the bake cache was skipped (PR E replaces it) |
+| PR D: iOS + controller | Code in PR #22; waiting on the TestFlight pass (`docs/ios/TESTFLIGHT.md`) |
+| PR E, PR F, PR G | Not started |
+
+How PR D's code landed, and where it differs from the plan below:
+- **Touch on native** turns on for `OS.has_feature("mobile")` only, not for every touchscreen,
+  so a touchscreen laptop keeps the desktop controls. The touch layer is inset by the safe area
+  through `TouchControls.safe_insets`, which allows for the letterbox (stretch aspect `keep`):
+  on an iPhone in landscape the side notch falls inside the bars, so only the home indicator
+  moves the controls.
+- **The iOS export** needs ETC2/ASTC texture import (now on in `project.godot`) and a Team ID.
+  The preset exports an Xcode project (`export_project_only`); a trial headless export on Linux
+  with a placeholder Team ID wrote it.
+- **The pad bindings** now match any device (`-1`), not just device 0, so a re-paired pad that
+  gets a new id still works. With two pads connected, losing one hands control to the other
+  instead of pausing.
+- **B / dodge on resume:** `ui_cancel` never resumes play (it acts only on the title's card
+  row), so the B press can't dodge on the resume frame. Fire held through LAUNCH or RESUME is
+  swallowed until it's released.
+
 ## Context
 
 The user shared a cross-game `ASSET_PIPELINE.md` (written for GolfCartSimulator and the other games) and asked what VoidRunner can use from it. They also want the game sharpened for web and for iPhone/iPad with a controller; their test pad is an 8BitDo SN30 Pro in an Xcode/TestFlight build.

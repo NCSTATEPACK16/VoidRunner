@@ -597,6 +597,7 @@ var master_volume := 0.8
 var mouse_sens_mult := 1.0
 var dither_enabled := true
 var gamepad_enabled := false   # K6: opt-in, never default
+var pad_device := 0            # PR D: the pad driving the ship (PadWatch keeps it current)
 var amber_mode := false        # amber-monochrome terminal look (via the dither shader)
 var screen_shake := true       # V2.2 L1: camera kick/shake master switch (accessibility)
 ## 3.0: post filter over the whole window — 0 off, 1 scanlines, 2 full CRT

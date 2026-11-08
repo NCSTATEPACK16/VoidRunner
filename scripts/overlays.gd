@@ -143,6 +143,13 @@ var _episode_btn: Button
 var _episode_label: Label     # new_game: "E2 · THE HIVE" over the sector picker
 var _help_pad: Label   # K6: gamepad line on the controls screen, shown only when enabled
 
+## PR D: the manual's pad line, named as the pad prints its buttons.
+static func pad_help_line(layout: PadGlyphs.Layout) -> String:
+	return "PAD  stick · %s/%s fire · %s/%s roll" % [PadGlyphs.label(JOY_BUTTON_A, layout),
+		PadGlyphs.trigger(JOY_AXIS_TRIGGER_RIGHT, layout), PadGlyphs.label(JOY_BUTTON_X, layout),
+		PadGlyphs.label(JOY_BUTTON_B, layout)]
+
+
 # D11: install-nudge buttons (start/game_over/victory), built once at boot but
 # hidden/shown live — see _refresh_install_buttons().
 var _install_buttons: Array[Button] = []
@@ -242,7 +249,7 @@ func show_only(panel_name: String) -> void:
 		_help_keys.visible = not touch_mode   # re-audit Step 5
 		_help_touch.visible = touch_mode
 	if panel_name == "help" and _help_pad:
-		_help_pad.text = "PAD  stick · A/RT fire · X/B roll" \
+		_help_pad.text = pad_help_line(PadGlyphs.current_layout()) \
 			if GameState.gamepad_enabled else ""
 	if panel_name == "help" and _help_start:
 		# from pause the manual is reference only: no START, BACK returns to pause
