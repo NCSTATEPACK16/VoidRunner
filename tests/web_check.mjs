@@ -37,13 +37,11 @@ const t0 = Date.now();
 page.on('console', (m) => {
   const t = m.text();
   if (/SCRIPT ERROR|SHADER ERROR/.test(t)) errors.push(t);
-  if (/GAME BOOTING|sprite bake|first flight/i.test(t)) console.log('[con]', t.slice(0, 160));
+  if (/GAME BOOTING|sprite bake|first flight|pointer lock/i.test(t)) console.log('[con]', t.slice(0, 160));
 });
-// the pointer-lock refusal is a known, harmless race (a launch that lands after the
-// keypress's activation window); the next click captures the mouse
-page.on('pageerror', (e) => {
-  if (!/Pointer Lock/i.test(e.message)) errors.push('pageerror: ' + e.message);
-});
+// PR C: no page error is ignored any more. The pointer-lock race is fixed (capture
+// waits for a live user activation and the shell catches a refusal quietly).
+page.on('pageerror', (e) => { errors.push('pageerror: ' + e.message); });
 const wait = (ms) => page.waitForTimeout(ms);
 const shot = (n) => page.screenshot({ path: `${out}/${n}.png` });
 

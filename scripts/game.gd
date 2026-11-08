@@ -97,6 +97,7 @@ var _tip_aim := Vector2.ZERO # yaw/pitch when STEER started
 var _tip_shots := 0
 var _tip_dodged := false
 var _first_flight_reported := false
+var _capture_armed := false   # PR C (web): capture waits for the next press in flight
 ## Step 3: deaths in the current sector, for game over's "try RECRUIT" hint
 var _deaths_here := 0
 var _deaths_level := -1
@@ -1118,7 +1119,7 @@ func _launch_level() -> void:
 	_set_flight_time(true)   # Step 3: GAME SPEED assist
 	overlays.hide_all()
 	hud.show_message(_current_level().display_name)
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_capture_mouse()
 	_report_first_flight()
 
 
@@ -1203,6 +1204,7 @@ func _level_complete() -> void:
 	player.active = false
 	AudioSys.play_portal()
 	AudioSys.stop_engine()
+	_capture_armed = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	var idx := GameState.level_index
 	if idx == 0 and not _gauntlet:
@@ -1341,6 +1343,7 @@ func _on_player_died() -> void:
 	player.active = false
 	shot_mgr.spawn_explosion(player.position, true)
 	AudioSys.stop_engine()
+	_capture_armed = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _gauntlet:
 		# K5: a gauntlet run scores by distance; records stay campaign-separate
@@ -2197,8 +2200,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.pressed \
 			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		_capture_mouse(true)
 		return
+	if _capture_armed and event is InputEventKey and event.pressed and not event.echo:
+		_capture_mouse(true)   # a key works too; the key still does its job below
 	if event.is_action_pressed("plasma_bomb"):
 		_fire_plasma_bomb()
 		return
@@ -2208,6 +2213,25 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 	if event.is_action_pressed("weapon_cycle"):
 		_select_weapon((GameState.weapon_index + 1) % weapons.size())
+
+
+## PR C: hide and capture the pointer for flight. Browsers grant pointer lock only
+## during a user gesture's activation window, and a long level load can outlast it;
+## the refused request used to surface as an uncaught page error. On web the
+## capture now happens only while the activation is live, or from the next click or
+## key press in flight (`from_press`). The shell catches any refusal quietly.
+func _capture_mouse(from_press := false) -> void:
+	if OS.has_feature("web") and not from_press and not _web_activation_live():
+		_capture_armed = true
+		return
+	_capture_armed = false
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+func _web_activation_live() -> bool:
+	return str(JavaScriptBridge.eval(
+		"(navigator.userActivation && navigator.userActivation.isActive) ? '1' : '0'",
+		true)) == "1"
 
 
 ## V2.2 L4a: gather current map markers (found secrets, woken portal), then open the
@@ -2327,4 +2351,4 @@ func _toggle_pause() -> void:
 		_set_flight_time(true)   # picks up an assist changed from the pause menu
 		player.active = true
 		overlays.hide_all()
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		_capture_mouse()

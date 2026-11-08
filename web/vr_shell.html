@@ -400,6 +400,27 @@ body {
 					report(e.message);
 				}
 			}, true);   // capture phase, so subresource load failures are seen too
+			// PR C: a pointer-lock request that lands outside a user gesture is refused,
+			// and Chrome returns a rejected promise nobody catches. The game asks again on
+			// the next click or key press, so a refusal is noted quietly, never reported.
+			(function () {
+				var P = window.Element && Element.prototype;
+				var rpl = P && P.requestPointerLock;
+				if (!rpl) { return; }
+				P.requestPointerLock = function () {
+					var r;
+					try { r = rpl.apply(this, arguments); } catch (err) {
+						console.log('[VOIDRUNNER] pointer lock refused: ' + (err && err.message));
+						return undefined;
+					}
+					if (r && typeof r.catch === 'function') {
+						r.catch(function (err) {
+							console.log('[VOIDRUNNER] pointer lock refused: ' + (err && err.message));
+						});
+					}
+					return r;
+				};
+			})();
 			window.addEventListener('unhandledrejection', function (e) {
 				var r = e && e.reason;
 				report((r && r.message) ? r.message : String(r));
