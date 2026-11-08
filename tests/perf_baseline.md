@@ -341,3 +341,18 @@ immortal) takes 36–41 s; its worst step was 7.4 ms (L4).
 
 The GLES3 pass (`opengl3_es`) needs Mesa's EGL in the container: `apt-get install -y libegl1
 libgles2 libegl-mesa0`. Without it Godot can't create the display and the probe prints nothing.
+
+## Beta polish: pointer capture (2026-11-08)
+
+Only the web mouse-capture path and the shell changed; no world, sprite or render code, so the
+bake and the rendered numbers aren't re-measured.
+
+| Run (this container) | This PR |
+|---|---|
+| Web bake (SwiftShader) | 1054 ms |
+| Web title up | 5.7 s |
+| Web first flight (L1) | 19.9 s |
+
+`tests/web_check.mjs` no longer ignores Pointer Lock page errors and passed with none. Headless:
+L8 rail worst step 3.2 ms (0 spikes over 8 ms); the campaign probe finished L1→L9 in 32 s; the
+warm-up probe completed.

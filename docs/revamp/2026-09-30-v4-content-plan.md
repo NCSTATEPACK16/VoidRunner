@@ -5,7 +5,7 @@
 verification). Steps 3–6 make the game finishable. v4 makes it feel like a full mid-90s DOS
 shooter before the public launch in Step 8.*
 
-## Progress (2026-11-07)
+## Progress (2026-11-08)
 
 | Sub-step | Status |
 |---|---|
@@ -15,6 +15,16 @@ shooter before the public launch in Step 8.*
 | v4b part 2: WRAITH, CRAWLER, WARDEN, CARRIER (sectors 7–8); heavy variants; mini-bosses | Done (PR #14) |
 | v4c hubs, keys and objectives | Done (PR #19) |
 | v4d tally, episodes and menu feel | Done (PR #20) |
+| Beta polish (web) | Done (PR #21) |
+
+**How beta polish landed (PR #21):**
+- **Pointer lock.** Flight start and unpause capture the mouse on web only while the browser's
+  user activation is live; after a long load the next click or key press in flight takes it.
+  The shell catches a refused request quietly, and `tests/web_check.mjs` now fails on any page
+  error.
+- **Skipped on purpose:** the bake cache across visits (PR E's prebaked atlases replace it, per
+  the v2 roadmap) and the trimmed engine template (the user's call: keep the stock template).
+  LightRig stays as it is.
 
 **How v4d landed (PR #20):**
 - **Tally.** The SECTOR CLEAR window reveals its lines one by one, counting the numbers up with
