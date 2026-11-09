@@ -4048,11 +4048,15 @@ func _run() -> void:
 	assert(SpriteForge.load_all_baked())   # decodes headless too
 	for pb_id in SpriteModels.ENEMIES + SpriteModels.BOSSES + SpriteModels.OBJECTS:
 		var pb_st: Dictionary = SpriteForge.sprite_set(pb_id)
-		assert(pb_st.angles == SpriteForge.ANGLES and pb_st.tex.size() == pb_st.angles * pb_st.anim)
-		assert(pb_st.flash.size() == pb_st.angles)
+		var pb_pilot: bool = SpriteModels.PILOT.has(pb_id)   # PR F: the CC0 pilot is 16 x 4
+		assert(pb_st.angles == (SpriteModels.PILOT_ANGLES if pb_pilot else SpriteForge.ANGLES))
+		assert(pb_st.anim == (SpriteModels.PILOT_ANIM if pb_pilot else SpriteForge.ANIM))
+		assert(pb_st.tex.size() == pb_st.angles * pb_st.anim and pb_st.flash.size() == pb_st.angles)
+		assert(is_equal_approx(float(pb_st.view), SpriteModels.view_scale(pb_id)))
+	assert(SpriteModels.view_scale("drone") > 1.0 and SpriteModels.view_scale("weaver") == 1.0)
 	assert(SpriteForge.pickup_frames("keycard").size() == 8)
 	assert(not SpriteForge._load_baked(["enemies"], "user://no_such_dir"))   # missing: render instead
-	print("PREBAKED ATLASES ok — manifest current, %d sheets within %d px, all classes load" % [
+	print("PREBAKED ATLASES ok — manifest current, %d sheets within %d px, all classes load (pilot 16x4)" % [
 		pb_man.sheets.size(), SpriteForge.MAX_SHEET_PX])
 	print("SMOKE TEST COMPLETE")
 	for f in saved:

@@ -63,16 +63,31 @@ static var _rids: Array[RID] = []
 ## it: boot, or deferred to the first boss / mission object of a level load. Angles,
 ## anim frames and cell size are per class; PR F tunes them for its pilot.
 static func classes() -> Array:
-	return [
+	var pilot := SpriteModels.pilot_ids(SpriteModels.ENEMIES)
+	var pilot_boss := SpriteModels.pilot_ids(SpriteModels.BOSSES)
+	var out: Array = [
 		{"name": "enemies", "cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0,
-			"ids": SpriteModels.ENEMIES, "when": "boot"},
+			"ids": _without(SpriteModels.ENEMIES, pilot), "when": "boot"},
 		{"name": "pickups", "cell": 32, "angles": 8, "anim": 1, "pitch": 24.0,
 			"ids": SpriteModels.PICKUPS + ["prop"], "when": "boot"},
 		{"name": "bosses", "cell": 128, "angles": ANGLES, "anim": ANIM, "pitch": 10.0,
-			"ids": SpriteModels.BOSSES, "when": "boss"},
+			"ids": _without(SpriteModels.BOSSES, pilot_boss), "when": "boss"},
 		{"name": "objects", "cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0,
 			"ids": SpriteModels.OBJECTS, "when": "objects"},
 	]
+	# PR F: the CC0 pilot, at its own (higher) fidelity
+	if not pilot.is_empty():
+		out.append({"name": "pilot", "cell": 64, "angles": SpriteModels.PILOT_ANGLES,
+			"anim": SpriteModels.PILOT_ANIM, "pitch": 20.0, "ids": pilot, "when": "boot"})
+	if not pilot_boss.is_empty():
+		# flat CC0 ships read as a sliver edge-on, so the camera looks down on the deck more
+		out.append({"name": "pilot_boss", "cell": 128, "angles": SpriteModels.PILOT_ANGLES,
+			"anim": SpriteModels.PILOT_ANIM, "pitch": 24.0, "ids": pilot_boss, "when": "boss"})
+	return out
+
+
+static func _without(ids: Array, drop: Array) -> Array:
+	return ids.filter(func(id: String) -> bool: return not drop.has(id))
 
 
 static func _classes_when(when: String) -> Array:
@@ -106,7 +121,7 @@ static func bake_bosses() -> void:
 	if host == null or not is_instance_valid(host) or not host.is_inside_tree():
 		host = (Engine.get_main_loop() as SceneTree).root
 	var t0 := Time.get_ticks_msec()
-	if prebaked and _load_baked(["bosses"]):
+	if prebaked and _load_baked(["bosses", "pilot_boss"]):
 		boss_bake_ms = Time.get_ticks_msec() - t0
 		return
 	if not _bake_classes(host, _classes_when("boss")):
@@ -144,7 +159,7 @@ static func _bake(host: Node) -> void:
 		_objects_baked = true
 		return
 	# PR E: the build-time atlases, when they match this build; else render them
-	if not render_only and _load_baked(["enemies", "pickups"]):
+	if not render_only and _load_baked(["enemies", "pickups", "pilot"]):
 		prebaked = true
 		gpu_baked = true
 		return
@@ -181,6 +196,7 @@ static func _bake_classes(host: Node, classes: Array, save_dir := "") -> bool:
 	for vp in vps:
 		_flush(vp)
 	RenderingServer.force_draw(false)
+	SpriteModels.clear_glb_cache()   # PR F: the parsed CC0 models aren't needed past the draw
 	for r in _rids:
 		RenderingServer.free_rid(r)
 	_rids.clear()
@@ -299,11 +315,9 @@ static func source_hash() -> String:
 	var table := classes().map(func(c: Dictionary) -> String:
 		return "%s|%d|%d|%d|%.1f|%s" % [c.name, c.cell, c.angles, c.anim, c.pitch, ",".join(c.ids)])
 	ctx.update(("\n".join(table) + "\nv%d" % BAKE_VERSION).to_utf8_buffer())
-	var ids := SpriteModels.GLB_SOURCES.keys()
-	ids.sort()
-	for id in ids:
+	for id in SpriteModels.glb_ids():
 		ctx.update(str(id).to_utf8_buffer())
-		ctx.update(FileAccess.get_file_as_bytes(str(SpriteModels.GLB_SOURCES[id].path)))
+		ctx.update(FileAccess.get_file_as_bytes(str(SpriteModels.glb_source(id).path)))
 	return ctx.finish().hex_encode()
 
 
@@ -403,6 +417,10 @@ static func _build_sheet(host: Node, sh: Dictionary) -> SubViewport:
 						var r := RenderingServer.instance_create2(pt.mesh, scenario)
 						RenderingServer.instance_set_transform(r, at * pt.xf)
 						RenderingServer.instance_geometry_set_material_override(r, pt.mat)
+						# PR F: CC0 models keep a material per surface
+						for si in pt.surf.size():
+							if pt.surf[si].is_valid():
+								RenderingServer.instance_set_surface_override_material(r, si, pt.surf[si])
 						_rids.append(r)
 			proto.rotation.y = 0.0
 			var holder := Node3D.new()
@@ -426,7 +444,12 @@ static func _mesh_parts(root: Node3D) -> Array[Dictionary]:
 			var xf: Transform3D = item[1] * (c as Node3D).transform
 			if c is MeshInstance3D and (c as MeshInstance3D).mesh != null:
 				var mi := c as MeshInstance3D
-				out.append({"mesh": mi.mesh.get_rid(), "xf": xf,
+				var surf: Array[RID] = []
+				if mi.material_override == null:
+					for si in mi.mesh.get_surface_count():
+						var sm := mi.get_surface_override_material(si)
+						surf.append(sm.get_rid() if sm else RID())
+				out.append({"mesh": mi.mesh.get_rid(), "xf": xf, "surf": surf,
 					"mat": mi.material_override.get_rid() if mi.material_override else RID()})
 			stack.append([c, xf])
 	return out
@@ -458,7 +481,8 @@ static func _slice(img: Image, sh: Dictionary) -> void:
 		elif SpriteModels.PICKUPS.has(id):
 			_pickups[id] = tex
 		else:
-			_sets[id] = {"angles": sh.angles, "anim": sh.anim, "tex": tex, "flash": flash}
+			_sets[id] = {"angles": sh.angles, "anim": sh.anim, "tex": tex, "flash": flash,
+				"view": SpriteModels.view_scale(id)}
 
 
 ## Hit flash: the sprite washed 70% toward white, original silhouette kept —

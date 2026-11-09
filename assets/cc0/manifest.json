@@ -13,15 +13,15 @@
       "use": "drone pilot source"
     },
     {
-      "name": "imperial",
+      "name": "executioner",
       "kind": "model",
-      "file": "quaternius_imperial.gltf",
+      "file": "quaternius_executioner.gltf",
       "url": "https://quaternius.com/packs/ultimatespaceships.html",
       "license": "CC0-1.0",
       "source": "Quaternius (Ultimate Spaceships)",
       "manual": true,
-      "from": "Ultimate Spaceships - May 2021/Imperial/glTF/Imperial.gltf",
-      "sha256": "389012d28270b859adb48ce12d1307af536f395ed734aafcb30f59ec8a9bb2e3",
+      "from": "Ultimate Spaceships - May 2021/Executioner/glTF/Executioner.gltf",
+      "sha256": "95dd08b854b0588480e91515949c5fd3e329ec856882e2b58b71e4cdc41348f9",
       "use": "boss pilot source"
     },
     {

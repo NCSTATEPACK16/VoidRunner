@@ -9,7 +9,8 @@ _Status: approved 2026-11-07. Picks up after v4 PR C. Hard rule 1 stays as writt
 | Track 0: v4 PR B, PR C | Done (PRs #20, #21); the bake cache was skipped (PR E replaces it) |
 | PR D: iOS + controller | Code in PR #22; waiting on the TestFlight pass (`docs/ios/TESTFLIGHT.md`) |
 | PR E: asset pipeline | Done (PR #23): rule change, CC0 tooling, GLB sources, prebaked atlases, SFX overrides, budgets, CI |
-| PR F, PR G | Not started |
+| PR F: content pilot | In review (PR #24): drone, hulk and the L3 boss from CC0 models at 16 angles × 4 frames, plus 5 CC0 sounds. Waiting on the user's A/B pick |
+| PR G | Not started |
 
 How PR E landed, and where it differs from the plan below:
 - **No CC0 files yet.** This container can't reach the CC0 hosts, so PR E ships the tooling
