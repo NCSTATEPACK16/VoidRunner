@@ -4001,6 +4001,30 @@ func _run() -> void:
 	SpriteModels.GLB_SOURCES.erase("smoke_cube")
 	SpriteModels.GLB_SOURCES.erase("smoke_bad")
 	print("GLB SOURCES ok — loaded raw, centred and fitted, studio-repainted, kit parts, bad file falls back")
+	# --- PR E: a crunched CC0 sound replaces its procedural slot ---
+	assert(AudioSys.overridden.is_empty())   # resources/sfx/ ships empty until PR F
+	var sx_dir := "user://smoke_sfx"
+	DirAccess.make_dir_recursive_absolute(sx_dir)
+	var sx_src := AudioStreamWAV.new()
+	sx_src.format = AudioStreamWAV.FORMAT_8_BITS
+	sx_src.mix_rate = 22050
+	var sx_bytes := PackedByteArray()
+	for sx_i in 2205:
+		sx_bytes.append(128 + int(60.0 * sin(sx_i * 0.125)))
+	sx_src.data = sx_bytes
+	assert(sx_src.save_to_wav(sx_dir.path_join("hit.wav")) == OK)
+	var sx_old: AudioStreamWAV = AudioSys._hit
+	var sx_old_tick: AudioStreamWAV = AudioSys._tick
+	AudioSys.apply_sfx_overrides(sx_dir)
+	assert(AudioSys.overridden.size() == 1 and AudioSys.overridden[0] == "hit")
+	assert(AudioSys._hit != sx_old and AudioSys._hit.format == AudioStreamWAV.FORMAT_8_BITS)
+	assert(is_equal_approx(AudioSys._hit.get_length(), 0.1))
+	assert(AudioSys._tick == sx_old_tick)   # slots without a file keep their procedural sound
+	AudioSys.play_hit()
+	AudioSys._hit = sx_old
+	AudioSys.overridden.clear()
+	DirAccess.remove_absolute(sx_dir.path_join("hit.wav"))
+	print("SFX OVERRIDES ok — a crunched 8-bit file replaces its slot, the rest stay procedural")
 	# --- PR E: the prebaked atlases (keep this block last: it swaps the headless sets) ---
 	var pb_man := SpriteForge.read_manifest()
 	assert(not pb_man.is_empty())   # resources/baked/manifest.json, this BAKE_VERSION

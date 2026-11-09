@@ -31,6 +31,19 @@ var _unlocked := false
 
 const MUSIC_DB := -13.0
 
+## PR E: CC0 sound effects, crunched by tools/crunch_sfx.py into SFX_DIR/<slot>.wav
+## (mono, 22.05 kHz, 8-bit), replace the procedural sound of the same slot at boot.
+## The procedural sounds stay as the fallback; the laser (pitched per weapon), the
+## engine loop and the style sting stay procedural. Keep in step with crunch_sfx.py.
+const SFX_DIR := "res://resources/sfx"
+const AUDIO_NAMES := {
+	"boom_small": "_boom_small", "boom_big": "_boom_big", "hit": "_hit", "select": "_select",
+	"overheat": "_overheat", "portal": "_portal", "clank": "_clank", "dodge": "_dodge",
+	"boost": "_boost", "bomb": "_bomb", "gib_tick": "_gib_tick", "powerup": "_powerup",
+	"warn": "_warn", "tick": "_tick", "stamp": "_stamp", "blip": "_blip", "confirm": "_confirm",
+}
+var overridden: Array[String] = []   # the slots a CC0 file replaced
+
 var _laser_cache := {}
 var _boom_small: AudioStreamWAV
 var _boom_big: AudioStreamWAV
@@ -84,6 +97,7 @@ func _ready() -> void:
 	_sting = _render_sting()
 	_powerup = _render_powerup()
 	_warn = _render_warn()
+	apply_sfx_overrides()
 	for i in 2:
 		var g := AudioStreamPlayer.new()
 		g.bus = "Master"
@@ -330,6 +344,23 @@ func _play(stream: AudioStreamWAV, pitch := 1.0) -> void:
 	p.stream = stream
 	p.pitch_scale = pitch   # always written — stings can't leak pitch into SFX
 	p.play()
+
+
+## Swap in every crunched CC0 file found in `dir`. A res:// file is the imported
+## stream; any other path (the tests) is read raw.
+func apply_sfx_overrides(dir := SFX_DIR) -> void:
+	for slot in AUDIO_NAMES:
+		var path: String = dir.path_join(slot + ".wav")
+		var stream: AudioStreamWAV = null
+		if path.begins_with("res://"):
+			if ResourceLoader.exists(path):
+				stream = load(path) as AudioStreamWAV
+		elif FileAccess.file_exists(path):
+			stream = AudioStreamWAV.load_from_file(path)
+		if stream != null:
+			set(AUDIO_NAMES[slot], stream)
+			if not overridden.has(slot):
+				overridden.append(slot)
 
 
 # ---------- synthesis ----------
