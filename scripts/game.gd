@@ -144,14 +144,17 @@ func _ready() -> void:
 	GameState.load_settings()   # Phase H: before overlays build so labels show saved values
 	GameState.load_records()    # Phase J: high score / best ranks / unlocked sector
 	# 3.0: turntable-render every enemy/boss/pickup sprite from its code-built model
-	# (one synchronous GPU pass; headless falls back to the pixel sprites). Before
+	# (one synchronous GPU pass; headless falls back to the pixel sprites). PR E: the
+	# atlases prebaked in resources/baked/ are loaded instead when they match. Before
 	# any manager exists — they pick their sprite sets up in _ready.
 	SpriteForge.bake(self)
 	if OS.has_feature("web"):   # v4b: what the bake cost on this device (vrReport shows it)
 		var gpu := "true" if SpriteForge.gpu_baked else "false"
+		var pre := "true" if SpriteForge.prebaked else "false"   # PR E: loaded, not rendered
 		JavaScriptBridge.eval("if (window.vrBoot) { window.vrBoot.bakeMs = %d;" % SpriteForge.bake_ms
-			+ " window.vrBoot.bakeGpu = %s; }" % gpu
-			+ " console.log('[vr] sprite bake %d ms gpu=%s');" % [SpriteForge.bake_ms, gpu], true)
+			+ " window.vrBoot.bakeGpu = %s; window.vrBoot.prebaked = %s; }" % [gpu, pre]
+			+ " console.log('[vr] sprite bake %d ms gpu=%s prebaked=%s');"
+				% [SpriteForge.bake_ms, gpu, pre], true)
 	for w in ["neutron", "scatter", "bolt", "missile"]:
 		weapons.append(load("res://resources/weapons/%s.tres" % w))
 		AudioSys.prerender_laser(weapons[-1].freq)   # no synth hitch on a first shot

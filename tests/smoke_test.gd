@@ -4001,6 +4001,29 @@ func _run() -> void:
 	SpriteModels.GLB_SOURCES.erase("smoke_cube")
 	SpriteModels.GLB_SOURCES.erase("smoke_bad")
 	print("GLB SOURCES ok — loaded raw, centred and fitted, studio-repainted, kit parts, bad file falls back")
+	# --- PR E: the prebaked atlases (keep this block last: it swaps the headless sets) ---
+	var pb_man := SpriteForge.read_manifest()
+	assert(not pb_man.is_empty())   # resources/baked/manifest.json, this BAKE_VERSION
+	if pb_man.get("source_hash") != SpriteForge.source_hash():
+		printerr("STALE SPRITE BAKE: sprite sources changed since resources/baked/ was baked."
+			+ " Rebake: xvfb-run -a godot --rendering-driver opengl3 tools/bake_sprites.tscn")
+	assert(pb_man.get("source_hash") == SpriteForge.source_hash())
+	for pb_sh in pb_man.sheets:
+		var pb_img := Image.new()
+		assert(pb_img.load_png_from_buffer(FileAccess.get_file_as_bytes(
+			SpriteForge.BAKED_DIR.path_join(str(pb_sh.file)))) == OK)
+		assert(pb_img.get_width() <= SpriteForge.MAX_SHEET_PX and pb_img.get_height() <= SpriteForge.MAX_SHEET_PX)
+		assert(pb_img.get_width() == int(pb_sh.angles) * int(pb_sh.cell))
+		assert(pb_img.get_height() == pb_sh.ids.size() * int(pb_sh.anim) * int(pb_sh.cell))
+	assert(SpriteForge.load_all_baked())   # decodes headless too
+	for pb_id in SpriteModels.ENEMIES + SpriteModels.BOSSES + SpriteModels.OBJECTS:
+		var pb_st: Dictionary = SpriteForge.sprite_set(pb_id)
+		assert(pb_st.angles == SpriteForge.ANGLES and pb_st.tex.size() == pb_st.angles * pb_st.anim)
+		assert(pb_st.flash.size() == pb_st.angles)
+	assert(SpriteForge.pickup_frames("keycard").size() == 8)
+	assert(not SpriteForge._load_baked(["enemies"], "user://no_such_dir"))   # missing: render instead
+	print("PREBAKED ATLASES ok — manifest current, %d sheets within %d px, all classes load" % [
+		pb_man.sheets.size(), SpriteForge.MAX_SHEET_PX])
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:
