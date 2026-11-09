@@ -3967,6 +3967,40 @@ func _run() -> void:
 		Vector2(320, 200)) == Rect2())
 	print("PAD ok — Nintendo/Xbox labels, mobile auto-enable, pause on loss, "
 		+ "LAUNCH press swallowed, safe-area insets")
+	# --- PR E: a glTF model as a sprite source, on a cube the test writes itself ---
+	var ge_fx = preload("res://tests/gltf_fixture.gd")
+	ge_fx.write_cube("user://smoke_cube.gltf", 4.0, Vector3(3, 1, 0))   # big and off-centre
+	assert(SpriteModels.load_glb("user://nope.glb") == null)
+	SpriteModels.GLB_SOURCES["smoke_cube"] = {"path": "user://smoke_cube.gltf", "col": "#c08040",
+		"yaw": 45.0, "kit": func(r: Node3D, _f: int) -> void:
+			SpriteModels.part(r, SpriteModels.box(0.2, 0.2, 0.2), SpriteModels.glow("#ffd060"),
+				Vector3(0, 0, 0.9))}
+	var ge_root := SpriteModels.build("smoke_cube", 0)
+	var ge_holder := ge_root.get_child(0) as Node3D
+	var ge_cube := SpriteModels.mesh_bounds(ge_holder)   # the cube in the holder's space
+	assert(is_equal_approx(ge_cube.size.x, 4.0))
+	assert((ge_holder.transform * ge_cube.get_center()).length() < 0.001)   # centred
+	assert(is_equal_approx(ge_holder.scale.x * ge_cube.size.length() * 0.5,
+		SpriteModels.FIT_RADIUS))                                           # fitted
+	assert(is_equal_approx(ge_holder.rotation_degrees.y, 45.0))
+	var ge_meshes := 0
+	var ge_stack: Array = [ge_root]
+	while not ge_stack.is_empty():
+		var ge_n: Node = ge_stack.pop_back()
+		if ge_n is MeshInstance3D:
+			ge_meshes += 1
+			var ge_mat := (ge_n as MeshInstance3D).material_override as ShaderMaterial
+			assert(ge_mat != null and ge_mat.shader == SpriteModels.STUDIO)   # studio-lit
+		ge_stack.append_array(ge_n.get_children())
+	assert(ge_meshes == 2)   # the cube plus the kit part
+	ge_root.free()
+	SpriteModels.GLB_SOURCES["smoke_bad"] = {"path": "user://nope.glb"}
+	var ge_bad := SpriteModels.build("smoke_bad", 0)   # a missing file stands in a drone
+	assert(ge_bad.get_child_count() > 0)
+	ge_bad.free()
+	SpriteModels.GLB_SOURCES.erase("smoke_cube")
+	SpriteModels.GLB_SOURCES.erase("smoke_bad")
+	print("GLB SOURCES ok — loaded raw, centred and fitted, studio-repainted, kit parts, bad file falls back")
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

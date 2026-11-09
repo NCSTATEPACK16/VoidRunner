@@ -23,9 +23,24 @@ const OBJECTS := ["generator", "reactor", "anchor"]
 
 static var _mats := {}
 
+## PR E: CC0 3D models as sprite sources (hard rule 1). id -> {
+##   path: the .glb/.gltf (normally res://assets/cc0/models/<file>, fetched by
+##     tools/fetch_cc0.py; read raw with GLTFDocument, so nothing is imported),
+##   col / chrome / glow: the studio material every surface gets, or
+##   paint: [col, pattern] for a TextureGen.hull_paint material,
+##   yaw (degrees), scale (on top of the fit), offset (Vector3, after the fit),
+##   kit: optional Callable(root: Node3D, frame: int) adding parts-kit pieces,
+## }. Every surface is overridden with a studio material, so CC0 and code-built
+## models share one lighting model and survive the palette pass. Empty until PR F.
+static var GLB_SOURCES := {}
+const FIT_RADIUS := 1.15
+
 
 static func build(id: String, frame: int) -> Node3D:
 	var root := Node3D.new()
+	if GLB_SOURCES.has(id):
+		_from_glb(root, id, frame)
+		return root
 	match id:
 		"drone": _drone(root, frame)
 		"weaver": _weaver(root, frame)
@@ -254,6 +269,76 @@ static func pipe(root: Node3D, a: Vector3, b: Vector3, r: float, mat: Material) 
 static func plate(root: Node3D, pos: Vector3, w: float, h: float, d: float, mat: Material,
 		rot := Vector3.ZERO) -> MeshInstance3D:
 	return part(root, taper(w, h, w * 0.86, h * 0.86, d), mat, pos, rot)
+
+
+## PR E: a CC0 model, fitted into FIT_RADIUS around the origin, every surface
+## repainted with the studio shader. A file that won't load stands in a drone, with
+## a warning, so a bad source never breaks the bake.
+static func _from_glb(root: Node3D, id: String, frame: int) -> void:
+	var src: Dictionary = GLB_SOURCES[id]
+	var scene := load_glb(str(src.path))
+	if scene == null:
+		push_warning("SpriteModels: %s: can't load %s; using the drone" % [id, src.path])
+		_drone(root, frame)
+		return
+	var mat: Material
+	if src.has("paint"):
+		mat = painted(str(src.paint[0]), str(src.paint[1]))
+	else:
+		mat = m(str(src.get("col", "#a8b0c0")), float(src.get("chrome", 0.3)),
+			float(src.get("glow", 0.0)))
+	_repaint(scene, mat)
+	var holder := Node3D.new()
+	holder.add_child(scene)
+	var box := mesh_bounds(scene)
+	var half := box.size.length() * 0.5
+	var k := (FIT_RADIUS / half if half > 0.0001 else 1.0) * float(src.get("scale", 1.0))
+	holder.scale = Vector3.ONE * k
+	holder.rotation_degrees.y = float(src.get("yaw", 0.0))
+	# basis already holds the scale and yaw: this puts the model's centre on the origin
+	holder.position = -(holder.basis * box.get_center()) + (src.get("offset", Vector3.ZERO) as Vector3)
+	root.add_child(holder)
+	var kit: Variant = src.get("kit")
+	if kit is Callable:
+		(kit as Callable).call(root, frame)
+
+
+## Reads a glTF/GLB file into a fresh node tree, or null.
+static func load_glb(path: String) -> Node3D:
+	if not FileAccess.file_exists(path):
+		return null
+	var doc := GLTFDocument.new()
+	var state := GLTFState.new()
+	if doc.append_from_file(path, state) != OK:
+		return null
+	return doc.generate_scene(state) as Node3D
+
+
+static func _repaint(n: Node, mat: Material) -> void:
+	if n is MeshInstance3D:
+		(n as MeshInstance3D).material_override = mat
+	for c in n.get_children():
+		_repaint(c, mat)
+
+
+## The bounds of every mesh under `root`, in root's space (root's own transform
+## left out), from the node transforms alone — the tree needn't be in the scene.
+static func mesh_bounds(root: Node3D) -> AABB:
+	var out := AABB()
+	var first := true
+	var stack: Array = [[root, Transform3D.IDENTITY]]
+	while not stack.is_empty():
+		var item: Array = stack.pop_back()
+		for c in (item[0] as Node).get_children():
+			if not (c is Node3D):
+				continue
+			var xf: Transform3D = item[1] * (c as Node3D).transform
+			if c is MeshInstance3D and (c as MeshInstance3D).mesh != null:
+				var b: AABB = xf * (c as MeshInstance3D).mesh.get_aabb()
+				out = b if first else out.merge(b)
+				first = false
+			stack.append([c, xf])
+	return out
 
 
 ## A studio material with a painted map from TextureGen.hull_paint: "panel" or
