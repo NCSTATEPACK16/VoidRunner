@@ -3967,6 +3967,87 @@ func _run() -> void:
 		Vector2(320, 200)) == Rect2())
 	print("PAD ok — Nintendo/Xbox labels, mobile auto-enable, pause on loss, "
 		+ "LAUNCH press swallowed, safe-area insets")
+	# --- PR E: a glTF model as a sprite source, on a cube the test writes itself ---
+	var ge_fx = preload("res://tests/gltf_fixture.gd")
+	ge_fx.write_cube("user://smoke_cube.gltf", 4.0, Vector3(3, 1, 0))   # big and off-centre
+	assert(SpriteModels.load_glb("user://nope.glb") == null)
+	SpriteModels.GLB_SOURCES["smoke_cube"] = {"path": "user://smoke_cube.gltf", "col": "#c08040",
+		"yaw": 45.0, "kit": func(r: Node3D, _f: int) -> void:
+			SpriteModels.part(r, SpriteModels.box(0.2, 0.2, 0.2), SpriteModels.glow("#ffd060"),
+				Vector3(0, 0, 0.9))}
+	var ge_root := SpriteModels.build("smoke_cube", 0)
+	var ge_holder := ge_root.get_child(0) as Node3D
+	var ge_cube := SpriteModels.mesh_bounds(ge_holder)   # the cube in the holder's space
+	assert(is_equal_approx(ge_cube.size.x, 4.0))
+	assert((ge_holder.transform * ge_cube.get_center()).length() < 0.001)   # centred
+	assert(is_equal_approx(ge_holder.scale.x * ge_cube.size.length() * 0.5,
+		SpriteModels.FIT_RADIUS))                                           # fitted
+	assert(is_equal_approx(ge_holder.rotation_degrees.y, 45.0))
+	var ge_meshes := 0
+	var ge_stack: Array = [ge_root]
+	while not ge_stack.is_empty():
+		var ge_n: Node = ge_stack.pop_back()
+		if ge_n is MeshInstance3D:
+			ge_meshes += 1
+			var ge_mat := (ge_n as MeshInstance3D).material_override as ShaderMaterial
+			assert(ge_mat != null and ge_mat.shader == SpriteModels.STUDIO)   # studio-lit
+		ge_stack.append_array(ge_n.get_children())
+	assert(ge_meshes == 2)   # the cube plus the kit part
+	ge_root.free()
+	SpriteModels.GLB_SOURCES["smoke_bad"] = {"path": "user://nope.glb"}
+	var ge_bad := SpriteModels.build("smoke_bad", 0)   # a missing file stands in a drone
+	assert(ge_bad.get_child_count() > 0)
+	ge_bad.free()
+	SpriteModels.GLB_SOURCES.erase("smoke_cube")
+	SpriteModels.GLB_SOURCES.erase("smoke_bad")
+	print("GLB SOURCES ok — loaded raw, centred and fitted, studio-repainted, kit parts, bad file falls back")
+	# --- PR E: a crunched CC0 sound replaces its procedural slot ---
+	assert(AudioSys.overridden.is_empty())   # resources/sfx/ ships empty until PR F
+	var sx_dir := "user://smoke_sfx"
+	DirAccess.make_dir_recursive_absolute(sx_dir)
+	var sx_src := AudioStreamWAV.new()
+	sx_src.format = AudioStreamWAV.FORMAT_8_BITS
+	sx_src.mix_rate = 22050
+	var sx_bytes := PackedByteArray()
+	for sx_i in 2205:
+		sx_bytes.append(128 + int(60.0 * sin(sx_i * 0.125)))
+	sx_src.data = sx_bytes
+	assert(sx_src.save_to_wav(sx_dir.path_join("hit.wav")) == OK)
+	var sx_old: AudioStreamWAV = AudioSys._hit
+	var sx_old_tick: AudioStreamWAV = AudioSys._tick
+	AudioSys.apply_sfx_overrides(sx_dir)
+	assert(AudioSys.overridden.size() == 1 and AudioSys.overridden[0] == "hit")
+	assert(AudioSys._hit != sx_old and AudioSys._hit.format == AudioStreamWAV.FORMAT_8_BITS)
+	assert(is_equal_approx(AudioSys._hit.get_length(), 0.1))
+	assert(AudioSys._tick == sx_old_tick)   # slots without a file keep their procedural sound
+	AudioSys.play_hit()
+	AudioSys._hit = sx_old
+	AudioSys.overridden.clear()
+	DirAccess.remove_absolute(sx_dir.path_join("hit.wav"))
+	print("SFX OVERRIDES ok — a crunched 8-bit file replaces its slot, the rest stay procedural")
+	# --- PR E: the prebaked atlases (keep this block last: it swaps the headless sets) ---
+	var pb_man := SpriteForge.read_manifest()
+	assert(not pb_man.is_empty())   # resources/baked/manifest.json, this BAKE_VERSION
+	if pb_man.get("source_hash") != SpriteForge.source_hash():
+		printerr("STALE SPRITE BAKE: sprite sources changed since resources/baked/ was baked."
+			+ " Rebake: xvfb-run -a godot --rendering-driver opengl3 tools/bake_sprites.tscn")
+	assert(pb_man.get("source_hash") == SpriteForge.source_hash())
+	for pb_sh in pb_man.sheets:
+		var pb_img := Image.new()
+		assert(pb_img.load_png_from_buffer(FileAccess.get_file_as_bytes(
+			SpriteForge.BAKED_DIR.path_join(str(pb_sh.file)))) == OK)
+		assert(pb_img.get_width() <= SpriteForge.MAX_SHEET_PX and pb_img.get_height() <= SpriteForge.MAX_SHEET_PX)
+		assert(pb_img.get_width() == int(pb_sh.angles) * int(pb_sh.cell))
+		assert(pb_img.get_height() == pb_sh.ids.size() * int(pb_sh.anim) * int(pb_sh.cell))
+	assert(SpriteForge.load_all_baked())   # decodes headless too
+	for pb_id in SpriteModels.ENEMIES + SpriteModels.BOSSES + SpriteModels.OBJECTS:
+		var pb_st: Dictionary = SpriteForge.sprite_set(pb_id)
+		assert(pb_st.angles == SpriteForge.ANGLES and pb_st.tex.size() == pb_st.angles * pb_st.anim)
+		assert(pb_st.flash.size() == pb_st.angles)
+	assert(SpriteForge.pickup_frames("keycard").size() == 8)
+	assert(not SpriteForge._load_baked(["enemies"], "user://no_such_dir"))   # missing: render instead
+	print("PREBAKED ATLASES ok — manifest current, %d sheets within %d px, all classes load" % [
+		pb_man.sheets.size(), SpriteForge.MAX_SHEET_PX])
 	print("SMOKE TEST COMPLETE")
 	for f in saved:
 		if saved[f] == null:

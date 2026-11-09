@@ -1,0 +1,79 @@
+{
+	"bake_version": 1,
+	"source_hash": "e28038a8ca966e9f88faf14e76bab598",
+	"sheets": [
+		{
+			"class": "enemies",
+			"file": "enemies_0.png",
+			"cell": 64,
+			"angles": 8,
+			"anim": 2,
+			"ids": [
+				"drone",
+				"weaver",
+				"hulk",
+				"turret",
+				"stinger",
+				"spinner",
+				"mine",
+				"layer",
+				"rammer",
+				"mender",
+				"splitter",
+				"wraith",
+				"crawler",
+				"warden",
+				"carrier"
+			]
+		},
+		{
+			"class": "pickups",
+			"file": "pickups_0.png",
+			"cell": 32,
+			"angles": 8,
+			"anim": 1,
+			"ids": [
+				"shield",
+				"energy",
+				"missile",
+				"bomb",
+				"salvage",
+				"overdrive",
+				"phase",
+				"powercore",
+				"keycard",
+				"switch",
+				"switch_on",
+				"pod",
+				"prop"
+			]
+		},
+		{
+			"class": "bosses",
+			"file": "bosses_0.png",
+			"cell": 128,
+			"angles": 8,
+			"anim": 2,
+			"ids": [
+				"sentinel",
+				"brood",
+				"maw",
+				"hauler",
+				"tender",
+				"gatewarden"
+			]
+		},
+		{
+			"class": "objects",
+			"file": "objects_0.png",
+			"cell": 64,
+			"angles": 8,
+			"anim": 2,
+			"ids": [
+				"generator",
+				"reactor",
+				"anchor"
+			]
+		}
+	]
+}

@@ -2,13 +2,32 @@
 
 _Status: approved 2026-11-07. Picks up after v4 PR C. Hard rule 1 stays as written until PR E lands._
 
-## Progress (2026-11-08)
+## Progress (2026-11-09)
 
 | Track | Status |
 |---|---|
 | Track 0: v4 PR B, PR C | Done (PRs #20, #21); the bake cache was skipped (PR E replaces it) |
 | PR D: iOS + controller | Code in PR #22; waiting on the TestFlight pass (`docs/ios/TESTFLIGHT.md`) |
-| PR E, PR F, PR G | Not started |
+| PR E: asset pipeline | Done (PR #23): rule change, CC0 tooling, GLB sources, prebaked atlases, SFX overrides, budgets, CI |
+| PR F, PR G | Not started |
+
+How PR E landed, and where it differs from the plan below:
+- **No CC0 files yet.** This container can't reach the CC0 hosts, so PR E ships the tooling
+  only, with empty `assets/cc0/manifest.json` and `resources/sfx/`. Tests run against files the
+  tests generate: a glTF cube, an 8-bit WAV, and `file://` fetches. PR F does the first real
+  fetch, on the Neo or after allow-listing the hosts.
+- **The bake runs under xvfb as well as on the Neo.** `tools/bake_sprites.tscn` needs a
+  renderer, not a window, so `xvfb-run` works in a Linux container. Its output is pixel-identical
+  to the boot render (the forge probe's `VR_FORGE_COMPARE=1`).
+- **Fidelity stays 8 angles × 2 frames for now,** but is set per class in
+  `SpriteForge.classes()`. PR F raises it for its pilot.
+- **GLB models are read raw** with `GLTFDocument`, not imported, and `assets/` has a
+  `.gdignore`. Nothing under `assets/` enters the project or the export.
+- **Sheets ship as `importer="keep"` PNGs** that the game decodes itself, so the same path works
+  headless and in the export.
+- **The stale-bake check is a source hash** in the manifest, verified by the smoke test. (It
+  needs Godot, so `check_budgets.py` doesn't do it.)
+- **Measured boot:** see `tests/perf_baseline.md`.
 
 How PR D's code landed, and where it differs from the plan below:
 - **Touch on native** turns on for `OS.has_feature("mobile")` only, not for every touchscreen,

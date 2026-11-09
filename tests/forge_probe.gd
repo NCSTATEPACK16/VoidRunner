@@ -11,6 +11,10 @@ func _ready() -> void:
 	if dir == "":
 		dir = ProjectSettings.globalize_path("user://shots")
 	DirAccess.make_dir_recursive_absolute(dir)
+	# PR E: VR_FORGE_RENDER=1 renders even with prebaked atlases present (the bake
+	# A/B); VR_FORGE_COMPARE=1 renders, then checks the prebaked sheets match it
+	var compare := OS.get_environment("VR_FORGE_COMPARE") == "1"
+	SpriteForge.render_only = compare or OS.get_environment("VR_FORGE_RENDER") == "1"
 	var t0 := Time.get_ticks_msec()
 	SpriteForge.bake(self)
 	print("[forge] baked in %d ms (bake_ms %d), %d sheets, gpu=%s" % [Time.get_ticks_msec() - t0,
@@ -46,5 +50,47 @@ func _ready() -> void:
 	pk.blend_rect(SpriteForge.prop_texture().get_image(), Rect2i(0, 0, 32, 32),
 		Vector2i(0, SpriteModels.PICKUPS.size() * 32))
 	pk.save_png(dir + "/forge_pickups.png")
+	print("[forge] prebaked=%s" % SpriteForge.prebaked)
+	if compare:
+		_compare_prebaked()
 	print("FORGE PROBE COMPLETE")
 	get_tree().quit()
+
+
+## Every rendered frame and flash, against the same cell of the prebaked sheets.
+func _compare_prebaked() -> void:
+	var rendered := {}
+	for id in SpriteModels.ENEMIES + SpriteModels.BOSSES + SpriteModels.OBJECTS:
+		rendered[id] = _images(SpriteForge.sprite_set(id))
+	for kind in SpriteModels.PICKUPS:
+		rendered[kind] = SpriteForge.pickup_frames(kind).map(func(t): return (t as Texture2D).get_image())
+	rendered["prop"] = [SpriteForge.prop_texture().get_image()]
+	var ok := SpriteForge.load_all_baked()
+	var bad: Array = []
+	var cells := 0
+	for id in rendered:
+		var now: Array
+		if SpriteModels.PICKUPS.has(id):
+			now = SpriteForge.pickup_frames(id).map(func(t): return (t as Texture2D).get_image())
+		elif id == "prop":
+			now = [SpriteForge.prop_texture().get_image()]
+		else:
+			now = _images(SpriteForge.sprite_set(id))
+		if now.size() != rendered[id].size():
+			bad.append("%s: %d frames, prebaked %d" % [id, rendered[id].size(), now.size()])
+			continue
+		for i in now.size():
+			cells += 1
+			if (now[i] as Image).get_data() != (rendered[id][i] as Image).get_data():
+				bad.append("%s frame %d" % [id, i])
+	if ok and bad.is_empty():
+		print("PREBAKE PARITY OK — %d cells identical to a fresh render" % cells)
+	else:
+		print("PREBAKE PARITY FAILED (loaded=%s): %s" % [ok, ", ".join(bad.slice(0, 12))])
+
+
+func _images(st: Dictionary) -> Array:
+	var out: Array = []
+	for t in st.tex + st.flash:
+		out.append((t as Texture2D).get_image())
+	return out

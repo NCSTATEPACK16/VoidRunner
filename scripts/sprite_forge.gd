@@ -30,6 +30,19 @@ const CELL_WORLD := 2.6   # world units one atlas cell spans
 ## support. A taller sprite class is split across several viewports.
 const MAX_SHEET_PX := 2048
 
+## PR E: the atlases are baked at build time by tools/bake_sprites.tscn into
+## BAKED_DIR (PNG sheets + manifest.json) and loaded instead of rendered. Bump
+## BAKE_VERSION when the sheet layout or slicing changes; the manifest's source hash
+## (source_hash) catches model edits that weren't rebaked (smoke + check_budgets).
+const BAKE_VERSION := 1
+const BAKED_DIR := "res://resources/baked"
+## The files whose content decides what the sprites look like.
+const SOURCE_FILES := ["res://scripts/sprite_models.gd", "res://shaders/studio.gdshader",
+	"res://scripts/texture_gen.gd"]
+
+static var prebaked := false     # true when the sets came from BAKED_DIR, not a render
+static var render_only := false  # tests: skip BAKED_DIR and render (the bake A/B, parity)
+static var _manifest := {}       # the loaded manifest (prebaked only)
 static var _sets := {}       # model id -> sprite set
 static var _pickups := {}    # pickup kind -> Array[ImageTexture] (spin frames)
 static var _prop: Array[ImageTexture] = []
@@ -44,6 +57,26 @@ static var _host: Node = null   # bake()'s host, reused by the deferred boss bak
 static var sheet_count := 0     # v4b: bake viewports used (0 on the pixel fallback)
 ## Bake-only RenderingServer instances (the angle copies), freed after readback.
 static var _rids: Array[RID] = []
+
+
+## PR E: every sprite class and its fidelity. `when` is when the boot path renders
+## it: boot, or deferred to the first boss / mission object of a level load. Angles,
+## anim frames and cell size are per class; PR F tunes them for its pilot.
+static func classes() -> Array:
+	return [
+		{"name": "enemies", "cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0,
+			"ids": SpriteModels.ENEMIES, "when": "boot"},
+		{"name": "pickups", "cell": 32, "angles": 8, "anim": 1, "pitch": 24.0,
+			"ids": SpriteModels.PICKUPS + ["prop"], "when": "boot"},
+		{"name": "bosses", "cell": 128, "angles": ANGLES, "anim": ANIM, "pitch": 10.0,
+			"ids": SpriteModels.BOSSES, "when": "boss"},
+		{"name": "objects", "cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0,
+			"ids": SpriteModels.OBJECTS, "when": "objects"},
+	]
+
+
+static func _classes_when(when: String) -> Array:
+	return classes().filter(func(c: Dictionary) -> bool: return c.when == when)
 
 
 ## Bake the enemy and pickup sprites. Call once, early, from a node inside the tree.
@@ -73,8 +106,10 @@ static func bake_bosses() -> void:
 	if host == null or not is_instance_valid(host) or not host.is_inside_tree():
 		host = (Engine.get_main_loop() as SceneTree).root
 	var t0 := Time.get_ticks_msec()
-	if not _bake_classes(host, [{"cell": 128, "angles": ANGLES, "anim": ANIM,
-			"pitch": 10.0, "ids": SpriteModels.BOSSES}]):
+	if prebaked and _load_baked(["bosses"]):
+		boss_bake_ms = Time.get_ticks_msec() - t0
+		return
+	if not _bake_classes(host, _classes_when("boss")):
 		push_warning("SpriteForge: boss atlas readback failed; using pixel fallback bosses")
 		_fallback_bosses()
 	boss_bake_ms = Time.get_ticks_msec() - t0
@@ -93,8 +128,10 @@ static func bake_objects() -> void:
 	if host == null or not is_instance_valid(host) or not host.is_inside_tree():
 		host = (Engine.get_main_loop() as SceneTree).root
 	var t0 := Time.get_ticks_msec()
-	if not _bake_classes(host, [{"cell": 64, "angles": ANGLES, "anim": ANIM,
-			"pitch": 14.0, "ids": SpriteModels.OBJECTS}]):
+	if prebaked and _load_baked(["objects"]):
+		objects_bake_ms = Time.get_ticks_msec() - t0
+		return
+	if not _bake_classes(host, _classes_when("objects")):
 		push_warning("SpriteForge: object atlas readback failed; using pixel fallback objects")
 		_fallback_objects()
 	objects_bake_ms = Time.get_ticks_msec() - t0
@@ -106,11 +143,12 @@ static func _bake(host: Node) -> void:
 		_bosses_baked = true
 		_objects_baked = true
 		return
-	if _bake_classes(host, [
-		{"cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0, "ids": SpriteModels.ENEMIES},
-		{"cell": 32, "angles": 8, "anim": 1, "pitch": 24.0,
-			"ids": SpriteModels.PICKUPS + ["prop"]},
-	]):
+	# PR E: the build-time atlases, when they match this build; else render them
+	if not render_only and _load_baked(["enemies", "pickups"]):
+		prebaked = true
+		gpu_baked = true
+		return
+	if _bake_classes(host, _classes_when("boot")):
 		gpu_baked = true
 	else:
 		push_warning("SpriteForge: atlas readback failed; using pixel fallback sprites")
@@ -124,12 +162,15 @@ static func _bake(host: Node) -> void:
 
 ## Renders and slices the given sprite classes in one synchronous GPU pass. False
 ## if a readback came back empty (the caller falls back to pixel sprites).
-static func _bake_classes(host: Node, classes: Array) -> bool:
+static func _bake_classes(host: Node, classes: Array, save_dir := "") -> bool:
 	var sheets: Array[Dictionary] = []
 	for cls in classes:
+		var chunk := 0
 		for ids in sheet_chunks(cls.ids, cls.cell, cls.anim):
 			var sh: Dictionary = cls.duplicate()
 			sh.ids = ids
+			sh.file = "%s_%d.png" % [cls.get("name", "sheet"), chunk]
+			chunk += 1
 			sheets.append(sh)
 	sheet_count += sheets.size()
 	var vps: Array[SubViewport] = []
@@ -151,6 +192,9 @@ static func _bake_classes(host: Node, classes: Array) -> bool:
 				vps[j].queue_free()
 			return false
 		img.convert(Image.FORMAT_RGBA8)
+		if save_dir != "":
+			img.save_png(save_dir.path_join(sheets[k].file))
+			_saved.append(_sheet_entry(sheets[k]))
 		_slice(img, sheets[k])
 	return true
 
@@ -162,6 +206,105 @@ static func sprite_set(id: String) -> Dictionary:
 	if not _objects_baked and SpriteModels.OBJECTS.has(id):
 		bake_objects()
 	return _sets.get(id, _sets["drone"])
+
+
+## PR E (tools/bake_sprites.tscn): render every class and write the sheets plus
+## manifest.json into `dir` (a filesystem path or res://). Needs a renderer.
+static var _saved: Array = []
+
+
+static func bake_to_disk(host: Node, dir: String) -> Dictionary:
+	_saved.clear()
+	DirAccess.make_dir_recursive_absolute(dir)
+	var t0 := Time.get_ticks_msec()
+	if not _bake_classes(host, classes(), dir):
+		return {}
+	var man := {"bake_version": BAKE_VERSION, "source_hash": source_hash(),
+		"sheets": _saved.duplicate(true)}
+	var f := FileAccess.open(dir.path_join("manifest.json"), FileAccess.WRITE)
+	f.store_string(JSON.stringify(man, "\t", false) + "\n")
+	f.close()
+	man["ms"] = Time.get_ticks_msec() - t0
+	return man
+
+
+static func _sheet_entry(sh: Dictionary) -> Dictionary:
+	return {"class": sh.get("name", ""), "file": sh.file, "cell": sh.cell,
+		"angles": sh.angles, "anim": sh.anim, "ids": sh.ids}
+
+
+## Load every class from the prebaked sheets over whatever is there (forge probe
+## parity, the smoke test). False if any class can't come from them.
+static func load_all_baked(dir := BAKED_DIR) -> bool:
+	_manifest = {}
+	return _load_baked(classes().map(func(c: Dictionary) -> String: return c.name), dir)
+
+
+## The parsed manifest in `dir`, or {} if it's missing or from another layout.
+static func read_manifest(dir := BAKED_DIR) -> Dictionary:
+	var path := dir.path_join("manifest.json")
+	if not FileAccess.file_exists(path):
+		return {}
+	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if not (data is Dictionary) or int((data as Dictionary).get("bake_version", -1)) != BAKE_VERSION:
+		return {}
+	return data
+
+
+## Slice the prebaked sheets of the named classes into the sets. False (and nothing
+## half-loaded is kept for those ids) if the manifest is missing, from another
+## BAKE_VERSION, doesn't cover a class's ids, or a sheet won't decode.
+static func _load_baked(names: Array, dir := BAKED_DIR) -> bool:
+	var man: Dictionary = _manifest if dir == BAKED_DIR and not _manifest.is_empty() \
+		else read_manifest(dir)
+	if dir == BAKED_DIR:
+		_manifest = man   # cached for the deferred boss / object loads
+	if man.is_empty():
+		return false
+	var want := classes().filter(func(c: Dictionary) -> bool: return names.has(c.name))
+	var todo: Array = []
+	for cls in want:
+		var covered := {}
+		for sh in man.get("sheets", []):
+			if sh.get("class") == cls.name:
+				todo.append(sh)
+				for id in sh.get("ids", []):
+					covered[id] = true
+		for id in cls.ids:
+			if not covered.has(id):
+				return false   # the manifest predates this sprite: render instead
+	var imgs: Array[Image] = []
+	for sh in todo:
+		var bytes := FileAccess.get_file_as_bytes(dir.path_join(str(sh.file)))
+		var img := Image.new()
+		if bytes.is_empty() or img.load_png_from_buffer(bytes) != OK:
+			return false
+		img.convert(Image.FORMAT_RGBA8)
+		imgs.append(img)
+	for i in todo.size():
+		var sh: Dictionary = todo[i]
+		_slice(imgs[i], {"cell": int(sh.cell), "angles": int(sh.angles), "anim": int(sh.anim),
+			"ids": sh.ids})
+	return true
+
+
+## PR E: md5 over everything that decides how the sprites look — the model and
+## shader sources, the class table and any CC0 model files. Dev-only (exported
+## scripts are compiled, so the hash only means something in a checkout).
+static func source_hash() -> String:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_MD5)
+	for path in SOURCE_FILES:
+		ctx.update(FileAccess.get_file_as_bytes(path))
+	var table := classes().map(func(c: Dictionary) -> String:
+		return "%s|%d|%d|%d|%.1f|%s" % [c.name, c.cell, c.angles, c.anim, c.pitch, ",".join(c.ids)])
+	ctx.update(("\n".join(table) + "\nv%d" % BAKE_VERSION).to_utf8_buffer())
+	var ids := SpriteModels.GLB_SOURCES.keys()
+	ids.sort()
+	for id in ids:
+		ctx.update(str(id).to_utf8_buffer())
+		ctx.update(FileAccess.get_file_as_bytes(str(SpriteModels.GLB_SOURCES[id].path)))
+	return ctx.finish().hex_encode()
 
 
 ## True once the boss sheet exists (warm-up lists include it only then).
