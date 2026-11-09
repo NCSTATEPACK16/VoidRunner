@@ -1,0 +1,75 @@
+# PR E: the gates that used to run only by hand. Netlify still builds and deploys;
+# this checks every push to main and every pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot and export templates
+        uses: actions/cache@v4
+        with:
+          path: |
+            bin
+            ~/.local/share/godot/export_templates
+          key: godot-4.7-${{ hashFiles('build.sh') }}
+
+      - name: Tools (ffmpeg for the SFX self-test)
+        run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+
+      - name: Python self-tests
+        run: |
+          python3 tools/fetch_cc0.py --self-test
+          python3 tools/crunch_sfx.py --self-test
+
+      # build.sh: download Godot + web templates, import, paint the icons, export dist/
+      - name: Import and web export
+        run: ./build.sh
+
+      # Asserts in headless Godot hang instead of exiting, so the run is bounded by
+      # timeout and judged by its log.
+      - name: Smoke test
+        run: |
+          timeout 1500 bin/Godot_v4.7-stable_linux.x86_64 --headless tests/smoke_test.tscn > smoke.log 2>&1 || true
+          grep -E "SCRIPT ERROR|Parse Error" -A6 smoke.log && exit 1
+          grep -q "SMOKE TEST COMPLETE" smoke.log || { tail -40 smoke.log; exit 1; }
+          echo "smoke: complete, no script errors"
+
+      - name: Campaign probe
+        run: |
+          timeout 900 bin/Godot_v4.7-stable_linux.x86_64 --headless tests/campaign_probe.tscn > campaign.log 2>&1 || true
+          grep -E "SCRIPT ERROR|Parse Error" -A6 campaign.log && exit 1
+          grep "CAMPAIGN PROBE COMPLETE" campaign.log || { tail -40 campaign.log; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Web check (headless Chromium, SwiftShader)
+        run: |
+          npm install --no-save --no-package-lock playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node tests/web_check.mjs web-out dist | tee web.log
+
+      - name: Asset budgets
+        run: python3 tools/check_budgets.py --web-log web.log
+
+      - name: Keep the logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-logs
+          path: |
+            smoke.log
+            campaign.log
+            web.log
+            web-out/
+          if-no-files-found: ignore

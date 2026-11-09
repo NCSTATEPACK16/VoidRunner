@@ -22,3 +22,6 @@ radix*
 # macOS
 .DS_Store
 .certs/
+
+# CI / local web-check installs
+node_modules/
