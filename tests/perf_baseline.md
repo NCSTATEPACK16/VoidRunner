@@ -371,3 +371,26 @@ Input and export settings only; no world, sprite or render code changed.
 Headless: L8 rail worst step 1.5 ms (0 spikes over 8 ms); the campaign probe finished L1→L9 in
 33 s. The iOS export (a trial with a placeholder Team ID) wrote an Xcode project with a 0.46 MB
 `.pck`.
+
+## PR E: prebaked sprite atlases (2026-11-09)
+
+The sprites are now baked at build time (`tools/bake_sprites.tscn`) and sliced at boot. The
+same container ran `main` (a6cce17) and this PR alternately, 2 rounds of `web_check.mjs` each:
+
+| Run | `main` | This PR |
+|---|---|---|
+| Web sprite bake (SwiftShader) | 1090 / 1027 ms | 87 / 112 ms (prebaked) |
+| Web title up | 5.53 / 5.48 s | 4.53 / 4.89 s |
+| Web first flight (L1) | 19.9 / 19.6 s | 18.7 / 19.5 s |
+| Web `.pck` | 0.46 MB | 1.59 MB (+1.14 MB of PNG sheets) |
+| Forge probe, boot sprites (xvfb, llvmpipe) | 222 ms rendered | 37 ms loaded |
+| Deferred boss / objects sheet (xvfb) | 167 / 42 ms rendered | 50 / 7 ms loaded |
+
+- `VR_FORGE_COMPARE=1` forge probe: PREBAKE PARITY OK, 673 cells identical to a fresh render.
+- Headless: L8 rail worst step 4.2 ms (0 spikes over 8 ms). The campaign probe finished L1→L9
+  in 32 s. FX PARITY OK (`opengl3`). The screenshot probe completed with 0 script or shader
+  errors.
+- The trade: about 1 s less boot on software GL, for 1.1 MB more download. On a real GPU the
+  render was already about 300 ms, so the saving is smaller there and the download matters
+  more. Step 7's device pass should time both. PR F's higher angle and frame counts spend from
+  the 2 MB PNG budget (`docs/ASSET_BUDGETS.md`).
