@@ -25,3 +25,6 @@ radix*
 
 # CI / local web-check installs
 node_modules/
+
+# Python bytecode (tools/)
+__pycache__/

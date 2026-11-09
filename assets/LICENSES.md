@@ -21,3 +21,11 @@ CC0 needs no attribution. The source of each file is credited here anyway.
 
 | File | Kind | Source | URL | License | Fetched | sha256 |
 |---|---|---|---|---|---|---|
+| `cc0/models/quaternius_striker.gltf` | model | Quaternius (Ultimate Spaceships) | https://quaternius.com/packs/ultimatespaceships.html | CC0-1.0 | 2026-11-09 | `2f6c4b1d16f11d5ce02833c5841ff17e19700418c83e52501ed29e3c2bc79359` |
+| `cc0/models/quaternius_imperial.gltf` | model | Quaternius (Ultimate Spaceships) | https://quaternius.com/packs/ultimatespaceships.html | CC0-1.0 | 2026-11-09 | `389012d28270b859adb48ce12d1307af536f395ed734aafcb30f59ec8a9bb2e3` |
+| `cc0/models/quaternius_mech_leela.gltf` | model | Quaternius (Animated Mech Pack, Flat Colors) | https://quaternius.com/packs/animatedmech.html | CC0-1.0 | 2026-11-09 | `98e08e4fa3e5fcfec4b639a4922e78fa25c46d985993419955f9a13b725ae652` |
+| `cc0/sfx/kenney_explosion_crunch_000.ogg` | sfx | Kenney (Sci-fi Sounds) | https://kenney.nl/assets/sci-fi-sounds | CC0-1.0 | 2026-11-09 | `4b597d658d0ae101f0a030fbeea5fc3a4292ab85f017470a8254a8e7959cbd69` |
+| `cc0/sfx/kenney_low_frequency_explosion_000.ogg` | sfx | Kenney (Sci-fi Sounds) | https://kenney.nl/assets/sci-fi-sounds | CC0-1.0 | 2026-11-09 | `3cb48d86dab63140cfb9aaeea4d4a6846abaca5831d157d8adbec0490da26343` |
+| `cc0/sfx/kenney_impact_metal_light_000.ogg` | sfx | Kenney (Impact Sounds) | https://kenney.nl/assets/impact-sounds | CC0-1.0 | 2026-11-09 | `33b5e6e37c6e9d54e07bf5a89b12c76e879f40c1ea83cdd82714df1d6f9fec6d` |
+| `cc0/sfx/kenney_impact_metal_heavy_000.ogg` | sfx | Kenney (Impact Sounds) | https://kenney.nl/assets/impact-sounds | CC0-1.0 | 2026-11-09 | `e07045693e4a2b3d165c424e3dab4c781d9ff8880a386880ac89a51315d7f831` |
+| `cc0/sfx/kenney_confirmation_001.ogg` | sfx | Kenney (Interface Sounds) | https://kenney.nl/assets/interface-sounds | CC0-1.0 | 2026-11-09 | `063564703b6094d70718a3e787a55cc9141611e4ecd6b6637f8828f79b4a8c3a` |

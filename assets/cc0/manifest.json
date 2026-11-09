@@ -1,3 +1,100 @@
 {
-  "files": []
+  "files": [
+    {
+      "name": "striker",
+      "kind": "model",
+      "file": "quaternius_striker.gltf",
+      "url": "https://quaternius.com/packs/ultimatespaceships.html",
+      "license": "CC0-1.0",
+      "source": "Quaternius (Ultimate Spaceships)",
+      "manual": true,
+      "from": "Ultimate Spaceships - May 2021/Striker/glTF/Striker.gltf",
+      "sha256": "2f6c4b1d16f11d5ce02833c5841ff17e19700418c83e52501ed29e3c2bc79359",
+      "use": "drone pilot source"
+    },
+    {
+      "name": "imperial",
+      "kind": "model",
+      "file": "quaternius_imperial.gltf",
+      "url": "https://quaternius.com/packs/ultimatespaceships.html",
+      "license": "CC0-1.0",
+      "source": "Quaternius (Ultimate Spaceships)",
+      "manual": true,
+      "from": "Ultimate Spaceships - May 2021/Imperial/glTF/Imperial.gltf",
+      "sha256": "389012d28270b859adb48ce12d1307af536f395ed734aafcb30f59ec8a9bb2e3",
+      "use": "boss pilot source"
+    },
+    {
+      "name": "mech_leela",
+      "kind": "model",
+      "file": "quaternius_mech_leela.gltf",
+      "url": "https://quaternius.com/packs/animatedmech.html",
+      "license": "CC0-1.0",
+      "source": "Quaternius (Animated Mech Pack, Flat Colors)",
+      "manual": true,
+      "from": "Animated Mech Pack - March 2021/Flat Colors/glTF/Leela.gltf",
+      "sha256": "98e08e4fa3e5fcfec4b639a4922e78fa25c46d985993419955f9a13b725ae652",
+      "use": "hulk pilot source"
+    },
+    {
+      "name": "sfx_explosion_crunch",
+      "kind": "sfx",
+      "file": "kenney_explosion_crunch_000.ogg",
+      "url": "https://kenney.nl/assets/sci-fi-sounds",
+      "license": "CC0-1.0",
+      "source": "Kenney (Sci-fi Sounds)",
+      "manual": true,
+      "from": "Audio/explosionCrunch_000.ogg",
+      "sha256": "4b597d658d0ae101f0a030fbeea5fc3a4292ab85f017470a8254a8e7959cbd69",
+      "slot": "boom_small"
+    },
+    {
+      "name": "sfx_low_explosion",
+      "kind": "sfx",
+      "file": "kenney_low_frequency_explosion_000.ogg",
+      "url": "https://kenney.nl/assets/sci-fi-sounds",
+      "license": "CC0-1.0",
+      "source": "Kenney (Sci-fi Sounds)",
+      "manual": true,
+      "from": "Audio/lowFrequency_explosion_000.ogg",
+      "sha256": "3cb48d86dab63140cfb9aaeea4d4a6846abaca5831d157d8adbec0490da26343",
+      "slot": "boom_big"
+    },
+    {
+      "name": "sfx_metal_light",
+      "kind": "sfx",
+      "file": "kenney_impact_metal_light_000.ogg",
+      "url": "https://kenney.nl/assets/impact-sounds",
+      "license": "CC0-1.0",
+      "source": "Kenney (Impact Sounds)",
+      "manual": true,
+      "from": "Audio/impactMetal_light_000.ogg",
+      "sha256": "33b5e6e37c6e9d54e07bf5a89b12c76e879f40c1ea83cdd82714df1d6f9fec6d",
+      "slot": "hit"
+    },
+    {
+      "name": "sfx_metal_heavy",
+      "kind": "sfx",
+      "file": "kenney_impact_metal_heavy_000.ogg",
+      "url": "https://kenney.nl/assets/impact-sounds",
+      "license": "CC0-1.0",
+      "source": "Kenney (Impact Sounds)",
+      "manual": true,
+      "from": "Audio/impactMetal_heavy_000.ogg",
+      "sha256": "e07045693e4a2b3d165c424e3dab4c781d9ff8880a386880ac89a51315d7f831",
+      "slot": "clank"
+    },
+    {
+      "name": "sfx_confirmation",
+      "kind": "sfx",
+      "file": "kenney_confirmation_001.ogg",
+      "url": "https://kenney.nl/assets/interface-sounds",
+      "license": "CC0-1.0",
+      "source": "Kenney (Interface Sounds)",
+      "manual": true,
+      "from": "Audio/confirmation_001.ogg",
+      "sha256": "063564703b6094d70718a3e787a55cc9141611e4ecd6b6637f8828f79b4a8c3a",
+      "slot": "select"
+    }
+  ]
 }

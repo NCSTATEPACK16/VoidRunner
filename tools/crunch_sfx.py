@@ -53,7 +53,17 @@ def crunch(src, dest):
     cmd = [ffmpeg(), "-v", "error", "-y", "-i", src, "-af", FILTER,
            "-ac", "1", "-ar", str(RATE), "-c:a", "pcm_u8", dest]
     subprocess.run(cmd, check=True)
+    write_import(dest)
     return describe(dest)
+
+
+# Godot's default WAV import re-compresses to QOA; keep the crunched 8-bit PCM as is
+IMPORT = "[remap]\n\nimporter=\"wav\"\n\n[params]\n\nforce/8_bit=true\nforce/mono=true\ncompress/mode=0\n"
+
+
+def write_import(dest):
+    with open(dest + ".import", "w") as f:
+        f.write(IMPORT)
 
 
 def describe(path):
@@ -102,6 +112,7 @@ def self_test():
         info = crunch(src, dest)
         assert info["channels"] == 1 and info["rate"] == RATE and info["bits"] == 8, info
         assert 0.4 < info["seconds"] < 0.75, info   # the silence either side is trimmed
+        assert "compress/mode=0" in open(dest + ".import").read()
         lic = os.path.join(td, "LICENSES.md")
         with open(lic, "w") as f:
             f.write("| `cc0/sfx/tone.wav` | sfx | test | file:// | CC0-1.0 | today | `x` |\n")

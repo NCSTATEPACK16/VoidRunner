@@ -4002,7 +4002,13 @@ func _run() -> void:
 	SpriteModels.GLB_SOURCES.erase("smoke_bad")
 	print("GLB SOURCES ok — loaded raw, centred and fitted, studio-repainted, kit parts, bad file falls back")
 	# --- PR E: a crunched CC0 sound replaces its procedural slot ---
-	assert(AudioSys.overridden.is_empty())   # resources/sfx/ ships empty until PR F
+	# PR F: the pilot's crunched CC0 sounds are live in these five slots
+	for sx_slot in ["boom_small", "boom_big", "hit", "clank", "select"]:
+		assert(AudioSys.overridden.has(sx_slot))
+		var sx_w: AudioStreamWAV = AudioSys.get(AudioSys.AUDIO_NAMES[sx_slot])
+		assert(sx_w.format == AudioStreamWAV.FORMAT_8_BITS and sx_w.mix_rate == 22050 and not sx_w.stereo)
+	var sx_live: Array[String] = AudioSys.overridden.duplicate()
+	AudioSys.overridden.clear()
 	var sx_dir := "user://smoke_sfx"
 	DirAccess.make_dir_recursive_absolute(sx_dir)
 	var sx_src := AudioStreamWAV.new()
@@ -4022,7 +4028,7 @@ func _run() -> void:
 	assert(AudioSys._tick == sx_old_tick)   # slots without a file keep their procedural sound
 	AudioSys.play_hit()
 	AudioSys._hit = sx_old
-	AudioSys.overridden.clear()
+	AudioSys.overridden = sx_live
 	DirAccess.remove_absolute(sx_dir.path_join("hit.wav"))
 	print("SFX OVERRIDES ok — a crunched 8-bit file replaces its slot, the rest stay procedural")
 	# --- PR E: the prebaked atlases (keep this block last: it swaps the headless sets) ---
