@@ -4002,7 +4002,13 @@ func _run() -> void:
 	SpriteModels.GLB_SOURCES.erase("smoke_bad")
 	print("GLB SOURCES ok — loaded raw, centred and fitted, studio-repainted, kit parts, bad file falls back")
 	# --- PR E: a crunched CC0 sound replaces its procedural slot ---
-	assert(AudioSys.overridden.is_empty())   # resources/sfx/ ships empty until PR F
+	# PR F: the pilot's crunched CC0 sounds are live in these five slots
+	for sx_slot in ["boom_small", "boom_big", "hit", "clank", "select"]:
+		assert(AudioSys.overridden.has(sx_slot))
+		var sx_w: AudioStreamWAV = AudioSys.get(AudioSys.AUDIO_NAMES[sx_slot])
+		assert(sx_w.format == AudioStreamWAV.FORMAT_8_BITS and sx_w.mix_rate == 22050 and not sx_w.stereo)
+	var sx_live: Array[String] = AudioSys.overridden.duplicate()
+	AudioSys.overridden.clear()
 	var sx_dir := "user://smoke_sfx"
 	DirAccess.make_dir_recursive_absolute(sx_dir)
 	var sx_src := AudioStreamWAV.new()
@@ -4022,7 +4028,7 @@ func _run() -> void:
 	assert(AudioSys._tick == sx_old_tick)   # slots without a file keep their procedural sound
 	AudioSys.play_hit()
 	AudioSys._hit = sx_old
-	AudioSys.overridden.clear()
+	AudioSys.overridden = sx_live
 	DirAccess.remove_absolute(sx_dir.path_join("hit.wav"))
 	print("SFX OVERRIDES ok — a crunched 8-bit file replaces its slot, the rest stay procedural")
 	# --- PR E: the prebaked atlases (keep this block last: it swaps the headless sets) ---
@@ -4042,11 +4048,15 @@ func _run() -> void:
 	assert(SpriteForge.load_all_baked())   # decodes headless too
 	for pb_id in SpriteModels.ENEMIES + SpriteModels.BOSSES + SpriteModels.OBJECTS:
 		var pb_st: Dictionary = SpriteForge.sprite_set(pb_id)
-		assert(pb_st.angles == SpriteForge.ANGLES and pb_st.tex.size() == pb_st.angles * pb_st.anim)
-		assert(pb_st.flash.size() == pb_st.angles)
+		var pb_pilot: bool = SpriteModels.PILOT.has(pb_id)   # PR F: the CC0 pilot is 16 x 4
+		assert(pb_st.angles == (SpriteModels.PILOT_ANGLES if pb_pilot else SpriteForge.ANGLES))
+		assert(pb_st.anim == (SpriteModels.PILOT_ANIM if pb_pilot else SpriteForge.ANIM))
+		assert(pb_st.tex.size() == pb_st.angles * pb_st.anim and pb_st.flash.size() == pb_st.angles)
+		assert(is_equal_approx(float(pb_st.view), SpriteModels.view_scale(pb_id)))
+	assert(SpriteModels.view_scale("drone") > 1.0 and SpriteModels.view_scale("weaver") == 1.0)
 	assert(SpriteForge.pickup_frames("keycard").size() == 8)
 	assert(not SpriteForge._load_baked(["enemies"], "user://no_such_dir"))   # missing: render instead
-	print("PREBAKED ATLASES ok — manifest current, %d sheets within %d px, all classes load" % [
+	print("PREBAKED ATLASES ok — manifest current, %d sheets within %d px, all classes load (pilot 16x4)" % [
 		pb_man.sheets.size(), SpriteForge.MAX_SHEET_PX])
 	print("SMOKE TEST COMPLETE")
 	for f in saved:

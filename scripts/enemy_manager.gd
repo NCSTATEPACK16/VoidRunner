@@ -332,7 +332,9 @@ func spawn(ring_idx: int, arena_id: int, type_id := "drone", force := false) -> 
 	# v4b: a heavy wears its base type's sprite set, tinted
 	var st: Dictionary = _sets.get(base_type(type_id), _sets["drone"])
 	var ring: Dictionary = path.rings[ring_idx]
-	var sprite := _acquire_node(st.tex[0], t.size)
+	# PR F: a CC0 pilot sprite carries a draw scale (its silhouette is slimmer than the
+	# code-built model it replaces); the hit radius is unchanged
+	var sprite := _acquire_node(st.tex[0], t.size * float(st.get("view", 1.0)))
 	var pos: Vector3 = ring.p \
 		+ ring.r * (randf_range(-1.0, 1.0) * ring.hw * 0.5) \
 		+ ring.u * (randf_range(-1.0, 1.0) * ring.hh * 0.4)
@@ -467,7 +469,7 @@ func _boss_dict(ring_idx: int, model: String, hp: int, size: float, tint: Color,
 		_sets[model] = SpriteForge.sprite_set(
 			model if SpriteModels.BOSSES.has(model) else "sentinel")
 	var st: Dictionary = _sets[model]
-	var sprite := _acquire_node(st.tex[0], size)
+	var sprite := _acquire_node(st.tex[0], size * float(st.get("view", 1.0)))   # PR F (hit_r2 keeps size)
 	sprite.modulate = tint
 	sprite.position = ring.p
 	return {
@@ -520,14 +522,15 @@ func update_enemies(delta: float) -> void:
 	for k in range(enemies.size() - 1, -1, -1):
 		var e: Dictionary = enemies[k]
 		var node: Sprite3D = e.node
-		# sprite animation: 2-frame idle cycle; the hit flash overrides briefly
+		# sprite animation: the set's idle cycle; the hit flash overrides briefly
 		# (3.0: the texture itself is chosen by _skin once facing is known)
 		e.anim_t += delta
 		if e.flash_t > 0.0:
 			e.flash_t -= delta
-		elif e.anim_t >= FRAME_TIME:
+		elif e.anim_t >= FRAME_TIME * 2.0 / float(e.skin.anim):
+			# PR F: a set's own frame count (the CC0 pilot has 4); the cycle stays 0.5 s
 			e.anim_t = 0.0
-			e.frame = (e.frame + 1) % 2
+			e.frame = (e.frame + 1) % int(e.skin.anim)
 		e.bob_p += delta * 2.0
 		if e.ring != e.lit_ring:   # 3.0: re-sample the sector light on ring change
 			e.lit_ring = e.ring

@@ -23,5 +23,11 @@ radix*
 .DS_Store
 .certs/
 
+# isolated agent worktrees (local only)
+.worktrees/
+
 # CI / local web-check installs
 node_modules/
+
+# Python bytecode (tools/)
+__pycache__/

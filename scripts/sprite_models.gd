@@ -30,16 +30,68 @@ static var _mats := {}
 ##   paint: [col, pattern] for a TextureGen.hull_paint material,
 ##   yaw (degrees), scale (on top of the fit), offset (Vector3, after the fit),
 ##   kit: optional Callable(root: Node3D, frame: int) adding parts-kit pieces,
-## }. Every surface is overridden with a studio material, so CC0 and code-built
-## models share one lighting model and survive the palette pass. Empty until PR F.
+##   thrust / lamp: a glow colour at the back centre (engines) or high on the front
+##     (a visor), pulsing across the anim frames,
+## }. Every surface gets a studio material, so CC0 and code-built models share one
+## lighting model and survive the palette pass. With no col/paint, each surface keeps
+## its own colour, and a textured surface carries its texture in the studio shader's
+## `decal` slot. Tests register sources here; the PR F pilot lives in PILOT.
 static var GLB_SOURCES := {}
 const FIT_RADIUS := 1.15
+
+## PR F: the CC0 content pilot. These ids are built from CC0 models (the files are
+## pinned in assets/cc0/manifest.json) and baked at 16 angles x 4 frames in their own
+## SpriteForge classes (see SpriteForge.classes). pilot_on = false restores the
+## code-built models, for the A/B and as the fallback the pilot is judged against.
+const CC0_MODELS := "res://assets/cc0/models/"
+## `view` is the in-game draw scale: long, flat ships fill far less of their cell than
+## the round code-built models, so they're drawn bigger to keep today's on-screen
+## footprint. It changes only the picture; hit radii stay as they are.
+const PILOT := {
+	"drone": {"path": CC0_MODELS + "quaternius_striker.gltf", "thrust": "ff7020", "view": 1.4},
+	"hulk": {"path": CC0_MODELS + "quaternius_mech_leela.gltf", "lamp": "ff2a20", "view": 1.3},
+	"sentinel": {"path": CC0_MODELS + "quaternius_executioner.gltf", "thrust": "40c8f0", "view": 1.35},
+}
+const PILOT_ANGLES := 16
+const PILOT_ANIM := 4
+static var pilot_on := true
+
+
+## The CC0 source for a sprite id, or {} when it's code-built.
+static func glb_source(id: String) -> Dictionary:
+	if GLB_SOURCES.has(id):
+		return GLB_SOURCES[id]
+	if pilot_on and PILOT.has(id):
+		return PILOT[id]
+	return {}
+
+
+## The in-game draw scale for a sprite id (1.0 unless it's a CC0 pilot sprite).
+static func view_scale(id: String) -> float:
+	return float(glb_source(id).get("view", 1.0))
+
+
+## Every id currently built from a CC0 model, sorted (SpriteForge hashes their files).
+static func glb_ids() -> Array:
+	var ids := GLB_SOURCES.keys()
+	if pilot_on:
+		for id in PILOT:
+			if not ids.has(id):
+				ids.append(id)
+	ids.sort()
+	return ids
+
+
+## The pilot ids among `ids` (empty while the pilot is off).
+static func pilot_ids(ids: Array) -> Array:
+	return ids.filter(func(id: String) -> bool: return pilot_on and PILOT.has(id)) if pilot_on else []
 
 
 static func build(id: String, frame: int) -> Node3D:
 	var root := Node3D.new()
-	if GLB_SOURCES.has(id):
-		_from_glb(root, id, frame)
+	var src := glb_source(id)
+	if not src.is_empty():
+		_from_glb(root, id, frame, src)
 		return root
 	match id:
 		"drone": _drone(root, frame)
@@ -274,20 +326,18 @@ static func plate(root: Node3D, pos: Vector3, w: float, h: float, d: float, mat:
 ## PR E: a CC0 model, fitted into FIT_RADIUS around the origin, every surface
 ## repainted with the studio shader. A file that won't load stands in a drone, with
 ## a warning, so a bad source never breaks the bake.
-static func _from_glb(root: Node3D, id: String, frame: int) -> void:
-	var src: Dictionary = GLB_SOURCES[id]
+static func _from_glb(root: Node3D, id: String, frame: int, src: Dictionary) -> void:
 	var scene := load_glb(str(src.path))
 	if scene == null:
 		push_warning("SpriteModels: %s: can't load %s; using the drone" % [id, src.path])
 		_drone(root, frame)
 		return
-	var mat: Material
 	if src.has("paint"):
-		mat = painted(str(src.paint[0]), str(src.paint[1]))
+		_repaint(scene, painted(str(src.paint[0]), str(src.paint[1])))
+	elif src.has("col"):
+		_repaint(scene, m(str(src.col), float(src.get("chrome", 0.3)), float(src.get("glow", 0.0))))
 	else:
-		mat = m(str(src.get("col", "#a8b0c0")), float(src.get("chrome", 0.3)),
-			float(src.get("glow", 0.0)))
-	_repaint(scene, mat)
+		_repaint_keep(scene, float(src.get("chrome", 0.3)))
 	var holder := Node3D.new()
 	holder.add_child(scene)
 	var box := mesh_bounds(scene)
@@ -297,21 +347,47 @@ static func _from_glb(root: Node3D, id: String, frame: int) -> void:
 	holder.rotation_degrees.y = float(src.get("yaw", 0.0))
 	# basis already holds the scale and yaw: this puts the model's centre on the origin
 	holder.position = -(holder.basis * box.get_center()) + (src.get("offset", Vector3.ZERO) as Vector3)
+	# PR F: a gentle bob across the idle frames, so 4 frames aren't 4 copies
+	holder.position.y += 0.035 * sin(frame * PI * 0.5)
 	root.add_child(holder)
+	var fit: AABB = holder.transform * box   # the model's box in root space
+	var pulse: float = [0.75, 0.9, 1.0, 0.9][frame % 4]
+	if src.has("thrust"):
+		part(root, sphere(0.05 + 0.03 * pulse), m(str(src.thrust), 0.0, pulse, 28.0, 0.0, 0.0),
+			Vector3(fit.get_center().x, fit.get_center().y, fit.position.z + 0.04))
+	if src.has("lamp"):
+		part(root, sphere(0.045 + 0.02 * pulse), m(str(src.lamp), 0.0, pulse, 28.0, 0.0, 0.0),
+			Vector3(fit.get_center().x, fit.end.y - fit.size.y * 0.22, fit.end.z - 0.02))
 	var kit: Variant = src.get("kit")
 	if kit is Callable:
 		(kit as Callable).call(root, frame)
 
 
-## Reads a glTF/GLB file into a fresh node tree, or null.
+## Reads a glTF/GLB file into a fresh node tree, or null. Each file is parsed once
+## per run (the pilot's files are several MB of embedded data, and a model is built
+## once per anim frame); every call gets its own copy of the tree.
+static var _glb_cache := {}
+
+
+## Drop the parsed models (SpriteForge calls this after each bake pass).
+static func clear_glb_cache() -> void:
+	for tpl in _glb_cache.values():
+		if tpl != null and is_instance_valid(tpl):
+			(tpl as Node).free()   # nodes aren't refcounted: dropping the dict would leak them
+	_glb_cache.clear()
+
+
 static func load_glb(path: String) -> Node3D:
-	if not FileAccess.file_exists(path):
-		return null
-	var doc := GLTFDocument.new()
-	var state := GLTFState.new()
-	if doc.append_from_file(path, state) != OK:
-		return null
-	return doc.generate_scene(state) as Node3D
+	if not _glb_cache.has(path):
+		var scene: Node3D = null
+		if FileAccess.file_exists(path):
+			var doc := GLTFDocument.new()
+			var state := GLTFState.new()
+			if doc.append_from_file(path, state) == OK:
+				scene = doc.generate_scene(state) as Node3D
+		_glb_cache[path] = scene
+	var tpl: Node3D = _glb_cache[path]
+	return tpl.duplicate() as Node3D if tpl != null else null
 
 
 static func _repaint(n: Node, mat: Material) -> void:
@@ -319,6 +395,35 @@ static func _repaint(n: Node, mat: Material) -> void:
 		(n as MeshInstance3D).material_override = mat
 	for c in n.get_children():
 		_repaint(c, mat)
+
+
+## PR F: a studio material per surface, keeping each surface's own colour; a textured
+## surface gets its texture in the `decal` slot (sRGB, replaces the base colour).
+static func _repaint_keep(n: Node, chrome: float) -> void:
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+		var mi := n as MeshInstance3D
+		mi.material_override = null
+		for si in mi.mesh.get_surface_count():
+			mi.set_surface_override_material(si, _studio_from(mi.get_active_material(si), chrome))
+	for c in n.get_children():
+		_repaint_keep(c, chrome)
+
+
+static func _studio_from(src: Material, chrome: float) -> ShaderMaterial:
+	var col := Color(0.66, 0.69, 0.75)
+	var tex: Texture2D = null
+	if src is BaseMaterial3D:
+		col = (src as BaseMaterial3D).albedo_color
+		tex = (src as BaseMaterial3D).albedo_texture
+	var mat := m(col.to_html(false), chrome)
+	if tex == null:
+		return mat
+	var key := "decal|%d|%.2f" % [tex.get_instance_id(), chrome]
+	if not _mats.has(key):
+		var d := mat.duplicate() as ShaderMaterial
+		d.set_shader_parameter("decal", tex)
+		_mats[key] = d
+	return _mats[key]
 
 
 ## The bounds of every mesh under `root`, in root's space (root's own transform

@@ -7,6 +7,7 @@ assets/LICENSES.md. This tool is the only way such a file enters the repo:
 
     python3 tools/fetch_cc0.py fetch <name>    # one manifest entry
     python3 tools/fetch_cc0.py fetch --all
+    python3 tools/fetch_cc0.py place <name> <local file>   # a hand-downloaded file
     python3 tools/fetch_cc0.py list
     python3 tools/fetch_cc0.py --self-test
 
@@ -14,6 +15,11 @@ A manifest entry is
     {"name": "drone_hull", "kind": "model" | "sfx", "url": "https://...",
      "file": "drone_hull.glb", "license": "CC0-1.0", "source": "Kenney",
      "sha256": "<64 hex>"}
+
+Some hosts only serve people in a browser (Drive folders, sites that turn away scripts).
+Those entries carry "manual": true, with the pack page as "url" (the page that states
+CC0) and "from" naming the file inside the pack. `place` checks a hand-downloaded file
+against the same pin and rules, and `fetch --all` skips manual entries.
 
 It refuses an entry that isn't exactly CC0-1.0, a download whose sha256 doesn't match
 its pin, and any name, file or URL containing a blocked word (hard rule 2). The blocked
@@ -130,6 +136,20 @@ def fetch(e, cc0_dir=CC0_DIR, licenses=LICENSES):
     return dest
 
 
+def place(e, src, cc0_dir=CC0_DIR, licenses=LICENSES):
+    """Copy a hand-downloaded file into place after the same checks fetch() makes."""
+    check_entry(e)
+    got = sha256_of(src)
+    if got != e["sha256"]:
+        raise Refused("%s: sha256 %s does not match the pin %s" % (e["name"], got, e["sha256"]))
+    dest_dir = os.path.join(cc0_dir, KIND_DIRS[e["kind"]])
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, e["file"])
+    shutil.copyfile(src, dest)
+    log_license(e, licenses)
+    return dest
+
+
 def log_license(e, licenses=LICENSES):
     rel = "cc0/%s/%s" % (KIND_DIRS[e["kind"]], e["file"])
     row = "| `%s` | %s | %s | %s | %s | %s | `%s` |\n" % (
@@ -183,12 +203,31 @@ def self_test():
         assert refused(url="file://" + td + "/" + word.upper() + "Sounds/beep.wav")
         assert not blocked("drone_hull_kenney") and not blocked("void_runner_sfx")
         assert not os.path.exists(os.path.join(cc0, "sfx", "beep.glb"))
+        # a hand-downloaded file goes through the same pin
+        man = dict(good, name="beep2", file="beep2.wav", manual=True, url="https://example.org/pack")
+        assert os.path.exists(place(man, src, cc0, lic))
+        try:
+            place(dict(man, sha256="1" * 64), src, cc0, lic)
+            assert False, "place must check the pin"
+        except Refused:
+            pass
     print("fetch_cc0 self-test OK")
 
 
 def main(argv):
     if argv[:1] == ["--self-test"]:
         self_test()
+        return 0
+    if argv[:1] == ["place"] and len(argv) == 3:
+        e = next((x for x in load_manifest() if x.get("name") == argv[1]), None)
+        if e is None:
+            print("no manifest entry named %r" % argv[1])
+            return 1
+        try:
+            print("placed", os.path.relpath(place(e, argv[2]), ROOT))
+        except Refused as err:
+            print("REFUSED", err)
+            return 1
         return 0
     if not argv or argv[0] not in ("fetch", "list"):
         print(__doc__)
@@ -203,6 +242,9 @@ def main(argv):
         print("nothing to fetch (manifest has %d entries)" % len(entries))
         return 1 if argv[1:] and argv[1:] != ["--all"] else 0
     for e in want:
+        if e.get("manual"):
+            print("manual   %s: download it from %s, then `place %s <file>`" % (e["name"], e["url"], e["name"]))
+            continue
         try:
             print("fetched", os.path.relpath(fetch(e), ROOT))
         except Refused as err:

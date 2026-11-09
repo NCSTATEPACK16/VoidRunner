@@ -24,17 +24,30 @@ func _ready() -> void:
 	SpriteForge.bake_objects()   # deferred to the first mission object; forced here
 	print("[forge] objects sheet baked in %d ms (deferred from boot)" % SpriteForge.objects_bake_ms)
 	for group in [SpriteModels.ENEMIES, SpriteModels.BOSSES, SpriteModels.OBJECTS]:
-		var cell: int = (SpriteForge.sprite_set(group[0]).tex[0] as Texture2D).get_width()
-		var sheet := Image.create(cell * 8, cell * 3 * group.size(), false, Image.FORMAT_RGBA8)
+		# PR F: sets differ in angles and frames (the CC0 pilot is 16 x 4), so each id
+		# gets anim + 1 rows (its frames, then the flash) and the sheet is as wide as
+		# the widest set, laid out at that set's own cell size
+		var cell := 0
+		var cols := 0
+		var rows := 0
+		for id in group:
+			var st0: Dictionary = SpriteForge.sprite_set(id)
+			cell = maxi(cell, (st0.tex[0] as Texture2D).get_width())
+			cols = maxi(cols, int(st0.angles))
+			rows += int(st0.anim) + 1
+		var sheet := Image.create(cell * cols, cell * rows, false, Image.FORMAT_RGBA8)
 		sheet.fill(Color(0.16, 0.16, 0.2))
+		var row := 0
 		for gi in group.size():
 			var st: Dictionary = SpriteForge.sprite_set(group[gi])
+			var c: int = (st.tex[0] as Texture2D).get_width()
 			for a in st.angles:
 				for f in st.anim:
 					var img: Image = (st.tex[a * st.anim + f] as ImageTexture).get_image()
-					sheet.blend_rect(img, Rect2i(0, 0, cell, cell), Vector2i(a * cell, (gi * 3 + f) * cell))
+					sheet.blend_rect(img, Rect2i(0, 0, c, c), Vector2i(a * cell, (row + f) * cell))
 				var fl: Image = (st.flash[a] as ImageTexture).get_image()
-				sheet.blend_rect(fl, Rect2i(0, 0, cell, cell), Vector2i(a * cell, (gi * 3 + 2) * cell))
+				sheet.blend_rect(fl, Rect2i(0, 0, c, c), Vector2i(a * cell, (row + st.anim) * cell))
+			row += int(st.anim) + 1
 		var name := "forge_enemies.png"
 		if group == SpriteModels.BOSSES:
 			name = "forge_bosses.png"
