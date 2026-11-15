@@ -30,6 +30,11 @@ directory up**, outside this repo, in the parent `RadixRemix/` folder:
 - Between import and export, `build.sh` runs `tools/make_icons.tscn`, which paints the app icons
   and the 1200×630 link-preview card (`IconGen`) into gitignored `build/icons/`. `project.godot`'s
   icon points there. A fresh clone shows Godot's default icon until that has run once.
+- `build_ios.sh` is the iOS path (PR D2): same stamp, import and icon steps, then the "iOS"
+  preset writes an Xcode project into `build/ios/` and `tests/ios_export_check.py` checks it.
+  Team ID and bundle id come from gitignored `ios.local.env`; the committed preset keeps
+  placeholders. `archive` / `upload` need Xcode. Spec:
+  `docs/ios/2026-11-15-testflight-build-spec.md`.
 - Web export has `thread_support=false` so it runs on iPad Safari; keep it that way unless
   desktop-only performance forces a revisit.
 - Rendering profile (do not break): 320×200 viewport stretch `keep`, GL Compatibility,
@@ -73,10 +78,11 @@ directory up**, outside this repo, in the parent `RadixRemix/` folder:
 
 ## Current work
 
-v4 is done (PRs #19–#21), PR D's code is merged (#22, gated by the device pass in
-`docs/ios/TESTFLIGHT.md`), and PR E (the v2 asset pipeline) is in. Next in
+v4 is done (PRs #19–#21), PR D's code is merged (#22), PR D2 (the TestFlight packaging:
+icon, launch screen, versions, `build_ios.sh`) is in, both gated by the device pass in
+`docs/ios/TESTFLIGHT.md`, and PR E (the v2 asset pipeline) is in. Next in
 `docs/revamp/2026-11-07-v2-mobile-roadmap.md`: PR F (content pilot: 2 enemies + 1 boss
 kitbashed from CC0 models at higher angle/frame counts, 3–5 CC0 SFX; the CC0 hosts must be
 reachable, so run the fetch on the Neo or allow-list them), then PR G (hangar upgrades). The
 Step 7 device pass is queued as its own task. Gates: the smoke test, `node tests/web_check.mjs`,
-`python3 tools/check_budgets.py`, and CI.
+`python3 tools/check_budgets.py`, `./build_ios.sh`, and CI.

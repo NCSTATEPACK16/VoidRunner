@@ -13,6 +13,8 @@ config_version=5
 config/name="VOID RUNNER"
 run/main_scene="res://scenes/game.tscn"
 config/icon="res://build/icons/icon_180.png"
+boot_splash/bg_color=Color(0.011764706, 0.015686275, 0.101960786, 1)
+boot_splash/show_image=false
 config/features=PackedStringArray("4.7", "GL Compatibility")
 
 [autoload]

@@ -20,7 +20,7 @@ jobs:
           path: |
             bin
             ~/.local/share/godot/export_templates
-          key: godot-4.7-${{ hashFiles('build.sh') }}
+          key: godot-4.7-ios-${{ hashFiles('build.sh') }}
 
       - name: Tools (ffmpeg for the SFX self-test)
         run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
@@ -62,6 +62,25 @@ jobs:
       - name: Asset budgets
         run: python3 tools/check_budgets.py --web-log web.log
 
+      # PR D2: the iOS preset still writes an Xcode project that App Store Connect
+      # would accept (icons, launch screen, plist, nothing extra in the .pck).
+      # Archiving needs a Mac; this stops at the project and its check.
+      - name: iOS project export and check
+        env:
+          VR_IOS_TEAM_ID: CIPLACEHLD
+          VR_IOS_BUNDLE_ID: ci.voidrunner.check
+        run: |
+          TPL="$HOME/.local/share/godot/export_templates/4.7.stable"
+          if [ ! -f "$TPL/ios.zip" ]; then
+            # build.sh leaves the full template archive in bin/ when it had to fetch it
+            [ -f bin/templates.tpz ] || curl -fsSL "https://github.com/godotengine/godot/releases/download/4.7-stable/Godot_v4.7-stable_export_templates.tpz" -o bin/templates.tpz
+            unzip -o -q bin/templates.tpz "templates/ios.zip" -d bin/ios_tpl
+            mv bin/ios_tpl/templates/ios.zip "$TPL/"
+            rm -rf bin/templates.tpz bin/ios_tpl
+          fi
+          ./build_ios.sh > ios.log 2>&1 || { tail -60 ios.log; exit 1; }
+          grep -A80 "^Info.plist" ios.log
+
       - name: Keep the logs and screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -71,5 +90,6 @@ jobs:
             smoke.log
             campaign.log
             web.log
+            ios.log
             web-out/
           if-no-files-found: ignore

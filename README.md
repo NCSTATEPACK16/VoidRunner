@@ -92,6 +92,18 @@ godot --headless --export-release "Web" dist/index.html
 python3 -m http.server -d dist 8060   # then open http://localhost:8060
 ```
 
+### iOS / TestFlight
+
+On a Mac with Xcode and Godot 4.7 (with its iOS export template):
+
+```sh
+cp docs/ios/ios.local.env.example ios.local.env   # then fill in your Team ID and bundle id
+./build_ios.sh            # Xcode project in build/ios/, checked by tests/ios_export_check.py
+./build_ios.sh upload     # archive and send to TestFlight
+```
+
+The full checklist, including the device pass with a controller, is `docs/ios/TESTFLIGHT.md`.
+
 ## Beta feedback
 
 This is a public beta. Press **F** at any time in-game to open a short feedback

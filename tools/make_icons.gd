@@ -1,6 +1,6 @@
 extends Node
 ## Paints the app icons and the link-preview card (see scripts/icon_gen.gd) into
-## build/icons/, where build.sh's web export picks them up:
+## build/icons/, where the web and iOS exports pick them up:
 ##   godot --headless tools/make_icons.tscn
 ## build/ is gitignored, and the .gdignore written below keeps Godot from importing
 ## or packing the output. The export reads the PNGs straight from disk.
@@ -14,6 +14,10 @@ func _ready() -> void:
 	for size in [144, 180, 512]:
 		_save(IconGen.icon(size), "icon_%d.png" % size)
 	_save(IconGen.card(), "card_1200x630.png")
+	# PR D2: the iOS preset reads these (App Store icon, launch screen mark)
+	_save(IconGen.store_icon(), "icon_1024.png")
+	for scale in [2, 3]:
+		_save(IconGen.launch_image(scale), "launch@%dx.png" % scale)
 	get_tree().quit()
 
 

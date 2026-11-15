@@ -25,3 +25,7 @@ radix*
 
 # CI / local web-check installs
 node_modules/
+
+# PR D2: your Apple Team ID and bundle id for build_ios.sh
+ios.local.env
+export_presets.cfg.orig
