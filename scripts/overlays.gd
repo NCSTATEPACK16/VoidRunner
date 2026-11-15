@@ -1126,6 +1126,15 @@ func _build_settings() -> void:
 		_setup_groups.append(g)
 	# SOUND
 	_setting_row(_setup_groups[0], 46, "VOLUME", "volume")
+	# PR D3 (iOS only): whether the ring/silent switch mutes the game
+	var sw := Control.new()
+	sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sw.size = Vector2(320, 200)
+	sw.visible = GameState.has_silent_switch
+	_setup_groups[0].add_child(sw)
+	_toggle_row(sw, Vector2(20, 60), "SILENT SWITCH MUTES", "silent_switch", func() -> void:
+		GameState.obey_silent_switch = not GameState.obey_silent_switch, 233.0)
+	_text(sw, Vector2(20, 76), "A CHANGE HERE STARTS WITH THE NEXT LAUNCH", DIM_COL)
 	# CONTROLS
 	var c: Control = _setup_groups[1]
 	_setting_row(c, 46, "MOUSE SENS", "sens")
@@ -1235,6 +1244,7 @@ func _refresh_settings() -> void:
 	_set_toggle("reduce_roll", GameState.reduce_roll)
 	_set_toggle("invert_y", GameState.invert_y)
 	_set_toggle("dpad", GameState.touch_dpad_enabled)
+	_set_toggle("silent_switch", GameState.obey_silent_switch)
 	_set_label("difficulty", GameState.difficulty_name())   # Step 3
 	_set_label("difficulty_blurb", GameState.DIFFICULTY_BLURBS[GameState.difficulty])
 	_set_label("assist_dmg", "%d%%" % roundi(GameState.ASSIST_DAMAGE[GameState.assist_damage] * 100.0))

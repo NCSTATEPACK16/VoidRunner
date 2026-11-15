@@ -42,4 +42,7 @@ echo "--- Painting app icons ---"
 echo "--- Exporting Web build ---"
 "${GODOT}" --headless --export-release "Web" dist/index.html
 
+# PR D3: the privacy policy page (TestFlight external testing needs its URL)
+cp web/privacy.html dist/privacy.html
+
 echo "--- Done: $(ls dist) ---"

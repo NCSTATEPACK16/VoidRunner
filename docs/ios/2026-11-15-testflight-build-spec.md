@@ -97,19 +97,28 @@ Nothing below can be run in a Linux container. Each is a line in `docs/ios/TESTF
   language, SKU). Internal testers (your own team) need no beta review. External testers need
   a privacy policy URL and a first beta review.
 - **The launch screen and icon on a real home screen**, light and dark.
-- **Audio session.** If testers find the silent switch muting the game surprising, change
-  `audio/general/ios/session_category` in `project.godot` to Playback.
+- **The SILENT SWITCH MUTES setting** (§7.2): turn it off, relaunch, and check the game
+  plays with the switch on silent.
 - **120 Hz.** ProMotion devices run the game at up to 120 fps. If the perf numbers or battery
   say otherwise, set `display/window/ios/allow_high_refresh_rate=false`.
 - **Everything in the PR D device pass:** rendering parity, safe areas, the SN30 Pro.
 
-## 7. Open questions for the user
+## 7. Decided by the user (2026-11-15)
 
-1. The bundle id and app name on the App Store Connect record ("VOID RUNNER" may be taken as a
-   store name; the name under the icon is separate and stays).
-2. Internal testers only, or external too? External adds the privacy policy URL and a review.
-3. If this ever ships in the Kids category, the feedback link needs a parental gate, or to be
-   left out of the native build.
+1. **External testers too.** That needs a privacy policy URL and a first Beta App Review.
+   The policy page is `web/privacy.html`, copied into `dist/` by `build.sh`, so it is live at
+   `/privacy.html` on the site. The fields to paste into App Store Connect are drafted in
+   `docs/ios/BETA_REVIEW.md`.
+2. **The ring/silent switch mutes the game by default, with a switch in SETUP.**
+   SETUP → SOUND → SILENT SWITCH MUTES (shown on iOS only). iOS fixes the audio session when
+   the app starts, so the game writes the choice to `user://device.cfg`, which `project.godot`
+   names as its project-settings override; the engine reads it at the next launch
+   (`Ambient` when on, `Playback` when off). The row says the change starts with the next
+   launch. **VERIFY on a device.**
+3. **The name is open.** A new store name (and possibly a new game name) is being chosen.
+   Until then the bundle id and app record wait. A rename touches: `config/name` in
+   `project.godot`, the title logo (`LogoGen`), the icon's V mark (`IconGen.v_mark`), the
+   photosensitivity notice, `web/vr_shell.html`, the README and the site name.
 
 ## 8. Gates
 

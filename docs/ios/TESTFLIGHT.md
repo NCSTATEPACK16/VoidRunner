@@ -16,8 +16,8 @@ each box, and note anything that fails along with the device and iOS version.
       `VR_IOS_TEAM_ID` and `VR_IOS_BUNDLE_ID` (your reverse-DNS id, e.g.
       `com.yourname.voidrunner`). The file is gitignored, so neither id reaches the repo.
 - [ ] In App Store Connect, register that bundle id and create the app record (once).
-      Internal testers need nothing more. External testers also need a privacy policy URL
-      and a first beta review. The privacy answer is "Data Not Collected".
+      Internal testers need nothing more. For external testers, fill in the fields drafted
+      in `docs/ios/BETA_REVIEW.md` and submit the first build for Beta App Review.
 
 The version is `application/short_version` in `export_presets.cfg` (`0.4.0`). The build number
 is the git commit count, so every new commit uploads cleanly. To upload the same commit twice,
@@ -85,8 +85,10 @@ set `VR_IOS_BUILD` to a higher number.
 - [ ] fps in the L8 dense arena and the L9 boss.
 - [ ] Fog-distance shimmer on distant sprites.
 - [ ] Audio starts after the first touch or press. Backgrounding the app pauses the run.
-- [ ] The ring/silent switch mutes the game (the audio session is `Ambient`). Say so if that
-      feels wrong for testers; see the spec, §6.
+- [ ] The ring/silent switch mutes the game.
+- [ ] **VERIFY** SETUP → SOUND → SILENT SWITCH MUTES: turn it OFF, close and reopen the app,
+      and the game plays with the switch on silent. Turn it back ON, relaunch, and it is
+      muted again.
 - [ ] On a 120 Hz device the game feels the same speed as on a 60 Hz one.
 - [ ] Checkpoint CONTINUE works after force-quitting the app.
 
