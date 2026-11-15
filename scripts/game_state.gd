@@ -191,6 +191,9 @@ func weapon_add(widx: int, field: String) -> int:
 # the void pushes (enemy clocks, shot speed, damage taken, warning time, pickup
 # value) and never enemy count, HP, layout or seed, so scores stay comparable.
 # Every value is read where it's used, so a change from pause lands at once.
+## The game's name as the title logo and the link card paint it. The store name
+## adds the subtitle: "VOIDLINE: Sector Zero".
+const GAME_NAME := "VOIDLINE"
 const DIFFICULTY_NAMES := ["RECRUIT", "RUNNER", "VOIDBORNE"]
 const DIFFICULTY_BLURBS := [
 	"Softer hits and slower fire. Learn the void.",
@@ -625,6 +628,17 @@ var touch_dpad_enabled := false
 ## toggle fires it) and a constant background nudge is disorienting for anyone
 ## who doesn't want it.
 var gyro_aim_enabled := false
+## PR D3 (iOS): whether the phone's ring/silent switch mutes the game. On by
+## default, as players expect from a game. iOS fixes this when the app starts, so
+## a change is written to DEVICE_CFG and takes hold on the next launch.
+var obey_silent_switch := true
+## Whether this device has such a switch to obey (the SETUP row shows only then).
+var has_silent_switch := OS.has_feature("ios")
+## project.godot names this file as its project-settings override.
+const DEVICE_CFG := "user://device.cfg"
+## Godot's audio/general/ios/session_category values.
+const IOS_AUDIO_AMBIENT := 0    # the silent switch mutes
+const IOS_AUDIO_PLAYBACK := 3   # plays whatever the switch says
 ## M1.2: set once the photosensitivity warning has been acknowledged.
 var seen_warning := false
 ## Re-audit Step 5: set once the first-run flight callouts have all been done (or
@@ -661,6 +675,7 @@ func load_settings() -> void:
 		view_fov = cfg.get_value("settings", "fov", view_fov)
 		touch_dpad_enabled = cfg.get_value("settings", "dpad", touch_dpad_enabled)
 		gyro_aim_enabled = cfg.get_value("settings", "gyro", gyro_aim_enabled)
+		obey_silent_switch = cfg.get_value("settings", "silent_switch", obey_silent_switch)
 		seen_warning = cfg.get_value("settings", "seen_warning", seen_warning)
 		seen_flight_tips = cfg.get_value("settings", "flight_tips", seen_flight_tips)
 		crt_mode = clampi(int(cfg.get_value("settings", "crt", crt_mode)), 0, 2)
@@ -686,6 +701,7 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "fov", view_fov)
 	cfg.set_value("settings", "dpad", touch_dpad_enabled)
 	cfg.set_value("settings", "gyro", gyro_aim_enabled)
+	cfg.set_value("settings", "silent_switch", obey_silent_switch)
 	cfg.set_value("settings", "seen_warning", seen_warning)
 	cfg.set_value("settings", "flight_tips", seen_flight_tips)
 	cfg.set_value("settings", "crt", crt_mode)
@@ -693,6 +709,17 @@ func _save_settings() -> void:
 	cfg.set_value("settings", "assist_dmg", assist_damage)
 	cfg.set_value("settings", "assist_spd", assist_speed)
 	cfg.save("user://settings.cfg")
+	if has_silent_switch:
+		save_device_overrides()
+
+
+## PR D3: the engine settings iOS reads once at launch, kept where project.godot's
+## project_settings_override finds them.
+func save_device_overrides() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("audio", "general/ios/session_category",
+		IOS_AUDIO_AMBIENT if obey_silent_switch else IOS_AUDIO_PLAYBACK)
+	cfg.save(DEVICE_CFG)
 
 
 ## Re-audit Step 5: the first-run callouts are done for good.

@@ -1,6 +1,6 @@
 # TestFlight checklist (iOS + SN30 Pro)
 
-PR D's gate. Run it on the MacBook Neo with an iPhone, an iPad and the 8BitDo SN30 Pro. Tick
+PR D's gate. The build is specified in `docs/ios/2026-11-15-testflight-build-spec.md`. Run it on the MacBook Neo with an iPhone, an iPad and the 8BitDo SN30 Pro. Tick
 each box, and note anything that fails along with the device and iOS version.
 
 ## 1. One-time setup on the Neo
@@ -11,30 +11,40 @@ each box, and note anything that fails along with the device and iOS version.
 - [ ] Have an Apple Developer account, and know your **Team ID** (developer.apple.com →
       Membership).
 
-## 2. Fill in the iOS preset
-In `export_presets.cfg` (or Project → Export → iOS):
-- [ ] `application/app_store_team_id`: your Team ID. The export refuses to run without it.
-- [ ] `application/bundle_identifier`: your reverse-DNS id, replacing `com.example.voidrunner`.
-- [ ] `application/short_version` / `application/version`: e.g. `0.4` / `1`. Bump `version`
-      for every TestFlight upload.
-- [ ] Leave `application/export_project_only=true`: Godot writes an Xcode project into
-      `build/ios/`, and Xcode does the signing and the upload.
+## 2. Your signing details
+- [ ] Copy `docs/ios/ios.local.env.example` to `ios.local.env` in the repo root and fill in
+      `VR_IOS_TEAM_ID` and `VR_IOS_BUNDLE_ID` (your reverse-DNS id, e.g.
+      `com.yourname.voidline`). The file is gitignored, so neither id reaches the repo.
+- [ ] In App Store Connect, register that bundle id and create the app record (once).
+      Internal testers need nothing more. For external testers, fill in the fields drafted
+      in `docs/ios/BETA_REVIEW.md` and submit the first build for Beta App Review.
 
-Don't commit your Team ID or bundle id unless you want them in the public repo.
+The version is `application/short_version` in `export_presets.cfg` (`0.4.0`). The build number
+is the git commit count, so every new commit uploads cleanly. To upload the same commit twice,
+set `VR_IOS_BUILD` to a higher number.
 
 ## 3. Build and upload
-- [ ] Run the export from the repo root:
+- [ ] Export and check the Xcode project:
 
   ```sh
-  godot --headless --export-release "iOS" build/ios/VoidRunner.ipa
+  ./build_ios.sh
   ```
 
-  You can also export from the editor. `build/` is gitignored, and `tools/make_icons.tscn`
-  must have run once so the app icon exists (`./build.sh` does both on Linux).
-- [ ] Open `build/ios/VoidRunner.xcodeproj`. Under Signing & Capabilities, pick your team and
-      enable automatic signing.
-- [ ] Run it on a cabled device first (Product → Run), then use Product → Archive →
-      Distribute App → TestFlight.
+  It stamps the build id, paints the icons and the launch mark, exports to `build/ios/`, and
+  runs `tests/ios_export_check.py`. Every line should say `ok`.
+- [ ] Open `build/ios/Voidline.xcodeproj`. Under Signing & Capabilities, check that your team
+      is picked and automatic signing is on.
+- [ ] Run it on a cabled device first (Product → Run).
+- [ ] Upload. Either Product → Archive → Distribute App → TestFlight in Xcode, or:
+
+  ```sh
+  ./build_ios.sh upload
+  ```
+
+  **VERIFY:** `archive` and `upload` have never run on a Mac. If `xcodebuild` complains, use
+  the Xcode route and note the error.
+- [ ] **VERIFY** the launch screen: our mark on dark blue, no engine logo, then the title.
+- [ ] **VERIFY** the home-screen icon is sharp pixel art, in light and dark mode.
 
 ## 4. Controller pairing
 - [ ] **VERIFY** the SN30 Pro firmware is current (8BitDo's updater, on the Neo).
@@ -75,8 +85,12 @@ Don't commit your Team ID or bundle id unless you want them in the public repo.
 - [ ] fps in the L8 dense arena and the L9 boss.
 - [ ] Fog-distance shimmer on distant sprites.
 - [ ] Audio starts after the first touch or press. Backgrounding the app pauses the run.
+- [ ] The ring/silent switch mutes the game.
+- [ ] **VERIFY** SETUP → SOUND → SILENT SWITCH MUTES: turn it OFF, close and reopen the app,
+      and the game plays with the switch on silent. Turn it back ON, relaunch, and it is
+      muted again.
+- [ ] On a 120 Hz device the game feels the same speed as on a 60 Hz one.
 - [ ] Checkpoint CONTINUE works after force-quitting the app.
 
 ## 6. Report back
-Note the device, iOS version, the Godot and Xcode versions, and every unticked box. PR E (the
-v2 asset pipeline) starts once this pass is green.
+Note the device, iOS version, the Godot and Xcode versions, and every unticked box.

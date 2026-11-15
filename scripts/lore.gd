@@ -4,7 +4,7 @@ class_name Lore
 ## campaign arc reads as one voice and copy edits touch one file.
 ##
 ## The arc: the Rift tears open beside Starlight Station; a machine swarm — the Hive —
-## pours through; the last Void Runner pilot fights inward past three signature-class
+## pours through; the last Voidline pilot fights inward past three signature-class
 ## guardians (sectors 3/6/9) and shuts the Rift from the inside.
 ##
 ## Sizing contract with overlays.gd: a story string must wrap to <= 3 lines in the
@@ -22,7 +22,7 @@ const _GAUNTLET_STORY := "No map. No exit. The Void remembers every run and answ
 	+ "with a longer tunnel. Fly until the dark blinks first."
 
 const _STORIES: Array[String] = [
-	"The Rift tore open at 0400. Starlight's outer ring went dark in minutes. You are the last Void Runner on the board.",
+	"The Rift tore open at 0400. Starlight's outer ring went dark in minutes. You are the last Voidline runner on the board.",
 	"The main artery feeds every deck, and the swarm is using it as a highway. Take it back before the station starves.",
 	"Something big is parked in the old docking bay — a Sentinel-class guardian, wearing our own hull plate as armor.",
 	"The reactor galleries were carved straight into the rock. Tight turns, deep shadow, and the Hive nesting in the heat.",

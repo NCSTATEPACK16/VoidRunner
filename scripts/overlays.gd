@@ -690,21 +690,18 @@ func _build_start() -> void:
 	_press_btn.position = Vector2.ZERO
 	_press_btn.size = Vector2(320, 200)
 	_focus["start"] = _press_btn
-	# the big two-line chrome logo; slides up when the menu opens
+	# the big chrome logo over its subtitle; slides up when the menu opens
 	_logo_root = Control.new()
 	_logo_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_logo_root.size = Vector2(320, 200)
 	p.add_child(_logo_root)
 	_shade(_logo_root, Rect2(0, 34, 320, 92), 0.35)
-	_center(_logo_root, 40, "B E Y O N D   T H E", Color("9fb4ff"))
-	var y := 52.0
-	for word in ["VOID", "RUNNER"]:
-		var logo := TextureRect.new()
-		logo.texture = LogoGen.chrome(word, 4)
-		logo.position = Vector2(roundf(160.0 - logo.texture.get_width() * 0.5), y)
-		logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_logo_root.add_child(logo)
-		y += 36.0
+	var logo := TextureRect.new()
+	logo.texture = LogoGen.chrome(GameState.GAME_NAME, 5)
+	logo.position = Vector2(roundf(160.0 - logo.texture.get_width() * 0.5), 50)
+	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_logo_root.add_child(logo)
+	_center(_logo_root, 104, "S E C T O R   Z E R O", Color("9fb4ff"))
 	_press_label = _center(p, 150, "PRESS ENTER", KEY_COL)
 	# the ticker: records and the story line, scrolling like a demo-scene scroller
 	var tick := Control.new()
@@ -1126,6 +1123,15 @@ func _build_settings() -> void:
 		_setup_groups.append(g)
 	# SOUND
 	_setting_row(_setup_groups[0], 46, "VOLUME", "volume")
+	# PR D3 (iOS only): whether the ring/silent switch mutes the game
+	var sw := Control.new()
+	sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sw.size = Vector2(320, 200)
+	sw.visible = GameState.has_silent_switch
+	_setup_groups[0].add_child(sw)
+	_toggle_row(sw, Vector2(20, 60), "SILENT SWITCH MUTES", "silent_switch", func() -> void:
+		GameState.obey_silent_switch = not GameState.obey_silent_switch, 233.0)
+	_text(sw, Vector2(20, 76), "A CHANGE HERE STARTS WITH THE NEXT LAUNCH", DIM_COL)
 	# CONTROLS
 	var c: Control = _setup_groups[1]
 	_setting_row(c, 46, "MOUSE SENS", "sens")
@@ -1235,6 +1241,7 @@ func _refresh_settings() -> void:
 	_set_toggle("reduce_roll", GameState.reduce_roll)
 	_set_toggle("invert_y", GameState.invert_y)
 	_set_toggle("dpad", GameState.touch_dpad_enabled)
+	_set_toggle("silent_switch", GameState.obey_silent_switch)
 	_set_label("difficulty", GameState.difficulty_name())   # Step 3
 	_set_label("difficulty_blurb", GameState.DIFFICULTY_BLURBS[GameState.difficulty])
 	_set_label("assist_dmg", "%d%%" % roundi(GameState.ASSIST_DAMAGE[GameState.assist_damage] * 100.0))
@@ -1259,7 +1266,7 @@ func _build_warning() -> void:
 	var p := _panel("warning")
 	_window(p, Rect2(16, 30, 288, 140), "! PHOTOSENSITIVITY NOTICE", ORANGE_COL)
 	_wrap(p, Rect2(26, 50, 268, 40),
-		"VOID RUNNER contains flashing light, strobing effects and a bright "
+		"VOIDLINE contains flashing light, strobing effects and a bright "
 		+ "full-screen flash when a plasma bomb detonates.", TEXT_COL)
 	_wrap(p, Rect2(26, 94, 268, 40),
 		"If you are sensitive to flashing images, turn on REDUCE FLASH in "

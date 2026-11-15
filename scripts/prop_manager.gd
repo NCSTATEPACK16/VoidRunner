@@ -2,7 +2,7 @@ class_name PropManager
 extends Node3D
 ## K3 destructible props: fuel cells scattered through arenas. Shootable; a
 ## detonation splashes nearby enemies (and the player, lightly) and chain-fuses
-## other cells in range — the 1995 manual's exploding barrels, VOID RUNNER
+## other cells in range — the 1995 manual's exploding barrels, VOIDLINE
 ## flavored. Destroying every cell in a level is the optional secondary
 ## objective (bonus scored in game._level_complete). Distance checks only,
 ## no physics bodies, same as every other system in this game.

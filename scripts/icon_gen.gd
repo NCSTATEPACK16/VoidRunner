@@ -11,6 +11,8 @@ class_name IconGen
 
 ## Icon art is 32x32: 512 = x16, 180 = x5 and 144 = x4, both padded to size.
 const ICON_GRID := 32
+## The launch screen mark is 128 pt: x8 at @2x, x12 at @3x.
+const LAUNCH_POINTS := 128
 ## Card art is 240x126; x5 gives 1200x630, the Open Graph / large-card size.
 const CARD_GRID := Vector2i(240, 126)
 const CARD_SCALE := 5
@@ -28,8 +30,27 @@ static func icon(size: int) -> Image:
 	return out
 
 
+## PR D2: the App Store icon. 1024 = x32, so every art pixel is a clean square.
+## It is RGB with no alpha channel, because App Store Connect turns away an icon
+## that has one. Every other iOS icon size is scaled down from this by the export.
+static func store_icon() -> Image:
+	var img := icon(1024)
+	img.convert(Image.FORMAT_RGB8)
+	return img
+
+
+## PR D2: the iOS launch screen mark, shown centred on the void colour while the
+## engine starts. `scale` is 2 or 3 (the @2x and @3x files); both come out 128 pt.
+static func launch_image(scale: int) -> Image:
+	var art := icon_art()
+	var k := LAUNCH_POINTS / ICON_GRID * scale
+	art.resize(ICON_GRID * k, ICON_GRID * k, Image.INTERPOLATE_NEAREST)
+	art.convert(Image.FORMAT_RGB8)
+	return art
+
+
 ## The 32x32 master: the tunnel seen head-on (chamfered octagon rims receding into
-## the dark), with the chrome V of VOID RUNNER in front of it.
+## the dark), with the chrome V of VOIDLINE in front of it.
 static func icon_art() -> Image:
 	var n := ICON_GRID
 	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
@@ -117,10 +138,10 @@ static func card_art() -> Image:
 	img.fill_rect(win.grow(-1), Palette.ramp(Palette.BLUE, 1))
 	img.fill_rect(win.grow(-2), Palette.ramp(Palette.CYAN, 7))
 	img.fill_rect(win.grow(-3), Palette.ramp(Palette.BLUE, 1))
-	_text_centered(img, "BEYOND THE", 20, Palette.ramp(Palette.CYAN, 13))
-	var logo := LogoGen.chrome_image("VOID RUNNER")
+	var logo := LogoGen.chrome_image("VOIDLINE")
 	var used := logo.get_used_rect()
-	img.blend_rect(logo, used, Vector2i((g.x - used.size.x) / 2, 30))
+	img.blend_rect(logo, used, Vector2i((g.x - used.size.x) / 2, 22))
+	_text_centered(img, "SECTOR ZERO", 54, Palette.ramp(Palette.CYAN, 13))
 	_text_centered(img, "RUN. SURVIVE. ESCAPE THE VOID.", 66, Palette.ramp(Palette.CYAN, 10))
 	img.fill_rect(Rect2i(40, 79, 160, 1), Palette.ramp(Palette.CYAN, 5))
 	_text_centered(img, "PLAY FREE IN YOUR BROWSER", 86, Palette.ramp(Palette.GOLD, 13))

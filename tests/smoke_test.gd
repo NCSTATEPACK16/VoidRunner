@@ -2398,6 +2398,25 @@ func _run() -> void:
 	assert(GameState.touch_dpad_enabled == true)
 	dpad_btn.pressed.emit()
 	assert(GameState.touch_dpad_enabled == false)
+	# PR D3: the silent-switch row is iOS-only; flipping it rewrites the override
+	# file the engine reads at the next launch (Ambient <-> Playback)
+	var sw_btn := game.overlays._settings_labels["silent_switch"] as Button
+	assert(not sw_btn.is_visible_in_tree())            # not an iOS build
+	assert(GameState.obey_silent_switch == true)       # default: the switch mutes
+	assert(ProjectSettings.get_setting("application/config/project_settings_override") == GameState.DEVICE_CFG)
+	GameState.has_silent_switch = true
+	sw_btn.pressed.emit()
+	assert(GameState.obey_silent_switch == false and sw_btn.text == "OFF")
+	var sw_cfg := ConfigFile.new()
+	assert(sw_cfg.load(GameState.DEVICE_CFG) == OK)
+	assert(sw_cfg.get_value("audio", "general/ios/session_category") == GameState.IOS_AUDIO_PLAYBACK)
+	sw_btn.pressed.emit()
+	assert(GameState.obey_silent_switch == true and sw_btn.text == "ON")
+	assert(sw_cfg.load(GameState.DEVICE_CFG) == OK)
+	assert(sw_cfg.get_value("audio", "general/ios/session_category") == GameState.IOS_AUDIO_AMBIENT)
+	GameState.has_silent_switch = false
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(GameState.DEVICE_CFG))
+	print("SILENT SWITCH ok — iOS-only row, default mutes, the override file follows the toggle")
 	# M4c final review: the GYRO AIM settings row was REMOVED. Godot 4.7's web
 	# export ships no device-orientation/-motion listener, so Input.get_gyroscope()
 	# is permanently ZERO in a browser and web is this game's only mobile delivery —
@@ -3694,7 +3713,18 @@ func _run() -> void:
 				assert(pal.has(px))
 				inks[px] = true
 		assert(inks.size() >= 8)   # actually painted, not a blank fill
-	print("ICONS ok — 144/180/512 icons + 1200x630 card, code-painted, palette-only")
+	# PR D2: the App Store icon has no alpha channel (App Store Connect refuses one)
+	# and stays palette-only; the launch mark is 128 pt at both scales
+	var store := IconGen.store_icon()
+	assert(store.get_width() == 1024 and store.get_height() == 1024)
+	assert(store.get_format() == Image.FORMAT_RGB8 and not store.detect_alpha())
+	for sp: Vector2i in [Vector2i(0, 0), Vector2i(512, 100), Vector2i(512, 512), Vector2i(300, 700)]:
+		assert(pal.has(store.get_pixel(sp.x, sp.y)))
+	for ls: int in [2, 3]:
+		var li := IconGen.launch_image(ls)
+		assert(li.get_width() == 128 * ls and li.get_height() == 128 * ls)
+		assert(li.get_format() == Image.FORMAT_RGB8)
+	print("ICONS ok — 144/180/512 icons + 1200x630 card + iOS 1024 and launch marks, code-painted, palette-only")
 	# --- v4d: the tally reveal and the episode flow ---
 	var tl_ov: Overlays = game.overlays
 	var tl_panel: Control = tl_ov._panels.level_clear
