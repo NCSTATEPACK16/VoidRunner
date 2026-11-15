@@ -5,7 +5,7 @@ they match what the build does. Lines marked **YOU** need your own details.
 
 ## Test Information
 - **Beta App Description**
-  > VOID RUNNER is a retro tunnel shooter in the style of mid-90s DOS games. Fly a small
+  > VOIDLINE is a retro tunnel shooter in the style of mid-90s DOS games. Fly a small
   > ship through twisting sectors, clear the arenas and beat the boss at the end of each
   > episode. It plays with touch controls or a Bluetooth game controller, in landscape.
 - **Feedback Email:** **YOU**

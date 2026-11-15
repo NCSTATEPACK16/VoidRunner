@@ -90,7 +90,7 @@ body {
 	z-index: 1;
 }
 
-/* --- VOID RUNNER loading overlay (custom) -------------------------------- */
+/* --- VOIDLINE loading overlay (custom) -------------------------------- */
 /* On single-threaded WebGL, first-use shader/pipeline compilation blocks the
    main thread for whole seconds. This overlay sits ABOVE the canvas and animates
    with a compositor-driven transform, so it keeps spinning even while WASM is
@@ -318,7 +318,7 @@ body {
 
 		<div id="vr-rotate">
 			<div class="vr-gate-title">ROTATE YOUR DEVICE</div>
-			<p>VOID RUNNER needs landscape. Turn the phone sideways to fly.</p>
+			<p>VOIDLINE needs landscape. Turn the phone sideways to fly.</p>
 		</div>
 
 		<!-- DORMANT since M4d: phones boot straight into the touch build now, and
@@ -332,9 +332,9 @@ body {
 		     — a browser that genuinely can't run the build. It used to say touch
 		     controls didn't exist yet, which stopped being true when M4b shipped. -->
 		<div id="vr-gate">
-			<div class="vr-gate-title">VOID RUNNER</div>
+			<div class="vr-gate-title">VOIDLINE</div>
 			<div class="vr-gate-sub">THIS DEVICE MAY NOT FLY</div>
-			<p>VOID RUNNER needs WebGL2 and a decent chunk of memory. This browser
+			<p>VOIDLINE needs WebGL2 and a decent chunk of memory. This browser
 			looks like it&rsquo;s missing something the game needs, so it may stall or
 			run out of room part-way through loading.</p>
 			<p>A desktop, a laptop, or a recent phone or tablet runs it instantly in
@@ -346,7 +346,7 @@ body {
 		</div>
 
 		<div id="vr-loading">
-			<div class="vr-title">VOID RUNNER</div>
+			<div class="vr-title">VOIDLINE</div>
 			<div class="vr-ring"></div>
 			<div class="vr-msg" id="vr-loading-msg">INITIALIZING&hellip;</div>
 			<div class="vr-hint">compiling shaders &mdash; first run is slowest</div>
@@ -357,12 +357,12 @@ body {
 				<div>STARLIGHT STATION &mdash; LINK ESTABLISHED</div>
 				<div>RIFT ACTIVITY: CLIMBING</div>
 				<div>HIVE SIGNALS ON ALL OUTER BANDS</div>
-				<div>VOID RUNNER, YOU ARE GO FOR LAUNCH</div>
+				<div>RUNNER, YOU ARE GO FOR LAUNCH</div>
 			</div>
 		</div>
 
 		<script>
-		console.log('[VOIDRUNNER] shell loaded — build check: '
+		console.log('[VOIDLINE] shell loaded — build check: '
 			+ (document.getElementById('vr-diag') ? 'current' : 'STALE, clear cache'));
 
 		// Boot state shared with the engine bootstrap below. Registered FIRST and in
@@ -392,7 +392,7 @@ body {
 				if (e && e.target && e.target.src) {
 					// a blocked analytics script is not a boot failure; note it quietly
 					if (!ours(e.target.src)) {
-						console.log('[VOIDRUNNER] third-party blocked: ' + e.target.src);
+						console.log('[VOIDLINE] third-party blocked: ' + e.target.src);
 						return;
 					}
 					report('failed to load ' + e.target.src);
@@ -410,12 +410,12 @@ body {
 				P.requestPointerLock = function () {
 					var r;
 					try { r = rpl.apply(this, arguments); } catch (err) {
-						console.log('[VOIDRUNNER] pointer lock refused: ' + (err && err.message));
+						console.log('[VOIDLINE] pointer lock refused: ' + (err && err.message));
 						return undefined;
 					}
 					if (r && typeof r.catch === 'function') {
 						r.catch(function (err) {
-							console.log('[VOIDRUNNER] pointer lock refused: ' + (err && err.message));
+							console.log('[VOIDLINE] pointer lock refused: ' + (err && err.message));
 						});
 					}
 					return r;
@@ -609,11 +609,11 @@ body {
 			// up here, a failed boot looks identical to a slow one: a spinner forever.
 			window.vrDiag = function (text, isError) {
 				// Also log, tagged: a page inspected remotely is usually buried in
-				// extension noise, and filtering the console for VOIDRUNNER is the
+				// extension noise, and filtering the console for VOIDLINE is the
 				// fastest way to confirm you are even attached to the right tab.
 				try {
-					if (isError) { console.error('[VOIDRUNNER] ' + text); }
-					else { console.log('[VOIDRUNNER] ' + text); }
+					if (isError) { console.error('[VOIDLINE] ' + text); }
+					else { console.log('[VOIDLINE] ' + text); }
 				} catch (e) { /* console can be absent in odd embeddings */ }
 				var d = document.getElementById('vr-diag');
 				if (!d) { return; }
@@ -642,7 +642,7 @@ body {
 					cores: navigator.hardwareConcurrency,
 					ua: navigator.userAgent
 				};
-				console.log('[VOIDRUNNER] REPORT ' + JSON.stringify(r, null, 2));
+				console.log('[VOIDLINE] REPORT ' + JSON.stringify(r, null, 2));
 				return r;
 			};
 			window.vrHideLoading = function () {

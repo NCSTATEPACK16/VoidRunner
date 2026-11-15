@@ -50,7 +50,7 @@ static func launch_image(scale: int) -> Image:
 
 
 ## The 32x32 master: the tunnel seen head-on (chamfered octagon rims receding into
-## the dark), with the chrome V of VOID RUNNER in front of it.
+## the dark), with the chrome V of VOIDLINE in front of it.
 static func icon_art() -> Image:
 	var n := ICON_GRID
 	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
@@ -138,10 +138,10 @@ static func card_art() -> Image:
 	img.fill_rect(win.grow(-1), Palette.ramp(Palette.BLUE, 1))
 	img.fill_rect(win.grow(-2), Palette.ramp(Palette.CYAN, 7))
 	img.fill_rect(win.grow(-3), Palette.ramp(Palette.BLUE, 1))
-	_text_centered(img, "BEYOND THE", 20, Palette.ramp(Palette.CYAN, 13))
-	var logo := LogoGen.chrome_image("VOID RUNNER")
+	var logo := LogoGen.chrome_image("VOIDLINE")
 	var used := logo.get_used_rect()
-	img.blend_rect(logo, used, Vector2i((g.x - used.size.x) / 2, 30))
+	img.blend_rect(logo, used, Vector2i((g.x - used.size.x) / 2, 22))
+	_text_centered(img, "SECTOR ZERO", 54, Palette.ramp(Palette.CYAN, 13))
 	_text_centered(img, "RUN. SURVIVE. ESCAPE THE VOID.", 66, Palette.ramp(Palette.CYAN, 10))
 	img.fill_rect(Rect2i(40, 79, 160, 1), Palette.ramp(Palette.CYAN, 5))
 	_text_centered(img, "PLAY FREE IN YOUR BROWSER", 86, Palette.ramp(Palette.GOLD, 13))

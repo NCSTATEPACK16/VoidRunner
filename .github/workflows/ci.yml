@@ -68,7 +68,7 @@ jobs:
       - name: iOS project export and check
         env:
           VR_IOS_TEAM_ID: CIPLACEHLD
-          VR_IOS_BUNDLE_ID: ci.voidrunner.check
+          VR_IOS_BUNDLE_ID: ci.voidline.check
         run: |
           TPL="$HOME/.local/share/godot/export_templates/4.7.stable"
           if [ ! -f "$TPL/ios.zip" ]; then

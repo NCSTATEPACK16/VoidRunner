@@ -191,6 +191,9 @@ func weapon_add(widx: int, field: String) -> int:
 # the void pushes (enemy clocks, shot speed, damage taken, warning time, pickup
 # value) and never enemy count, HP, layout or seed, so scores stay comparable.
 # Every value is read where it's used, so a change from pause lands at once.
+## The game's name as the title logo and the link card paint it. The store name
+## adds the subtitle: "VOIDLINE: Sector Zero".
+const GAME_NAME := "VOIDLINE"
 const DIFFICULTY_NAMES := ["RECRUIT", "RUNNER", "VOIDBORNE"]
 const DIFFICULTY_BLURBS := [
 	"Softer hits and slower fire. Learn the void.",

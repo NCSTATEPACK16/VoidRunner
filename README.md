@@ -1,4 +1,6 @@
-# VOID RUNNER
+# VOIDLINE: Sector Zero
+
+_Formerly VOID RUNNER. The repository and the site address keep the old name for now._
 
 A from-scratch, all-procedural homage to the great 1995 DOS 6DOF tunnel shooters — constant-forward
 flight through winding corridors and combat arenas, energy weapons, a shield/heat/energy economy,

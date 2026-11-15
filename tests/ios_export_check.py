@@ -15,7 +15,7 @@ import struct
 import sys
 from pathlib import Path
 
-APP = "VoidRunner"
+APP = "Voidline"
 # The void colour (Palette.ramp(BLUE, 0)), as the storyboard writes it.
 VOID_RGB = (3 / 255, 4 / 255, 26 / 255)
 # Folders the export filters keep out of the game data.

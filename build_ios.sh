@@ -9,7 +9,7 @@
 # or in the environment:
 #
 #   VR_IOS_TEAM_ID=ABCDE12345            Apple Developer Team ID (required)
-#   VR_IOS_BUNDLE_ID=com.you.voidrunner  the app's bundle id (required)
+#   VR_IOS_BUNDLE_ID=com.you.voidline  the app's bundle id (required)
 #   VR_IOS_VERSION=0.4.0                 marketing version (default: the preset's)
 #   VR_IOS_BUILD=123                     build number (default: git commit count)
 #   GODOT=/path/to/godot                 Godot 4.7 binary (default: found by itself)
@@ -85,13 +85,13 @@ rm -f export_presets.cfg.bak
 echo "--- Exporting the Xcode project: ${BUNDLE_ID} ${VERSION} (${BUILD_NUMBER}) ---"
 rm -rf build/ios
 mkdir -p build/ios
-"${GODOT}" --headless --export-release "iOS" build/ios/VoidRunner.ipa
+"${GODOT}" --headless --export-release "iOS" build/ios/Voidline.ipa
 
 python3 tests/ios_export_check.py build/ios \
   --team "${TEAM_ID}" --bundle "${BUNDLE_ID}" --version "${VERSION}" --build "${BUILD_NUMBER}"
 
 if [ "${MODE}" = "project" ]; then
-  echo "--- Done. Open build/ios/VoidRunner.xcodeproj, or run ./build_ios.sh archive ---"
+  echo "--- Done. Open build/ios/Voidline.xcodeproj, or run ./build_ios.sh archive ---"
   exit 0
 fi
 
@@ -108,13 +108,13 @@ if [ -n "${VR_ASC_KEY_PATH:-}" ]; then
 fi
 
 echo "--- Archiving ---"
-xcodebuild -project build/ios/VoidRunner.xcodeproj -scheme VoidRunner \
+xcodebuild -project build/ios/Voidline.xcodeproj -scheme Voidline \
   -configuration Release -destination "generic/platform=iOS" \
-  -archivePath build/ios/VoidRunner.xcarchive \
+  -archivePath build/ios/Voidline.xcarchive \
   -allowProvisioningUpdates ${AUTH[@]+"${AUTH[@]}"} archive
 
 if [ "${MODE}" = "archive" ]; then
-  echo "--- Done: build/ios/VoidRunner.xcarchive (Xcode: Window, Organizer, Distribute App) ---"
+  echo "--- Done: build/ios/Voidline.xcarchive (Xcode: Window, Organizer, Distribute App) ---"
   exit 0
 fi
 
@@ -136,7 +136,7 @@ cat > build/ios/UploadOptions.plist <<EOF
 EOF
 
 echo "--- Uploading to TestFlight ---"
-xcodebuild -exportArchive -archivePath build/ios/VoidRunner.xcarchive \
+xcodebuild -exportArchive -archivePath build/ios/Voidline.xcarchive \
   -exportOptionsPlist build/ios/UploadOptions.plist -exportPath build/ios/upload \
   -allowProvisioningUpdates ${AUTH[@]+"${AUTH[@]}"}
 

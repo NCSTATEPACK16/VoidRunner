@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="VOID RUNNER"
+config/name="VOIDLINE"
 config/project_settings_override="user://device.cfg"
 run/main_scene="res://scenes/game.tscn"
 config/icon="res://build/icons/icon_180.png"

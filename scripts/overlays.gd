@@ -690,21 +690,18 @@ func _build_start() -> void:
 	_press_btn.position = Vector2.ZERO
 	_press_btn.size = Vector2(320, 200)
 	_focus["start"] = _press_btn
-	# the big two-line chrome logo; slides up when the menu opens
+	# the big chrome logo over its subtitle; slides up when the menu opens
 	_logo_root = Control.new()
 	_logo_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_logo_root.size = Vector2(320, 200)
 	p.add_child(_logo_root)
 	_shade(_logo_root, Rect2(0, 34, 320, 92), 0.35)
-	_center(_logo_root, 40, "B E Y O N D   T H E", Color("9fb4ff"))
-	var y := 52.0
-	for word in ["VOID", "RUNNER"]:
-		var logo := TextureRect.new()
-		logo.texture = LogoGen.chrome(word, 4)
-		logo.position = Vector2(roundf(160.0 - logo.texture.get_width() * 0.5), y)
-		logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_logo_root.add_child(logo)
-		y += 36.0
+	var logo := TextureRect.new()
+	logo.texture = LogoGen.chrome(GameState.GAME_NAME, 5)
+	logo.position = Vector2(roundf(160.0 - logo.texture.get_width() * 0.5), 50)
+	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_logo_root.add_child(logo)
+	_center(_logo_root, 104, "S E C T O R   Z E R O", Color("9fb4ff"))
 	_press_label = _center(p, 150, "PRESS ENTER", KEY_COL)
 	# the ticker: records and the story line, scrolling like a demo-scene scroller
 	var tick := Control.new()
@@ -1269,7 +1266,7 @@ func _build_warning() -> void:
 	var p := _panel("warning")
 	_window(p, Rect2(16, 30, 288, 140), "! PHOTOSENSITIVITY NOTICE", ORANGE_COL)
 	_wrap(p, Rect2(26, 50, 268, 40),
-		"VOID RUNNER contains flashing light, strobing effects and a bright "
+		"VOIDLINE contains flashing light, strobing effects and a bright "
 		+ "full-screen flash when a plasma bomb detonates.", TEXT_COL)
 	_wrap(p, Rect2(26, 94, 268, 40),
 		"If you are sensitive to flashing images, turn on REDUCE FLASH in "

@@ -14,7 +14,7 @@ each box, and note anything that fails along with the device and iOS version.
 ## 2. Your signing details
 - [ ] Copy `docs/ios/ios.local.env.example` to `ios.local.env` in the repo root and fill in
       `VR_IOS_TEAM_ID` and `VR_IOS_BUNDLE_ID` (your reverse-DNS id, e.g.
-      `com.yourname.voidrunner`). The file is gitignored, so neither id reaches the repo.
+      `com.yourname.voidline`). The file is gitignored, so neither id reaches the repo.
 - [ ] In App Store Connect, register that bundle id and create the app record (once).
       Internal testers need nothing more. For external testers, fill in the fields drafted
       in `docs/ios/BETA_REVIEW.md` and submit the first build for Beta App Review.
@@ -32,7 +32,7 @@ set `VR_IOS_BUILD` to a higher number.
 
   It stamps the build id, paints the icons and the launch mark, exports to `build/ios/`, and
   runs `tests/ios_export_check.py`. Every line should say `ok`.
-- [ ] Open `build/ios/VoidRunner.xcodeproj`. Under Signing & Capabilities, check that your team
+- [ ] Open `build/ios/Voidline.xcodeproj`. Under Signing & Capabilities, check that your team
       is picked and automatic signing is on.
 - [ ] Run it on a cabled device first (Product → Run).
 - [ ] Upload. Either Product → Archive → Distribute App → TestFlight in Xcode, or:

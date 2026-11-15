@@ -18,7 +18,7 @@ static func write_cube(path: String, size := 2.0, centre := Vector3.ZERO) -> voi
 	var lo := Vector3(centre) - Vector3.ONE * h
 	var hi := Vector3(centre) + Vector3.ONE * h
 	var gltf := {
-		"asset": {"version": "2.0", "generator": "voidrunner tests"},
+		"asset": {"version": "2.0", "generator": "voidline tests"},
 		"scene": 0, "scenes": [{"nodes": [0]}],
 		"nodes": [{"mesh": 0, "name": "cube"}],
 		"meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}],

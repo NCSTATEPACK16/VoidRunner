@@ -1,4 +1,4 @@
-# VOID RUNNER TestFlight build spec (PR D2)
+# VOIDLINE TestFlight build spec (PR D2)
 
 _Status: implemented 2026-11-15, except the items under "Needs the Mac and a device". Follows
 PR D (`docs/revamp/2026-11-07-v2-mobile-roadmap.md`), whose code merged in PR #22._
@@ -37,7 +37,7 @@ the `.pck` (1.6 MB).
    signing, so no provisioning profiles to manage by hand.
 2. **Secrets never enter the repo.** `ios.local.env` holds `VR_IOS_TEAM_ID` and
    `VR_IOS_BUNDLE_ID`. The committed preset keeps an empty Team ID and
-   `com.example.voidrunner`, and the check fails a real build that still has the placeholder.
+   `com.example.voidline`, and the check fails a real build that still has the placeholder.
 3. **Version scheme.** Marketing version `0.4.0` for the v4 content, changed by hand in the
    preset (or `VR_IOS_VERSION`). Build number = `git rev-list --count HEAD`, so it rises with
    every commit and needs no bookkeeping. Override with `VR_IOS_BUILD` to re-upload the same
@@ -115,10 +115,16 @@ Nothing below can be run in a Linux container. Each is a line in `docs/ios/TESTF
    names as its project-settings override; the engine reads it at the next launch
    (`Ambient` when on, `Playback` when off). The row says the change starts with the next
    launch. **VERIFY on a device.**
-3. **The name is open.** A new store name (and possibly a new game name) is being chosen.
-   Until then the bundle id and app record wait. A rename touches: `config/name` in
-   `project.godot`, the title logo (`LogoGen`), the icon's V mark (`IconGen.v_mark`), the
-   photosensitivity notice, `web/vr_shell.html`, the README and the site name.
+3. **The game is now VOIDLINE; the store name is "VOIDLINE: Sector Zero".** Renamed
+   2026-11-15: project name (and so the name under the icon), title logo and its subtitle,
+   link card, notices, lore lines, web shell, privacy page, README, and the Xcode project
+   (`build/ios/Voidline.xcodeproj`). The icon's V mark stays. Kept on purpose: the
+   repository name, the `vr` prefixes, the save and settings keys (so nobody loses progress),
+   the difficulty name RUNNER and the pilot's "Runner" callsign. Still to do by hand: rename
+   the Netlify site (its address still carries the old name, and the links in
+   `docs/ios/BETA_REVIEW.md` and the README follow it), then register the bundle id and
+   create the App Store Connect record. Store-name availability is unchecked until that
+   record is created.
 
 ## 8. Gates
 

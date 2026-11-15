@@ -1,6 +1,8 @@
-# CLAUDE.md — VOID RUNNER (Godot repo)
+# CLAUDE.md — VOIDLINE (Godot repo)
 
-This repository is the Godot rebuild of VOID RUNNER. **The full project documentation lives one
+This repository is the Godot rebuild of VOIDLINE (store name "VOIDLINE: Sector Zero"; it was
+VOID RUNNER until 2026-11-15, and the repo, the site address, the `vr` prefixes and the save keys
+keep the old name; `GameState.GAME_NAME` is the one the game paints). **The full project documentation lives one
 directory up**, outside this repo, in the parent `RadixRemix/` folder:
 
 - `../CLAUDE.md` — session orientation, project history, constraints. **Read it first.**
