@@ -19,7 +19,8 @@ APP = "Voidline"
 # The void colour (Palette.ramp(BLUE, 0)), as the storyboard writes it.
 VOID_RGB = (3 / 255, 4 / 255, 26 / 255)
 # Folders the export filters keep out of the game data.
-SOURCE_DIRS = ("tests/", "tools/", "docs/", "assets/", "web/", "dist/")
+# node_modules/ and web-out/ appear when CI has run the web check in the project folder.
+SOURCE_DIRS = ("tests/", "tools/", "docs/", "assets/", "web/", "dist/", "node_modules/", "web-out/", "bin/")
 ICON_SIZES = (40, 58, 60, 76, 80, 87, 114, 120, 128, 136, 152, 167, 180, 192, 1024)
 
 failures = []
