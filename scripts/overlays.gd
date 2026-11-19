@@ -469,6 +469,8 @@ func _process(delta: float) -> void:
 ## takes the same presses (after a short arm time) as its dismissal.
 func _input(event: InputEvent) -> void:
 	if not (_tally_active or _title_live):
+		if _pad_menu_input(event):
+			get_viewport().set_input_as_handled()
 		return
 	var pressed := false
 	if event is InputEventKey:
@@ -486,6 +488,45 @@ func _input(event: InputEvent) -> void:
 		if _title_t >= TITLE_ARM:
 			episode_title_dismiss()
 		get_viewport().set_input_as_handled()
+
+
+## Pad buttons that press the focused menu item / go back. Godot's built-in ui_accept
+## is the bottom face button only and flips with the platform's swap-cancel setting, so
+## on iOS and in Safari a Joy-Con or SN30 Pro could move the cursor but never press.
+## Face buttons A/X/Y accept, B backs out, whatever the layout labels them.
+const PAD_ACCEPT := [JOY_BUTTON_A, JOY_BUTTON_X, JOY_BUTTON_Y]
+
+
+## Which menu action a pad event means right now: "ui_accept", "ui_cancel", or "".
+func _pad_menu_action(event: InputEvent) -> String:
+	if _shown == "" or not (event is InputEventJoypadButton):
+		return ""
+	var bi: int = (event as InputEventJoypadButton).button_index
+	if bi in PAD_ACCEPT:
+		return "ui_accept"
+	if bi == JOY_BUTTON_B:
+		return "ui_cancel"
+	return ""
+
+
+## Turns a pad face button into a ui_accept / ui_cancel action while a menu is up.
+## Returns true when the event was a menu press (so the caller swallows it).
+func _pad_menu_input(event: InputEvent) -> bool:
+	var act := _pad_menu_action(event)
+	if act == "":
+		return false
+	var jb := event as InputEventJoypadButton
+	if jb.pressed:
+		var fb: Control = get_viewport().gui_get_focus_owner()
+		var panel_focus: Button = _focus.get(_shown)
+		if fb == null and is_instance_valid(panel_focus) and panel_focus.is_visible_in_tree():
+			_grab_quiet(panel_focus)
+	var ev := InputEventAction.new()
+	ev.action = act
+	ev.pressed = jb.pressed
+	ev.strength = 1.0 if jb.pressed else 0.0
+	Input.parse_input_event(ev)
+	return true
 
 
 func _unhandled_input(event: InputEvent) -> void:

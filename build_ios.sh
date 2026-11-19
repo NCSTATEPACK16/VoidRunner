@@ -87,6 +87,12 @@ rm -rf build/ios
 mkdir -p build/ios
 "${GODOT}" --headless --export-release "iOS" build/ios/Voidline.ipa
 
+# Godot writes "Apple Distribution" as the Release identity, which Xcode rejects next to
+# automatic signing. Archive / Distribute App re-signs for distribution on its own.
+sed -i.bak 's|CODE_SIGN_IDENTITY = "Apple Distribution";|CODE_SIGN_IDENTITY = "Apple Development";|' \
+  build/ios/Voidline.xcodeproj/project.pbxproj
+rm -f build/ios/Voidline.xcodeproj/project.pbxproj.bak
+
 python3 tests/ios_export_check.py build/ios \
   --team "${TEAM_ID}" --bundle "${BUNDLE_ID}" --version "${VERSION}" --build "${BUILD_NUMBER}"
 
