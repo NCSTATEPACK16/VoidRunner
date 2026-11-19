@@ -81,7 +81,7 @@ def main():
     def setting(name):
         return set(re.findall(rf"\b{name} = \"?([^\";]*)\"?;", pbx))
     check(setting("TARGETED_DEVICE_FAMILY") == {"1,2"}, "targets iPhone and iPad")
-    check(setting("IPHONEOS_DEPLOYMENT_TARGET") == {"14.0"}, "deployment target is iOS 14.0")
+    check(setting("IPHONEOS_DEPLOYMENT_TARGET") == {"15.0"}, "deployment target is iOS 15.0")
     team, bundle = setting("DEVELOPMENT_TEAM"), setting("PRODUCT_BUNDLE_IDENTIFIER")
     version, build = setting("MARKETING_VERSION"), setting("CURRENT_PROJECT_VERSION")
     check(len(team) == 1 and "" not in team, "a development team is set")

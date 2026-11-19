@@ -2467,6 +2467,21 @@ func _run() -> void:
 	game.overlays._ack_warning()
 	game.overlays.show_only("start")
 	assert(GameState.seen_warning and game.overlays._panels.start.visible)
+	# pad menu press: A/X/Y accept and B backs out while a menu is up, nothing in flight
+	var pad_want := {JOY_BUTTON_A: "ui_accept", JOY_BUTTON_X: "ui_accept",
+		JOY_BUTTON_Y: "ui_accept", JOY_BUTTON_B: "ui_cancel",
+		JOY_BUTTON_LEFT_SHOULDER: "", JOY_BUTTON_START: ""}
+	var pj := InputEventJoypadButton.new()
+	pj.pressed = true
+	for bi in pad_want:
+		pj.button_index = bi
+		assert(game.overlays._pad_menu_action(pj) == pad_want[bi], "pad button %d" % bi)
+	var shown_before: String = game.overlays._shown
+	game.overlays._shown = ""
+	pj.button_index = JOY_BUTTON_A
+	assert(game.overlays._pad_menu_action(pj) == "", "A must stay fire when no menu is up")
+	game.overlays._shown = shown_before
+	print("pad menu ok — A/X/Y accept, B cancel, ignored in flight")
 	# M1.4: a build stamp is present and non-placeholder-empty
 	assert(BuildInfo.label().length() > 5)
 	# M1.5: the sector arrows sit clear of the longest sector label. The label is

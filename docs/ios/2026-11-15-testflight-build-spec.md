@@ -53,7 +53,7 @@ the `.pck` (1.6 MB).
 7. **Engine defaults kept:** home indicator hidden, edge-gesture guard on, screen kept awake,
    up to 120 Hz, audio session `Ambient` (the ring/silent switch mutes the game, as players
    expect from a game).
-8. **Minimum iOS 14.0, iPhone and iPad, arm64.** Unchanged from PR D.
+8. **Minimum iOS 15.0 (Xcode 27 rejects 14.0), iPhone and iPad, arm64.** Unchanged from PR D.
 
 ## 4. The build
 
