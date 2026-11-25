@@ -10,7 +10,7 @@ _Status: approved 2026-11-07. Picks up after v4 PR C. Hard rule 1 stays as writt
 | PR D: iOS + controller | Code in PR #22; waiting on the TestFlight pass (`docs/ios/TESTFLIGHT.md`) |
 | PR D2: TestFlight packaging | Done 2026-11-15: icon, launch screen, versions, `build_ios.sh`, export check in CI (`docs/ios/2026-11-15-testflight-build-spec.md`); `archive`/`upload` untested until run on the Neo |
 | PR E: asset pipeline | Done (PR #23): rule change, CC0 tooling, GLB sources, prebaked atlases, SFX overrides, budgets, CI |
-| PR F, PR G | Not started |
+| PR F, PR G | Done together, one PR (2026-11-24): CC0 drone/hulk/sentinel at 16 angles × 4 frames, five crunched CC0 SFX, ENGINES + THRUSTERS ranks, 8-row Bay with a live ship preview, Bay entry from the tally |
 
 How PR E landed, and where it differs from the plan below:
 - **No CC0 files yet.** This container can't reach the CC0 hosts, so PR E ships the tooling

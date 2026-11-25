@@ -1,6 +1,6 @@
 {
-	"bake_version": 1,
-	"source_hash": "e28038a8ca966e9f88faf14e76bab598",
+	"bake_version": 2,
+	"source_hash": "fc9f54a8e92d5ab76848dd456388647d",
 	"sheets": [
 		{
 			"class": "enemies",
@@ -9,9 +9,7 @@
 			"angles": 8,
 			"anim": 2,
 			"ids": [
-				"drone",
 				"weaver",
-				"hulk",
 				"turret",
 				"stinger",
 				"spinner",
@@ -55,7 +53,6 @@
 			"angles": 8,
 			"anim": 2,
 			"ids": [
-				"sentinel",
 				"brood",
 				"maw",
 				"hauler",
@@ -73,6 +70,27 @@
 				"generator",
 				"reactor",
 				"anchor"
+			]
+		},
+		{
+			"class": "enemies_hd",
+			"file": "enemies_hd_0.png",
+			"cell": 64,
+			"angles": 16,
+			"anim": 4,
+			"ids": [
+				"drone",
+				"hulk"
+			]
+		},
+		{
+			"class": "bosses_hd",
+			"file": "bosses_hd_0.png",
+			"cell": 128,
+			"angles": 16,
+			"anim": 4,
+			"ids": [
+				"sentinel"
 			]
 		}
 	]

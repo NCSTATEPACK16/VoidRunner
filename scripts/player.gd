@@ -211,14 +211,14 @@ func update_flight(delta: float) -> void:
 			_try_dodge(1.0)
 		_tap_r = elapsed
 	# --- speed / energy (energy = afterburner reserve only) ---
-	var target := BASE_SPEED
+	var target := BASE_SPEED * GameState.engine_mult()
 	var boosting := Input.is_action_pressed("boost") and GameState.energy > 0.5
 	# re-audit Step 6: the press itself (not holding it, not energy flickering back)
 	# gets a swell and an FOV pulse; touch's double-tap toggle presses it the same way
 	if Input.is_action_just_pressed("boost") and GameState.energy > 0.5:
 		_on_boost_start()
 	if boosting:
-		target = BOOST_SPEED
+		target = BOOST_SPEED * GameState.engine_mult()
 	if Input.is_action_pressed("brake"):
 		target = BRAKE_SPEED
 	speed += (target - speed) * minf(1.0, delta * 4.0)
@@ -228,7 +228,7 @@ func update_flight(delta: float) -> void:
 		GameState.energy += ENERGY_REGEN * delta
 	if elapsed - last_damage > REGEN_DELAY:
 		GameState.shields += SHIELD_REGEN * delta
-	AudioSys.set_engine(speed, BOOST_SPEED)
+	AudioSys.set_engine(speed, BOOST_SPEED * GameState.engine_mult())
 	# --- move ---
 	var fwd := forward()
 	position += fwd * (speed * delta)
@@ -271,11 +271,11 @@ func update_flight(delta: float) -> void:
 func _try_dodge(dir_sign: float) -> void:
 	if not active or dodge_cd > 0.0 or _dodge_t > 0.0:
 		return
-	if GameState.energy < DODGE_COST:
+	if GameState.energy < GameState.dodge_cost():
 		notified.emit("LOW ENERGY")
 		return
-	GameState.energy -= DODGE_COST
-	dodge_cd = DODGE_CD
+	GameState.energy -= GameState.dodge_cost()
+	dodge_cd = GameState.dodge_cd()
 	_dodge_t = DODGE_TIME
 	iframes_t = DODGE_IFRAMES
 	_dodge_dir = forward().cross(Vector3.UP).normalized() * dir_sign

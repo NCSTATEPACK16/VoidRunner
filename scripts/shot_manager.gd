@@ -262,7 +262,8 @@ func fire_player(w: WeaponDef) -> void:
 		spawned += 1
 	GameState.level_shots += spawned   # accuracy is per-projectile (Phase J)
 	player.flash_muzzle(w.color)
-	AudioSys.play_laser(w.freq)
+	if w.fuse <= 0.0 or not AudioSys.play_missile():   # PR F: fused shots are missiles
+		AudioSys.play_laser(w.freq)
 
 
 func fire_enemy(origin: Vector3, velocity: Vector3, dmg := ENEMY_SHOT_DMG,
