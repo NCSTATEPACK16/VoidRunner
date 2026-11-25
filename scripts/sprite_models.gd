@@ -30,9 +30,56 @@ static var _mats := {}
 ##   paint: [col, pattern] for a TextureGen.hull_paint material,
 ##   yaw (degrees), scale (on top of the fit), offset (Vector3, after the fit),
 ##   kit: optional Callable(root: Node3D, frame: int) adding parts-kit pieces,
-## }. Every surface is overridden with a studio material, so CC0 and code-built
-## models share one lighting model and survive the palette pass. Empty until PR F.
-static var GLB_SOURCES := {}
+##   keep: true keeps each surface's own colour (its albedo texture or colour, as a
+##     studio material, times `tint`) instead of one flat material; with it,
+##     anim: a glTF clip name (or suffix) whose loop the anim frames sample, and
+##     frames: how many anim frames the class bakes (4 for the pilot),
+## }. Every surface becomes a studio material, so CC0 and code-built models share
+## one lighting model and survive the palette pass. PR F fills it from PILOT.
+static var GLB_SOURCES := pilot_sources(PILOT_ON)
+
+## PR F content pilot: the CC0 kitbashes (Quaternius, CC0; see assets/LICENSES.md).
+## PILOT_ON lists the ids whose CC0 look the user picked over the code-built one.
+const CC0_DIR := "res://assets/cc0/models/"
+const PILOT_ON: Array[String] = ["drone", "hulk", "sentinel"]
+const PILOT := {
+	"drone": {"file": "pod_drone.glb", "chrome": 0.35, "scale": 1.3, "kit": "_kit_drone"},
+	"hulk": {"file": "heavy_mech.glb", "chrome": 0.3, "scale": 1.2, "anim": "Idle", "kit": "_kit_hulk"},
+	"sentinel": {"file": "sentinel_mech.glb", "chrome": 0.4, "scale": 1.25, "anim": "Idle",
+		"kit": "_kit_sentinel"},
+}
+
+
+## GLB_SOURCES entries for `ids` out of PILOT (16 angles x 4 frames, kits bound).
+static func pilot_sources(ids: Array) -> Dictionary:
+	var out := {}
+	for id in ids:
+		var p: Dictionary = PILOT[id].duplicate()
+		p.path = CC0_DIR + str(p.file)
+		p.keep = true
+		p.frames = 4
+		p.kit = Callable(SpriteModels, str(p.kit))
+		out[id] = p
+	return out
+
+
+## The pilot's kitbash parts, in the fitted model's space (front is +Z). Every one
+## pulses on the odd anim frames, so a static ship still reads as alive.
+static func _kit_drone(root: Node3D, f: int) -> void:
+	part(root, sphere(0.13 if f % 2 == 0 else 0.17), glow("40e0ff", f % 2), Vector3(0, 0.02, -0.6))
+
+
+static func _kit_hulk(root: Node3D, f: int) -> void:
+	pair(root, sphere(0.07), glow("ff3020", f % 2), Vector3(0.18, 0.62, 0.42))
+
+
+static func _kit_sentinel(root: Node3D, f: int) -> void:
+	var dark := m("222838", 0.25)
+	for s in [-1.0, 1.0]:
+		part(root, cyl(0.1, 0.12, 0.8), dark, Vector3(s * 0.62, 0.52, 0.2), Vector3(90, 0, 0))
+		part(root, sphere(0.09 if f % 2 == 0 else 0.13), glow("ff9020", f % 2),
+			Vector3(s * 0.62, 0.52, 0.62))
+	part(root, sphere(0.16 if f % 2 == 0 else 0.2), glow("ff2a20", f % 2), Vector3(0, 0.25, 0.5))
 const FIT_RADIUS := 1.15
 
 
@@ -281,13 +328,20 @@ static func _from_glb(root: Node3D, id: String, frame: int) -> void:
 		push_warning("SpriteModels: %s: can't load %s; using the drone" % [id, src.path])
 		_drone(root, frame)
 		return
-	var mat: Material
-	if src.has("paint"):
-		mat = painted(str(src.paint[0]), str(src.paint[1]))
+	if src.get("keep", false):
+		# the bake's anim frames sample the clip evenly, so the idle loops seamlessly
+		_pose(scene, str(src.get("anim", "")), float(frame) / float(src.get("frames", 4)))
+		_freeze_skins(scene, scene)
+		_repaint_keep(scene, float(src.get("chrome", 0.3)),
+			src.get("tint", Color.WHITE) as Color, float(src.get("glow", 0.0)))
 	else:
-		mat = m(str(src.get("col", "#a8b0c0")), float(src.get("chrome", 0.3)),
-			float(src.get("glow", 0.0)))
-	_repaint(scene, mat)
+		var mat: Material
+		if src.has("paint"):
+			mat = painted(str(src.paint[0]), str(src.paint[1]))
+		else:
+			mat = m(str(src.get("col", "#a8b0c0")), float(src.get("chrome", 0.3)),
+				float(src.get("glow", 0.0)))
+		_repaint(scene, mat)
 	var holder := Node3D.new()
 	holder.add_child(scene)
 	var box := mesh_bounds(scene)
@@ -312,6 +366,161 @@ static func load_glb(path: String) -> Node3D:
 	if doc.append_from_file(path, state) != OK:
 		return null
 	return doc.generate_scene(state) as Node3D
+
+
+## PR F: poses every Skeleton3D under `root` at fraction `frac` (0..1) of its GLB's
+## `anim` clip, by sampling the clip's bone tracks directly — no AnimationPlayer, so it
+## works on a tree that was never added to the scene. No clip: the bind pose.
+static func _pose(root: Node, anim: String, frac: float) -> void:
+	if anim == "":
+		return
+	var ap := _find(root, "AnimationPlayer") as AnimationPlayer
+	var clip := ""
+	if ap:   # glTF clips arrive as "Armature|Idle": match on the name or its suffix
+		for nm in ap.get_animation_list():
+			if nm == anim or nm.ends_with("|" + anim):
+				clip = nm
+				break
+	if clip == "":
+		push_warning("SpriteModels: no animation '%s'; using the bind pose" % anim)
+		return
+	var a := ap.get_animation(clip)
+	var t := fmod(frac, 1.0) * a.length
+	var base := ap.get_node_or_null(ap.root_node)
+	for ti in a.get_track_count():
+		var path := a.track_get_path(ti)
+		var skel := (base.get_node_or_null(NodePath(path.get_concatenated_names())) if base
+			else null) as Skeleton3D
+		if skel == null:
+			continue
+		var bone := skel.find_bone(path.get_concatenated_subnames())
+		if bone < 0:
+			continue
+		match a.track_get_type(ti):
+			Animation.TYPE_POSITION_3D:
+				skel.set_bone_pose_position(bone, a.position_track_interpolate(ti, t))
+			Animation.TYPE_ROTATION_3D:
+				skel.set_bone_pose_rotation(bone, a.rotation_track_interpolate(ti, t))
+			Animation.TYPE_SCALE_3D:
+				skel.set_bone_pose_scale(bone, a.scale_track_interpolate(ti, t))
+
+
+## The first node under `n` (depth first) whose class is `cls`, or null.
+static func _find(n: Node, cls: String) -> Node:
+	for c in n.get_children():
+		if c.is_class(cls):
+			return c
+		var deep := _find(c, cls)
+		if deep:
+			return deep
+	return null
+
+
+## PR F: replaces every skinned mesh under `n` with a plain ArrayMesh of its current
+## pose (CPU skinning). SpriteForge draws angles 1..7 as bare RenderingServer
+## instances of each mesh, which have no skeleton: without this they'd show the
+## bind pose while angle 0 showed the posed node tree.
+static func _freeze_skins(n: Node, root: Node) -> void:
+	if n is MeshInstance3D:
+		var mi := n as MeshInstance3D
+		var skel := mi.get_node_or_null(mi.skeleton) as Skeleton3D
+		if mi.skin and skel and mi.mesh:
+			# skinned vertices live in the skeleton's space; the result has to sit in mi's
+			var to_mi := _rel(mi, root).affine_inverse() * _rel(skel, root)
+			var binds: Array[Transform3D] = []
+			for b in mi.skin.get_bind_count():
+				var bone := mi.skin.get_bind_bone(b)
+				if bone < 0:
+					bone = skel.find_bone(mi.skin.get_bind_name(b))
+				binds.append(skel.get_bone_global_pose(maxi(bone, 0)) * mi.skin.get_bind_pose(b))
+			var out := ArrayMesh.new()
+			for s in mi.mesh.get_surface_count():
+				var arr := mi.mesh.surface_get_arrays(s)
+				var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+				var nrm: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+				var bones: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+				var wts: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+				var per := bones.size() / maxi(v.size(), 1)
+				for i in v.size():
+					var p := Vector3.ZERO
+					var q := Vector3.ZERO
+					for k in per:
+						var w := wts[i * per + k]
+						if w <= 0.0:
+							continue
+						var xf := binds[bones[i * per + k]]
+						p += xf * v[i] * w
+						if nrm.size() > i:
+							q += xf.basis * nrm[i] * w
+					v[i] = to_mi * p
+					if nrm.size() > i:
+						nrm[i] = (to_mi.basis * q).normalized()
+				arr[Mesh.ARRAY_VERTEX] = v
+				if nrm.size() > 0:
+					arr[Mesh.ARRAY_NORMAL] = nrm
+				arr[Mesh.ARRAY_BONES] = null
+				arr[Mesh.ARRAY_WEIGHTS] = null
+				out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+				out.surface_set_material(s, mi.get_active_material(s))
+			mi.skin = null
+			mi.skeleton = NodePath()
+			mi.mesh = out
+	for c in n.get_children():
+		_freeze_skins(c, root)
+
+
+## `n`'s transform relative to `root` (an ancestor), from node transforms alone.
+static func _rel(n: Node, root: Node) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	var cur := n
+	while cur and cur != root:
+		if cur is Node3D:
+			xf = (cur as Node3D).transform * xf
+		cur = cur.get_parent()
+	return xf
+
+
+## PR F: every surface becomes a studio material that keeps the source's own colour —
+## its albedo texture (CC0 packs colour from a palette atlas) laid on as the studio
+## `decal`, or its flat albedo colour — times `tint`. The material goes on the mesh's
+## own surfaces (not a node override) because SpriteForge's angle copies draw the
+## bare mesh. Code-built and CC0 models so share one lighting model.
+static func _repaint_keep(n: Node, chrome: float, tint: Color, glow: float) -> void:
+	if n is MeshInstance3D:
+		var mi := n as MeshInstance3D
+		if mi.mesh:
+			var mesh := mi.mesh.duplicate() as Mesh
+			for s in mesh.get_surface_count():
+				var src_mat: Material = mi.get_active_material(s)
+				var c := Color("a8b0c0")
+				var tex: Texture2D = null
+				if src_mat is BaseMaterial3D:
+					c = (src_mat as BaseMaterial3D).albedo_color
+					tex = (src_mat as BaseMaterial3D).albedo_texture
+				c = Color(c.r * tint.r, c.g * tint.g, c.b * tint.b)
+				var mat := m(c.to_html(false), chrome, glow).duplicate() as ShaderMaterial
+				if tex:
+					mat.set_shader_parameter("decal", _tinted(tex, tint))
+				mesh.surface_set_material(s, mat)
+			mi.mesh = mesh
+			mi.material_override = null
+			for s in mesh.get_surface_count():
+				mi.set_surface_override_material(s, null)
+	for c in n.get_children():
+		_repaint_keep(c, chrome, tint, glow)
+
+
+static func _tinted(tex: Texture2D, tint: Color) -> Texture2D:
+	if tint == Color.WHITE:
+		return tex
+	var img := tex.get_image()
+	if img.is_compressed():
+		img.decompress()
+	for y in img.get_height():
+		for x in img.get_width():
+			var p := img.get_pixel(x, y)
+			img.set_pixel(x, y, Color(p.r * tint.r, p.g * tint.g, p.b * tint.b, p.a))
+	return ImageTexture.create_from_image(img)
 
 
 static func _repaint(n: Node, mat: Material) -> void:

@@ -15,6 +15,11 @@ A manifest entry is
      "file": "drone_hull.glb", "license": "CC0-1.0", "source": "Kenney",
      "sha256": "<64 hex>"}
 
+An optional "member" names one file inside a .zip download (CC0 packs often ship
+only as an archive): the sha256 pin is the archive's, and only that member is
+written to <file>. Its LICENSES row records the member's own sha256 (what
+check_budgets verifies on disk) and names the archive's pin in the source column.
+
 It refuses an entry that isn't exactly CC0-1.0, a download whose sha256 doesn't match
 its pin, and any name, file or URL containing a blocked word (hard rule 2). The blocked
 words are stored as sha256 digests so this file never spells them out. Standard
@@ -29,6 +34,7 @@ import shutil
 import sys
 import tempfile
 import urllib.request
+import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CC0_DIR = os.path.join(ROOT, "assets", "cc0")
@@ -104,8 +110,11 @@ def check_entry(e):
         raise Refused("%s: file must be a bare name" % e["name"])
     if not re.fullmatch(r"[0-9a-f]{64}", e["sha256"]):
         raise Refused("%s: sha256 pin must be 64 lowercase hex" % e["name"])
-    for field in ("name", "file", "url", "source"):
-        if blocked(e[field]):
+    member = e.get("member", "")
+    if member and (member.startswith("/") or ".." in member.split("/")):
+        raise Refused("%s: member must be a relative path inside the archive" % e["name"])
+    for field in ("name", "file", "url", "source", "member"):
+        if blocked(e.get(field, "")):
             raise Refused("%s: %s contains a blocked word (hard rule 2)" % (e["name"], field))
 
 
@@ -117,24 +126,37 @@ def fetch(e, cc0_dir=CC0_DIR, licenses=LICENSES):
     fd, tmp = tempfile.mkstemp(dir=dest_dir, suffix=".part")
     os.close(fd)
     try:
-        with urllib.request.urlopen(e["url"], timeout=60) as r, open(tmp, "wb") as out:
+        # some CC0 hosts refuse Python's default User-Agent; a plain tool name passes
+        req = urllib.request.Request(e["url"], headers={"User-Agent": "fetch_cc0/1.0"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as out:
             shutil.copyfileobj(r, out)
         got = sha256_of(tmp)
         if got != e["sha256"]:
             raise Refused("%s: sha256 %s does not match the pin %s" % (e["name"], got, e["sha256"]))
-        os.replace(tmp, dest)
+        if e.get("member"):
+            try:
+                with zipfile.ZipFile(tmp) as z, open(dest + ".part2", "wb") as out:
+                    out.write(z.read(e["member"]))
+            except (zipfile.BadZipFile, KeyError) as err:
+                raise Refused("%s: can't read member %r: %s" % (e["name"], e["member"], err))
+            os.replace(dest + ".part2", dest)
+        else:
+            os.replace(tmp, dest)
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
-    log_license(e, licenses)
+    log_license(e, licenses, sha256_of(dest))
     return dest
 
 
-def log_license(e, licenses=LICENSES):
+def log_license(e, licenses=LICENSES, file_sha=None):
     rel = "cc0/%s/%s" % (KIND_DIRS[e["kind"]], e["file"])
+    src = e["source"]
+    if e.get("member"):
+        src += " — `%s` from the archive pinned at sha256 `%s`" % (e["member"], e["sha256"])
     row = "| `%s` | %s | %s | %s | %s | %s | `%s` |\n" % (
-        rel, e["kind"], e["source"], e["url"], e["license"],
-        datetime.date.today().isoformat(), e["sha256"])
+        rel, e["kind"], src, e["url"], e["license"],
+        datetime.date.today().isoformat(), file_sha or e["sha256"])
     text = open(licenses).read() if os.path.exists(licenses) else ""
     if TABLE_HEAD not in text:
         text = text.rstrip("\n") + ("\n\n" if text else "") + TABLE_HEAD
@@ -183,6 +205,20 @@ def self_test():
         assert refused(url="file://" + td + "/" + word.upper() + "Sounds/beep.wav")
         assert not blocked("drone_hull_kenney") and not blocked("void_runner_sfx")
         assert not os.path.exists(os.path.join(cc0, "sfx", "beep.glb"))
+        # a member out of a pinned zip: the archive is pinned, only the member lands
+        pack = os.path.join(td, "pack.zip")
+        with zipfile.ZipFile(pack, "w") as z:
+            z.writestr("sounds/beep.wav", b"RIFF member payload")
+            z.writestr("readme.txt", b"CC0")
+        zgood = dict(good, name="zbeep", url="file://" + pack, file="zbeep.wav",
+                     sha256=sha256_of(pack), member="sounds/beep.wav")
+        zdest = fetch(zgood, cc0, lic)
+        assert open(zdest, "rb").read() == b"RIFF member payload"
+        assert "`sounds/beep.wav`" in open(lic).read()
+        # the row's hash is the extracted file's, so check_budgets can verify it on disk
+        assert "`%s` |" % sha256_of(zdest) in open(lic).read()
+        assert refused(**{k: zgood[k] for k in ("url", "sha256")}, member="nope.wav")
+        assert refused(**{k: zgood[k] for k in ("url", "sha256")}, member="../beep.wav")
     print("fetch_cc0 self-test OK")
 
 

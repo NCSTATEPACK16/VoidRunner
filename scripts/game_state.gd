@@ -39,11 +39,15 @@ const MARK_AMMO := [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 3, 5]]
 const SHIP_CAPS := [100.0, 120.0, 140.0]      # shield/energy by rank
 const HEAT_MULTS := [1.0, 0.88, 0.78]
 const RACK_ADD := [0, 5, 10]
+const ENGINE_MULTS := [1.0, 1.08, 1.15]      # PR G: cruise + boost speed by rank
+const DODGE_CDS := [1.2, 1.0, 0.85]          # PR G: thrusters — dodge cooldown (s)
+const DODGE_COSTS := [20.0, 16.0, 12.0]      # PR G: thrusters — dodge energy
 
 var salvage_run := 0        # this level's haul — banked at the tally, lost on death
 var salvage_bank := 0       # persistent across runs (records.cfg)
 var weapon_marks := [0, 0, 0, 0]   # per-run MK I..III (0..2)
-var ship_ranks := {"shield": 0, "heat": 0, "energy": 0, "rack": 0, "magnet": 0, "hull": 0}
+var ship_ranks := {"shield": 0, "heat": 0, "energy": 0, "rack": 0, "magnet": 0, "hull": 0,
+	"engines": 0, "thrusters": 0}
 
 var shields := MAX_SHIELDS:
 	set(value):
@@ -268,6 +272,18 @@ func magnet_mult() -> float:
 
 func hull_mult() -> float:   # wall-bounce damage
 	return 0.7 if ship_ranks.hull > 0 else 1.0
+
+
+func engine_mult() -> float:   # PR G: cruise and boost speed
+	return ENGINE_MULTS[ship_ranks.engines]
+
+
+func dodge_cd() -> float:   # PR G: thrusters
+	return DODGE_CDS[ship_ranks.thrusters]
+
+
+func dodge_cost() -> float:   # PR G: thrusters
+	return DODGE_COSTS[ship_ranks.thrusters]
 
 
 ## V2.2 L2c: streak length → style grade (0 none … 4 VOID LEGEND).

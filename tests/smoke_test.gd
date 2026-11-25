@@ -1242,6 +1242,73 @@ func _run() -> void:
 	GameState.ship_ranks.shield = 0
 	GameState.ship_ranks.magnet = 0
 	print("bay ok — marks + ranks bought, banking works")
+	# --- PR G: ENGINES + THRUSTERS ranks, 8-row Bay, tally entry, ship preview ---
+	var pg_ov: Overlays = game.overlays
+	assert(GameState.engine_mult() == 1.0 and GameState.dodge_cd() == PlayerShip.DODGE_CD
+		and GameState.dodge_cost() == PlayerShip.DODGE_COST)   # rank 0 = the old tuning
+	GameState.salvage_bank = 1000
+	assert(pg_ov.bay_buy_ship("engines") and pg_ov.bay_buy_ship("engines"))   # 120 + 260
+	assert(not pg_ov.bay_buy_ship("engines"))                              # MK II is the top
+	assert(is_equal_approx(GameState.engine_mult(), 1.15))
+	assert(pg_ov.bay_buy_ship("thrusters"))
+	assert(is_equal_approx(GameState.dodge_cd(), 1.0) and is_equal_approx(GameState.dodge_cost(), 16.0))
+	assert(GameState.salvage_total() == 1000 - 120 - 260 - 120)
+	# the boosted cruise speed reaches the flight model
+	game.player.speed = PlayerShip.BASE_SPEED
+	var pg_ring: int = game.player.ring_idx
+	for pg_f in 40:
+		game.player.update_flight(dt)
+	game.player.place_at_ring(pg_ring)
+	assert(game.player.speed > PlayerShip.BASE_SPEED * 1.1)
+	# a dodge charges the thrusters' cost and cooldown
+	var pg_active: bool = game.player.active
+	game.player.active = true
+	GameState.energy = 100.0
+	game.player.dodge_cd = 0.0
+	game.player._dodge_t = 0.0
+	game.player._try_dodge(1.0)
+	assert(is_equal_approx(GameState.energy, 84.0), "energy %.1f" % GameState.energy)
+	assert(is_equal_approx(game.player.dodge_cd, 1.0))
+	game.player.active = pg_active
+	game.player._dodge_t = 0.0
+	game.player.iframes_t = 0.0
+	# every Bay row sits inside its window, none overlap
+	var by_rects: Array[Rect2] = []
+	for pg_k in pg_ov._bay_rows:
+		var pg_bb := pg_ov._bay_rows[pg_k].buy as Button
+		by_rects.append(Rect2(pg_bb.position, pg_bb.size))
+		assert(Rect2(6, 6, 308, 188).encloses(by_rects.back()))
+	assert(pg_ov._bay_rows.size() == Overlays.BAY_WEAPONS.size() + 8)
+	for pg_i in by_rects.size():
+		for pg_j in range(pg_i + 1, by_rects.size()):
+			assert(not by_rects[pg_i].intersects(by_rects[pg_j]), "bay rows %d/%d overlap" % [pg_i, pg_j])
+	var pv_rect := Rect2(pg_ov.ship_preview.position, pg_ov.ship_preview.size)
+	for pg_r in by_rects:
+		assert(not pv_rect.intersects(pg_r))
+	# the preview wears the installed ranks
+	assert(pg_ov.ship_preview.has_part("engines") and pg_ov.ship_preview.has_part("thrusters"))
+	assert(not pg_ov.ship_preview.has_part("magnet"))
+	GameState.ship_ranks.magnet = 1
+	pg_ov._refresh_bay()
+	assert(pg_ov.ship_preview.has_part("magnet"))
+	# entry from the tally: no LAUNCH, BACK returns to the tally
+	pg_ov.open_bay("level_clear")
+	assert(pg_ov._panels.bay.visible and not pg_ov._bay_launch.visible)
+	pg_ov._bay_back_button().pressed.emit()
+	assert(pg_ov._panels.level_clear.visible)
+	pg_ov.open_bay("briefing")
+	assert(pg_ov._bay_launch.visible)
+	pg_ov._bay_back_button().pressed.emit()
+	assert(pg_ov._panels.briefing.visible)
+	pg_ov.set_level_clear("TEST", [], "A", "> NEXT LEVEL")
+	assert(not pg_ov._tally_bay.visible)          # hidden while the tally reveals
+	pg_ov.tally_skip()
+	assert(pg_ov._tally_bay.visible)
+	for pg_k in ["engines", "thrusters", "magnet"]:
+		GameState.ship_ranks[pg_k] = 0
+	GameState.salvage_bank = 0
+	pg_ov._refresh_bay()
+	print("PR G ok — engines/thrusters reach flight + dodge, 8-row Bay fits, preview parts, tally entry + BACK")
 	# --- K3: L2 places crushers in plain tunnel, clear of arenas and doors ---
 	GameState.reset_run()
 	GameState.level_index = 1
@@ -3576,7 +3643,9 @@ func _run() -> void:
 	assert(game.player._boost_pulse_t >= 0.0)
 	await get_tree().process_frame   # next frame: still held, no longer "just pressed"
 	var pulse_t: float = game.player._boost_pulse_t
-	game.player.update_flight(0.05)
+	# 0.1 s lands near the kick's peak whatever the awaited frame's own delta was
+	# (a fast headless frame left 0.05 s on the shallow start of the ease: 1.9°)
+	game.player.update_flight(0.1)
 	assert(game.player._boost_pulse_t > pulse_t)   # the same pulse, not a restart
 	assert(game.player.camera.fov > GameState.view_fov + 1.0)
 	Input.action_release("boost")
@@ -4047,7 +4116,9 @@ func _run() -> void:
 	SpriteModels.GLB_SOURCES.erase("smoke_bad")
 	print("GLB SOURCES ok — loaded raw, centred and fitted, studio-repainted, kit parts, bad file falls back")
 	# --- PR E: a crunched CC0 sound replaces its procedural slot ---
-	assert(AudioSys.overridden.is_empty())   # resources/sfx/ ships empty until PR F
+	# PR F ships five crunched CC0 sounds in resources/sfx/
+	for sx_slot in ["boom_small", "missile", "powerup", "hit", "enemy_hit"]:
+		assert(AudioSys.overridden.has(sx_slot), "PR F sfx slot %s not overridden" % sx_slot)
 	var sx_dir := "user://smoke_sfx"
 	DirAccess.make_dir_recursive_absolute(sx_dir)
 	var sx_src := AudioStreamWAV.new()
@@ -4060,6 +4131,8 @@ func _run() -> void:
 	assert(sx_src.save_to_wav(sx_dir.path_join("hit.wav")) == OK)
 	var sx_old: AudioStreamWAV = AudioSys._hit
 	var sx_old_tick: AudioStreamWAV = AudioSys._tick
+	var sx_shipped := AudioSys.overridden.duplicate()
+	AudioSys.overridden.clear()
 	AudioSys.apply_sfx_overrides(sx_dir)
 	assert(AudioSys.overridden.size() == 1 and AudioSys.overridden[0] == "hit")
 	assert(AudioSys._hit != sx_old and AudioSys._hit.format == AudioStreamWAV.FORMAT_8_BITS)
@@ -4067,8 +4140,19 @@ func _run() -> void:
 	assert(AudioSys._tick == sx_old_tick)   # slots without a file keep their procedural sound
 	AudioSys.play_hit()
 	AudioSys._hit = sx_old
-	AudioSys.overridden.clear()
+	AudioSys.overridden.assign(sx_shipped)
 	DirAccess.remove_absolute(sx_dir.path_join("hit.wav"))
+	# PR F: the enemy-hit sound is rate-limited, the missile slot reports itself
+	var eh0 := AudioSys.enemy_hit_plays
+	AudioSys._last_enemy_hit_ms = -100000
+	AudioSys.play_enemy_hit()
+	AudioSys.play_enemy_hit()
+	assert(AudioSys.enemy_hit_plays == eh0 + 1)   # the second call is inside the gap
+	assert(AudioSys.play_missile())
+	var ms_keep: AudioStreamWAV = AudioSys._missile
+	AudioSys._missile = null
+	assert(not AudioSys.play_missile())   # no CC0 slot: the caller keeps the laser
+	AudioSys._missile = ms_keep
 	print("SFX OVERRIDES ok — a crunched 8-bit file replaces its slot, the rest stay procedural")
 	# --- PR E: the prebaked atlases (keep this block last: it swaps the headless sets) ---
 	var pb_man := SpriteForge.read_manifest()
@@ -4087,7 +4171,11 @@ func _run() -> void:
 	assert(SpriteForge.load_all_baked())   # decodes headless too
 	for pb_id in SpriteModels.ENEMIES + SpriteModels.BOSSES + SpriteModels.OBJECTS:
 		var pb_st: Dictionary = SpriteForge.sprite_set(pb_id)
-		assert(pb_st.angles == SpriteForge.ANGLES and pb_st.tex.size() == pb_st.angles * pb_st.anim)
+		# PR F: the CC0 pilot ids bake at 16 angles × 4 frames, the rest at ANGLES × 2
+		var pb_hd := SpriteModels.GLB_SOURCES.has(pb_id)
+		assert(pb_st.angles == (SpriteForge.HD_ANGLES if pb_hd else SpriteForge.ANGLES))
+		assert(pb_st.tex.size() == pb_st.angles * pb_st.anim)
+		assert(not pb_hd or pb_st.anim == SpriteForge.HD_ANIM)
 		assert(pb_st.flash.size() == pb_st.angles)
 	assert(SpriteForge.pickup_frames("keycard").size() == 8)
 	assert(not SpriteForge._load_baked(["enemies"], "user://no_such_dir"))   # missing: render instead

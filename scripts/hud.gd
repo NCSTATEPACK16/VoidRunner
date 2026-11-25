@@ -661,7 +661,7 @@ func _draw_console() -> void:
 		DIGIT_COL if GameState.missiles > 0 else Color("ff3018"))
 	# K4: evade lamp — refills through the cooldown, bright cyan when ready
 	if player:
-		var frac := 1.0 - clampf(player.dodge_cd / PlayerShip.DODGE_CD, 0.0, 1.0)
+		var frac := 1.0 - clampf(player.dodge_cd / GameState.dodge_cd(), 0.0, 1.0)
 		c.draw_rect(Rect2(184, CONSOLE_Y + 16, 22, 7), Palette.ramp(Palette.STEEL, 1))
 		c.draw_rect(Rect2(185, CONSOLE_Y + 17, 20.0 * frac, 5),
 			Palette.ramp(Palette.CYAN, 14) if frac >= 1.0 else Palette.ramp(Palette.CYAN, 6))

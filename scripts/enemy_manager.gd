@@ -520,14 +520,14 @@ func update_enemies(delta: float) -> void:
 	for k in range(enemies.size() - 1, -1, -1):
 		var e: Dictionary = enemies[k]
 		var node: Sprite3D = e.node
-		# sprite animation: 2-frame idle cycle; the hit flash overrides briefly
-		# (3.0: the texture itself is chosen by _skin once facing is known)
+		# sprite animation: the set's idle cycle (2 frames, 4 for the PR F pilot);
+		# the hit flash overrides briefly (the texture is chosen by _skin)
 		e.anim_t += delta
 		if e.flash_t > 0.0:
 			e.flash_t -= delta
 		elif e.anim_t >= FRAME_TIME:
 			e.anim_t = 0.0
-			e.frame = (e.frame + 1) % 2
+			e.frame = (e.frame + 1) % maxi(1, int(e.skin.anim))
 		e.bob_p += delta * 2.0
 		if e.ring != e.lit_ring:   # 3.0: re-sample the sector light on ring change
 			e.lit_ring = e.ring
@@ -1466,7 +1466,10 @@ func hit_enemy(index: int, dmg: int, from_dir := Vector3.ZERO) -> bool:
 			if (e.facing as Vector3).dot(-flat) > WARDEN_ARC_COS:
 				deflected.emit((e.node as Node3D).position - flat * 1.6)
 				return false
-	return _hurt(index, dmg)
+	var killed := _hurt(index, dmg)
+	if not killed:
+		AudioSys.play_enemy_hit()   # PR F: the kill has its own boom
+	return killed
 
 
 ## Closest living enemy's sprite node to `from`, or null if none — the lock target

@@ -25,6 +25,9 @@ class_name SpriteForge
 
 const ANGLES := 8
 const ANIM := 2
+## PR F: the CC0 pilot's fidelity (its own classes, see classes()).
+const HD_ANGLES := 16
+const HD_ANIM := 4
 const CELL_WORLD := 2.6   # world units one atlas cell spans
 ## v4b: no bake viewport grows past this — the texture size every WebGL2 device must
 ## support. A taller sprite class is split across several viewports.
@@ -34,7 +37,7 @@ const MAX_SHEET_PX := 2048
 ## BAKED_DIR (PNG sheets + manifest.json) and loaded instead of rendered. Bump
 ## BAKE_VERSION when the sheet layout or slicing changes; the manifest's source hash
 ## (source_hash) catches model edits that weren't rebaked (smoke + check_budgets).
-const BAKE_VERSION := 1
+const BAKE_VERSION := 2   # 2: PR F's HD classes (enemies_hd, bosses_hd)
 const BAKED_DIR := "res://resources/baked"
 ## The files whose content decides what the sprites look like.
 const SOURCE_FILES := ["res://scripts/sprite_models.gd", "res://shaders/studio.gdshader",
@@ -63,20 +66,37 @@ static var _rids: Array[RID] = []
 ## it: boot, or deferred to the first boss / mission object of a level load. Angles,
 ## anim frames and cell size are per class; PR F tunes them for its pilot.
 static func classes() -> Array:
-	return [
+	# PR F: the CC0 pilot ids bake in their own HD classes (16 angles x 4 frames)
+	var hd: Array = SpriteModels.GLB_SOURCES.keys()
+	var enemies_hd := SpriteModels.ENEMIES.filter(func(id: String) -> bool: return id in hd)
+	var bosses_hd := SpriteModels.BOSSES.filter(func(id: String) -> bool: return id in hd)
+	var out := [
 		{"name": "enemies", "cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0,
-			"ids": SpriteModels.ENEMIES, "when": "boot"},
+			"ids": SpriteModels.ENEMIES.filter(func(id: String) -> bool: return not id in hd),
+			"when": "boot"},
 		{"name": "pickups", "cell": 32, "angles": 8, "anim": 1, "pitch": 24.0,
 			"ids": SpriteModels.PICKUPS + ["prop"], "when": "boot"},
 		{"name": "bosses", "cell": 128, "angles": ANGLES, "anim": ANIM, "pitch": 10.0,
-			"ids": SpriteModels.BOSSES, "when": "boss"},
+			"ids": SpriteModels.BOSSES.filter(func(id: String) -> bool: return not id in hd),
+			"when": "boss"},
 		{"name": "objects", "cell": 64, "angles": ANGLES, "anim": ANIM, "pitch": 14.0,
 			"ids": SpriteModels.OBJECTS, "when": "objects"},
 	]
+	if not enemies_hd.is_empty():
+		out.append({"name": "enemies_hd", "cell": 64, "angles": HD_ANGLES, "anim": HD_ANIM,
+			"pitch": 14.0, "ids": enemies_hd, "when": "boot"})
+	if not bosses_hd.is_empty():
+		out.append({"name": "bosses_hd", "cell": 128, "angles": HD_ANGLES, "anim": HD_ANIM,
+			"pitch": 10.0, "ids": bosses_hd, "when": "boss"})
+	return out
 
 
 static func _classes_when(when: String) -> Array:
 	return classes().filter(func(c: Dictionary) -> bool: return c.when == when)
+
+
+static func _names_when(when: String) -> Array:
+	return _classes_when(when).map(func(c: Dictionary) -> String: return c.name)
 
 
 ## Bake the enemy and pickup sprites. Call once, early, from a node inside the tree.
@@ -106,7 +126,7 @@ static func bake_bosses() -> void:
 	if host == null or not is_instance_valid(host) or not host.is_inside_tree():
 		host = (Engine.get_main_loop() as SceneTree).root
 	var t0 := Time.get_ticks_msec()
-	if prebaked and _load_baked(["bosses"]):
+	if prebaked and _load_baked(_names_when("boss")):
 		boss_bake_ms = Time.get_ticks_msec() - t0
 		return
 	if not _bake_classes(host, _classes_when("boss")):
@@ -128,7 +148,7 @@ static func bake_objects() -> void:
 	if host == null or not is_instance_valid(host) or not host.is_inside_tree():
 		host = (Engine.get_main_loop() as SceneTree).root
 	var t0 := Time.get_ticks_msec()
-	if prebaked and _load_baked(["objects"]):
+	if prebaked and _load_baked(_names_when("objects")):
 		objects_bake_ms = Time.get_ticks_msec() - t0
 		return
 	if not _bake_classes(host, _classes_when("objects")):
@@ -144,7 +164,7 @@ static func _bake(host: Node) -> void:
 		_objects_baked = true
 		return
 	# PR E: the build-time atlases, when they match this build; else render them
-	if not render_only and _load_baked(["enemies", "pickups"]):
+	if not render_only and _load_baked(_names_when("boot")):
 		prebaked = true
 		gpu_baked = true
 		return

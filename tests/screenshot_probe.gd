@@ -13,6 +13,7 @@ extends Node
 ##   5. touch II tab over flight, then the pause menu -> shot_touch.png / shot_pause.png
 ##   6. difficulty panel (Step 3)      -> shot_difficulty.png
 ##   7. touch page of the manual (Step 5) -> shot_help_touch.png
+##   8. Upgrade Bay, ranks installed (PR G) -> shot_bay.png
 ##   8. v4c: hub door, key, switch, reactor, escape HUD, generator, anchor, pod and the
 ##      automap marks -> shot_hub_door / key / switch / reactor / escape / generator /
 ##      anchor / pod / automap_hub / automap_vault / automap_gen / automap_pods .png
@@ -185,6 +186,16 @@ func _run() -> void:
 		await get_tree().process_frame   # warm-up rig compiles behind the briefing
 	# 0) the briefing itself — story/objective/body bands must not overlap (V2.2)
 	await _capture_root("shot_briefing.png", dir)
+	# PR G: the Upgrade Bay with some ranks installed, so the preview wears parts
+	var bay_keep: Dictionary = GameState.ship_ranks.duplicate()
+	for k in ["engines", "thrusters", "shield", "rack", "magnet"]:
+		GameState.ship_ranks[k] = 1
+	game.overlays.open_bay("briefing")
+	for i in 20:
+		await get_tree().process_frame   # let the turntable turn a little
+	await _capture_root("shot_bay.png", dir)
+	GameState.ship_ranks.assign(bay_keep)
+	game.overlays.show_only("briefing")
 	game._on_launch()
 	await get_tree().process_frame
 	# 1) corridor in flight — far enough in that fog/strip/lighting all read

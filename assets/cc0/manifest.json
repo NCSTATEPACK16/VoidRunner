@@ -1,3 +1,95 @@
 {
-  "files": []
+  "files": [
+    {
+      "name": "pod_drone",
+      "kind": "model",
+      "url": "https://static.poly.pizza/0843ab59-1800-4d96-9cc7-b4d6afbecf21.glb",
+      "file": "pod_drone.glb",
+      "license": "CC0-1.0",
+      "source": "Quaternius, Ultimate Space Kit (Spaceship, poly.pizza/m/u105mYHLHU)",
+      "sha256": "47527b47de38ee531f4fe86baa950867984dfbac4c44c73e8c10e456bf561a4f"
+    },
+    {
+      "name": "heavy_mech",
+      "kind": "model",
+      "url": "https://static.poly.pizza/a242e73b-6a40-4bd9-bfa9-ed1d8e49ea21.glb",
+      "file": "heavy_mech.glb",
+      "license": "CC0-1.0",
+      "source": "Quaternius, Ultimate Space Kit (Mech, poly.pizza/m/o3Ps8z8ByP)",
+      "sha256": "d61427def92c18148eaa9cebbc0dbd26b8e55ea5d048293840165077180bd181"
+    },
+    {
+      "name": "sentinel_mech",
+      "kind": "model",
+      "url": "https://static.poly.pizza/750173d2-53aa-4318-95dc-5f8e6d2dcad2.glb",
+      "file": "sentinel_mech.glb",
+      "license": "CC0-1.0",
+      "source": "Quaternius, Ultimate Space Kit (Mech, poly.pizza/m/D5wW2jDO42)",
+      "sha256": "0ec238495ae7da168d66f74441b98b71525d4a80536eeaf3aed701c7efee17d8"
+    },
+    {
+      "name": "sfx_boom",
+      "kind": "sfx",
+      "url": "https://opengameart.org/sites/default/files/sci-fi-sfx.zip",
+      "file": "sfx_boom.ogg",
+      "member": "retro_explosion.ogg",
+      "license": "CC0-1.0",
+      "source": "rubberduck, 50 CC0 Sci-Fi SFX (OpenGameArt)",
+      "sha256": "7824c08e54b5b68d6c70ced9d8fe9e47f86ce19c1d8d47d093e1dc1b579f78ec",
+      "slot": "boom_small",
+      "pitch": 0.85,
+      "max_s": 1.2
+    },
+    {
+      "name": "sfx_missile",
+      "kind": "sfx",
+      "url": "https://opengameart.org/sites/default/files/sci-fi-sfx.zip",
+      "file": "sfx_missile.ogg",
+      "member": "rocket_01.ogg",
+      "license": "CC0-1.0",
+      "source": "rubberduck, 50 CC0 Sci-Fi SFX (OpenGameArt)",
+      "sha256": "7824c08e54b5b68d6c70ced9d8fe9e47f86ce19c1d8d47d093e1dc1b579f78ec",
+      "slot": "missile",
+      "pitch": 0.9,
+      "max_s": 0.8
+    },
+    {
+      "name": "sfx_powerup",
+      "kind": "sfx",
+      "url": "https://opengameart.org/sites/default/files/Digital_SFX_Set.zip",
+      "file": "sfx_powerup.mp3",
+      "member": "powerUp2.mp3",
+      "license": "CC0-1.0",
+      "source": "Kenney, 63 Digital sound effects (OpenGameArt)",
+      "sha256": "022f0f4b73da55989567fe2b373c8af89d74f5d015257e293cab497ca606d063",
+      "slot": "powerup",
+      "pitch": 0.92
+    },
+    {
+      "name": "sfx_hit",
+      "kind": "sfx",
+      "url": "https://opengameart.org/sites/default/files/Digital_SFX_Set.zip",
+      "file": "sfx_hit.mp3",
+      "member": "lowDown.mp3",
+      "license": "CC0-1.0",
+      "source": "Kenney, 63 Digital sound effects (OpenGameArt)",
+      "sha256": "022f0f4b73da55989567fe2b373c8af89d74f5d015257e293cab497ca606d063",
+      "slot": "hit",
+      "pitch": 0.8,
+      "max_s": 0.5
+    },
+    {
+      "name": "sfx_enemy_hit",
+      "kind": "sfx",
+      "url": "https://opengameart.org/sites/default/files/Digital_SFX_Set.zip",
+      "file": "sfx_enemy_hit.mp3",
+      "member": "pepSound1.mp3",
+      "license": "CC0-1.0",
+      "source": "Kenney, 63 Digital sound effects (OpenGameArt)",
+      "sha256": "022f0f4b73da55989567fe2b373c8af89d74f5d015257e293cab497ca606d063",
+      "slot": "enemy_hit",
+      "pitch": 1.15,
+      "max_s": 0.15
+    }
+  ]
 }

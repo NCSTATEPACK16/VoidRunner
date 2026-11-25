@@ -85,6 +85,7 @@ rm -f export_presets.cfg.bak
 echo "--- Exporting the Xcode project: ${BUNDLE_ID} ${VERSION} (${BUILD_NUMBER}) ---"
 rm -rf build/ios
 mkdir -p build/ios
+touch build/ios/.gdignore   # keep the editor from importing the archive's crushed PNGs
 "${GODOT}" --headless --export-release "iOS" build/ios/Voidline.ipa
 
 # Godot writes "Apple Distribution" as the Release identity, which Xcode rejects next to

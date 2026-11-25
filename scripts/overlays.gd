@@ -51,10 +51,12 @@ const BAY_WEAPONS := ["NEUTRON", "SCATTER", "BOLT", "MISSILE"]
 const BAY_SHIP := [   # [GameState.ship_ranks key, display label]
 	["shield", "SHIELD"], ["heat", "HEAT SINK"], ["energy", "ENERGY"],
 	["rack", "MSL RACK"], ["magnet", "MAGNET"], ["hull", "HULL"],
+	["engines", "ENGINES"], ["thrusters", "THRUSTERS"],   # PR G
 ]
 const SHIP_COST := {   # cost per rank; array length = max rank
 	"shield": [120, 260], "heat": [120, 260], "energy": [120, 260],
 	"rack": [120, 260], "magnet": [180], "hull": [180],
+	"engines": [120, 260], "thrusters": [120, 260],   # PR G
 }
 const CRT_NAMES := ["OFF", "SCANLINES", "CRT"]
 
@@ -80,6 +82,10 @@ var _quit_btn: Button
 var _quit_armed := false
 var _bay_rows := {}              # V2.2 L3d: row id -> {status: Label, buy: Button}
 var _bay_salvage_label: Label
+var _bay_back := "briefing"      # PR G: the panel BACK returns to (briefing or level_clear)
+var _bay_launch: Button
+var _tally_bay: Button
+var ship_preview: ShipPreview    # PR G: the Bay's live ship turntable
 
 # Phase J: sector select + records on the start screen
 var _sector := 0
@@ -589,6 +595,8 @@ func set_level_clear(level_name: String, lines: Array, rank: String,
 	r.visible = false
 	_tally_next.text = next_text
 	_tally_next.visible = false
+	if _tally_bay:
+		_tally_bay.visible = false
 
 
 ## One reveal step. The numbers are a pure function of the clock, so tests can drive it.
@@ -644,6 +652,8 @@ func _tally_finish() -> void:
 	_tally_active = false
 	_tally_done = true
 	_tally_next.visible = true
+	if _tally_bay:
+		_tally_bay.visible = true
 	if _panels.level_clear.visible and _tally_next.is_inside_tree():
 		_grab_quiet.call_deferred(_tally_next)
 
@@ -922,8 +932,7 @@ func _build_briefing() -> void:
 	var b := _wrap(p, Rect2(16, 116, 288, 30), "", TEXT_COL)
 	b.name = "Body"
 	_menu_button(p, Rect2(40, 172, 110, 11), "* UPGRADE BAY", func() -> void:
-		_refresh_bay()
-		show_only("bay"), ORANGE_COL, true)
+		open_bay("briefing"), ORANGE_COL, true)
 	var launch := _menu_button(p, Rect2(170, 172, 110, 11), "> LAUNCH", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit(), TITLE_COL, true)
@@ -1006,8 +1015,12 @@ func _build_level_clear() -> void:
 	b.add_theme_constant_override("line_spacing", 1)
 	var r := _center(p, 124, "", KEY_COL, 16)
 	r.name = "Rank"
-	var next := _menu_button(p, Rect2(100, 160, 120, 11), "> NEXT LEVEL", func() -> void:
+	var next := _menu_button(p, Rect2(166, 160, 120, 11), "> NEXT LEVEL", func() -> void:
 		next_level_requested.emit(), TITLE_COL, true)
+	# PR G: spend the haul straight from the tally; BACK comes back here
+	_tally_bay = _menu_button(p, Rect2(34, 160, 120, 11), "* UPGRADE BAY", func() -> void:
+		open_bay("level_clear"), ORANGE_COL, true)
+	_tally_bay.visible = false
 	_focus["level_clear"] = next
 	_tally_next = next
 
@@ -1338,18 +1351,42 @@ func _build_bay() -> void:
 	for i in BAY_WEAPONS.size():
 		_bay_row(p, 16, 36 + i * 14, "w%d" % i, BAY_WEAPONS[i])
 	_text(p, Vector2(166, 22), "SHIP SYSTEMS", KEY_COL)
-	for i in BAY_SHIP.size():
-		_bay_row(p, 166, 36 + i * 14, "s:" + BAY_SHIP[i][0], BAY_SHIP[i][1])
-	_bay_salvage_label = _text(p, Vector2(16, 128), "", KEY_COL)
-	_wrap(p, Rect2(16, 142, 288, 20),
+	for i in BAY_SHIP.size():   # PR G: 8 rows at a 12 px pitch
+		_bay_row(p, 166, 34 + i * 12, "s:" + BAY_SHIP[i][0], BAY_SHIP[i][1])
+	# PR G: the ship itself, turning, wearing whatever ranks are installed
+	ship_preview = ShipPreview.new(Vector2i(134, 52))
+	ship_preview.name = "ShipPreview"
+	ship_preview.position = Vector2(16, 92)
+	ship_preview.size = Vector2(134, 52)
+	p.add_child(ship_preview)
+	_bay_salvage_label = _text(p, Vector2(166, 134), "", KEY_COL)
+	_wrap(p, Rect2(16, 150, 288, 20),
 		"Marks last the run. Ship systems are yours for good.", DIM_COL)
-	_menu_button(p, Rect2(60, 172, 90, 11), "< BACK", func() -> void: show_only("briefing"),
+	_menu_button(p, Rect2(60, 172, 90, 11), "< BACK", func() -> void: show_only(_bay_back),
 		TEXT_COL, true)
-	var launch := _menu_button(p, Rect2(170, 172, 90, 11), "> LAUNCH", func() -> void:
+	_bay_launch = _menu_button(p, Rect2(170, 172, 90, 11), "> LAUNCH", func() -> void:
 		AudioSys.unlock()
 		launch_requested.emit(), TITLE_COL, true)
-	_focus["bay"] = launch
+	_focus["bay"] = _bay_launch
 	_refresh_bay()
+
+
+## PR G: open the Bay from `from` ("briefing" or "level_clear"); BACK returns there.
+## From the tally there's no LAUNCH (the next briefing is one NEXT away), so BACK
+## takes the focus.
+func open_bay(from: String) -> void:
+	_bay_back = from
+	_bay_launch.visible = from == "briefing"
+	_focus["bay"] = _bay_launch if _bay_launch.visible else _bay_back_button()
+	_refresh_bay()
+	show_only("bay")
+
+
+func _bay_back_button() -> Button:
+	for c in _panels.bay.get_children():
+		if c is Button and (c as Button).text == "< BACK":
+			return c
+	return _bay_launch
 
 
 func _bay_row(p: Control, x: float, y: float, id: String, label: String) -> void:
@@ -1423,6 +1460,8 @@ func _refresh_bay() -> void:
 			sbuy.disabled = GameState.salvage_total() < costs[rank]
 	if _bay_salvage_label:
 		_bay_salvage_label.text = "SALVAGE: %d" % GameState.salvage_total()
+	if ship_preview:
+		ship_preview.refresh()
 
 
 # ---------- widget helpers ----------

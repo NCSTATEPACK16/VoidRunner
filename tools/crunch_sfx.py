@@ -12,7 +12,9 @@ in place of the procedural sound of the same name (see AUDIO_NAMES in
 scripts/audio_sys.gd); the procedural sounds stay as the fallback.
 
 The output name is the AudioSys slot, given in the manifest entry's "slot" field, or
-the entry name. Needs ffmpeg (Homebrew on the Neo; preinstalled on Linux CI images).
+the entry name. Optional per-entry "pitch" (playback-rate factor, <1 is lower and
+slower) and "max_s" (cut to that many seconds, with a short fade) turn a stock clip
+into our own sound before the crunch. Needs ffmpeg (Homebrew on the Neo; preinstalled on Linux CI images).
 """
 import json
 import os
@@ -30,7 +32,8 @@ LICENSES = os.path.join(ROOT, "assets", "LICENSES.md")
 RATE = 22050
 # the AudioSys slots a crunched file may replace (keep in step with audio_sys.gd)
 SLOTS = {"boom_small", "boom_big", "hit", "select", "overheat", "portal", "clank", "dodge",
-         "boost", "bomb", "gib_tick", "powerup", "warn", "tick", "stamp", "blip", "confirm"}
+         "boost", "bomb", "gib_tick", "powerup", "warn", "tick", "stamp", "blip", "confirm",
+         "missile", "enemy_hit"}
 
 FILTER = ("silenceremove=start_periods=1:start_threshold=-50dB:"
           "stop_periods=-1:stop_threshold=-50dB:stop_duration=0.05,"
@@ -48,9 +51,15 @@ def ffmpeg():
     return exe
 
 
-def crunch(src, dest):
+def crunch(src, dest, pitch=1.0, max_s=0.0):
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    cmd = [ffmpeg(), "-v", "error", "-y", "-i", src, "-af", FILTER,
+    pre = []
+    if pitch != 1.0:   # resample at a shifted rate: pitch and tempo move together, tape-style
+        pre.append("aresample=44100,asetrate=%d,aresample=44100" % round(44100 * pitch))
+    if max_s > 0.0:
+        pre.append("atrim=0:%.3f,afade=t=out:st=%.3f:d=0.04" % (max_s, max(0.0, max_s - 0.04)))
+    af = ",".join(pre + [FILTER])
+    cmd = [ffmpeg(), "-v", "error", "-y", "-i", src, "-af", af,
            "-ac", "1", "-ar", str(RATE), "-c:a", "pcm_u8", dest]
     subprocess.run(cmd, check=True)
     return describe(dest)
@@ -86,7 +95,8 @@ def run(names):
         if not licensed(e["file"]):
             raise Refused("%s: no LICENSES row; fetch it with tools/fetch_cc0.py" % e["name"])
         dest = os.path.join(OUT_DIR, slot + ".wav")
-        info = crunch(os.path.join(SRC_DIR, e["file"]), dest)
+        info = crunch(os.path.join(SRC_DIR, e["file"]), dest,
+                      float(e.get("pitch", 1.0)), float(e.get("max_s", 0.0)))
         print("crunched %s -> %s (%.2f s)" % (e["file"], os.path.relpath(dest, ROOT), info["seconds"]))
     return 0
 
@@ -102,6 +112,10 @@ def self_test():
         info = crunch(src, dest)
         assert info["channels"] == 1 and info["rate"] == RATE and info["bits"] == 8, info
         assert 0.4 < info["seconds"] < 0.75, info   # the silence either side is trimmed
+        low = crunch(src, os.path.join(td, "out", "low.wav"), pitch=0.5)
+        assert low["seconds"] > info["seconds"] * 1.6, low   # half pitch, about twice as long
+        cut = crunch(src, os.path.join(td, "out", "cut.wav"), max_s=0.5)
+        assert cut["seconds"] < 0.35, cut   # 0.3 s of lead silence + 0.2 s of tone
         lic = os.path.join(td, "LICENSES.md")
         with open(lic, "w") as f:
             f.write("| `cc0/sfx/tone.wav` | sfx | test | file:// | CC0-1.0 | today | `x` |\n")

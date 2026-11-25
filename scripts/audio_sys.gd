@@ -41,6 +41,7 @@ const AUDIO_NAMES := {
 	"overheat": "_overheat", "portal": "_portal", "clank": "_clank", "dodge": "_dodge",
 	"boost": "_boost", "bomb": "_bomb", "gib_tick": "_gib_tick", "powerup": "_powerup",
 	"warn": "_warn", "tick": "_tick", "stamp": "_stamp", "blip": "_blip", "confirm": "_confirm",
+	"missile": "_missile", "enemy_hit": "_enemy_hit",
 }
 var overridden: Array[String] = []   # the slots a CC0 file replaced
 
@@ -64,6 +65,11 @@ var _tick: AudioStreamWAV      # v4d: tally count-up blip
 var _stamp: AudioStreamWAV     # v4d: tally rank stamp
 var _blip: AudioStreamWAV      # v4d: menu focus move
 var _confirm: AudioStreamWAV   # v4d: menu button press
+var _missile: AudioStreamWAV   # PR F: CC0-only slot; null keeps the per-weapon laser
+var _enemy_hit: AudioStreamWAV # PR F: CC0-only slot; null means enemies take hits silently
+const ENEMY_HIT_GAP_MS := 60   # a SCATTER burst lands many pellets in one frame
+var _last_enemy_hit_ms := -100000
+var enemy_hit_plays := 0       # accepted enemy-hit sounds, counted for tests
 const TICK_GAP_MS := 45        # play_tick ignores calls closer together than this
 var blip_plays := 0            # menu focus moves / presses, counted for tests
 var confirm_plays := 0
@@ -245,6 +251,28 @@ func play_hit() -> void:
 	_play(_hit)
 
 
+## PR F: a shot landing on an enemy. Rate-limited like play_tick; silent without
+## the CC0 slot. The pitch wobbles a little so a long burst doesn't drone.
+func play_enemy_hit() -> void:
+	if _enemy_hit == null:
+		return
+	var now := Time.get_ticks_msec()
+	if now - _last_enemy_hit_ms < ENEMY_HIT_GAP_MS:
+		return
+	_last_enemy_hit_ms = now
+	enemy_hit_plays += 1
+	_play(_enemy_hit, 0.92 + randf() * 0.16)
+
+
+## PR F: the missile launch. False when there's no CC0 slot, so the caller keeps
+## the weapon's laser sound.
+func play_missile() -> bool:
+	if _missile == null:
+		return false
+	_play(_missile)
+	return true
+
+
 func play_select() -> void:
 	_play(_select)
 
@@ -337,7 +365,7 @@ func style_sting(grade: int) -> void:
 
 
 func _play(stream: AudioStreamWAV, pitch := 1.0) -> void:
-	if not _unlocked:
+	if not _unlocked or stream == null:
 		return
 	var p := _pool[_pool_cursor]
 	_pool_cursor = (_pool_cursor + 1) % POOL_SIZE
