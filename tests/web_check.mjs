@@ -69,6 +69,12 @@ await wait(2500);
 const diag = await page.evaluate(() => window.vrBoot && window.vrBoot.diag);
 if (diag && diag.fps > 0 && typeof diag.renderer === 'string') console.log('diag ok', JSON.stringify(diag));
 else fails.push('diag missing or empty: ' + JSON.stringify(diag));
+// review fixes: the GPU is the unmasked one, and FLIGHT uses the page-load clock
+const ff = await page.evaluate(() => window.vrBoot.firstFlightMs);
+if (!diag || !diag.adapter || /^WebKit WebGL$/.test(diag.adapter)) fails.push('gpu still masked: ' + (diag && diag.adapter));
+else console.log('gpu ok', diag.adapter);
+if (!diag || Math.abs(diag.first_flight_ms - ff) > 50) fails.push(`flight clocks differ: diag ${diag && diag.first_flight_ms} vs page ${ff}`);
+else console.log('flight clock ok', ff, 'ms');
 // Step 7: a lost WebGL context shows the tap-to-reload screen above everything.
 // Errors the engine logs after the context is gone don't count.
 const lostAt = errors.length;

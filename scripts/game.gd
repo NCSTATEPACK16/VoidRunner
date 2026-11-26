@@ -218,6 +218,12 @@ func _ready() -> void:
 	diag.view = view
 	add_child(diag)
 	overlays.diag_toggle_requested.connect(diag.toggle)
+	if OS.has_feature("web"):   # review fix: the unmasked GPU name for the overlay/vrReport
+		DiagOverlay.web_gpu = str(JavaScriptBridge.eval("(function () { try {"
+			+ " var gl = document.getElementById('canvas').getContext('webgl2');"
+			+ " var x = gl && gl.getExtension('WEBGL_debug_renderer_info');"
+			+ " return x ? String(gl.getParameter(x.UNMASKED_RENDERER_WEBGL)) : '';"
+			+ " } catch (e) { return ''; } })()", true))
 	if OS.has_feature("web") and str(JavaScriptBridge.eval(
 			"window.vrDiagOn === true ? '1' : '0'", true)) == "1":
 		diag.set_shown(true)   # ?diag=1, for a phone with no Shift+F3
@@ -1167,12 +1173,16 @@ func _report_first_flight() -> void:
 	if _first_flight_reported:
 		return
 	_first_flight_reported = true
-	DiagOverlay.first_flight_ms = Time.get_ticks_msec()   # Step 7: every platform
+	# Step 7: engine-start clock on desktop/iOS; on web the page-load clock below wins,
+	# since that's what the device-pass thresholds measure (it includes the download)
+	DiagOverlay.first_flight_ms = Time.get_ticks_msec()
 	if not OS.has_feature("web"):
 		return
 	JavaScriptBridge.eval("if (window.vrBoot && !window.vrBoot.firstFlightMs) {"
 		+ " window.vrBoot.firstFlightMs = Math.round(performance.now());"
 		+ " console.log('[vr] first flight at ' + window.vrBoot.firstFlightMs + ' ms'); }", true)
+	DiagOverlay.first_flight_ms = int(JavaScriptBridge.eval(
+		"window.vrBoot ? window.vrBoot.firstFlightMs : 0", true))
 
 
 ## Re-audit Step 5: the first-run callouts only run on a fresh sector-1 launch, and

@@ -7,11 +7,14 @@ extends CanvasLayer
 
 const WINDOW_USEC := 1_000_000   # stats cover the last second of frames
 const REFRESH := 0.25            # text refresh period, seconds of real time
-const ROWS := 6
+const ROWS := 7
 const NONE := "—"
 
 ## Time.get_ticks_msec() at the first controllable frame (game._report_first_flight).
 static var first_flight_ms := 0
+## Web only: the unmasked GPU string (WEBGL_debug_renderer_info). Browsers mask
+## Godot's own adapter name to "WebKit WebGL", so game.gd reads this once at boot.
+static var web_gpu := ""
 
 var view: SubViewport            # the 320x200 game view whose draws we count
 var _samples := PackedInt64Array()
@@ -26,7 +29,7 @@ func _ready() -> void:
 	_panel = ColorRect.new()
 	_panel.color = Color(0, 0, 0, 0.72)
 	_panel.position = Vector2(2, 2)
-	_panel.size = Vector2(170, 6 * 9 + 4)
+	_panel.size = Vector2(170, ROWS * 9 + 4)
 	_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_panel)
 	_label = Label.new()
@@ -85,13 +88,13 @@ func snapshot() -> Dictionary:
 	s.objects_bake_ms = SpriteForge.objects_bake_ms
 	s.first_flight_ms = first_flight_ms
 	s.renderer = RenderingServer.get_current_rendering_method()
-	s.adapter = RenderingServer.get_video_adapter_name()
+	s.adapter = web_gpu if web_gpu != "" else RenderingServer.get_video_adapter_name()
 	s.vendor = RenderingServer.get_video_adapter_vendor()
 	s.api = RenderingServer.get_video_adapter_api_version()
 	return s
 
 
-## The six readout rows. Anything missing or empty prints as a dash.
+## The seven readout rows. Anything missing or empty prints as a dash.
 static func lines(s: Dictionary) -> PackedStringArray:
 	var out := PackedStringArray()
 	out.append("FPS %s  AVG %sms  WORST %sms" % [_num(s, "fps", 0), _num(s, "avg_ms", 1),
@@ -102,8 +105,9 @@ static func lines(s: Dictionary) -> PackedStringArray:
 	out.append("BOSS %sms  OBJ %sms" % [_num(s, "boss_bake_ms", 0), _num(s, "objects_bake_ms", 0)])
 	var ff: float = float(s.get("first_flight_ms", 0))
 	out.append("FLIGHT %s" % ("%.1fs" % (ff / 1000.0) if ff > 0.0 else NONE))
-	var r := "%s · %s" % [_str(s, "renderer"), _str(s, "adapter")]
-	out.append(r.substr(0, 38))
+	# the 320-px canvas holds about 60 PixelFont characters a row
+	out.append(("%s · %s" % [_str(s, "renderer"), _str(s, "api")]).substr(0, 60))
+	out.append(("GPU %s" % _str(s, "adapter")).substr(0, 60))
 	return out
 
 

@@ -11,7 +11,7 @@ native iOS app has its own list in `docs/ios/TESTFLIGHT.md` §5, which uses the 
   - **Hold the build number** (bottom-left of the title screen or the pause menu) for one
     second.
   - Press **Shift+F3** on a keyboard.
-- **Know the six rows:**
+- **Know the seven rows:**
 
   | Row | Meaning |
   |---|---|
@@ -20,7 +20,8 @@ native iOS app has its own list in `docs/ios/TESTFLIGHT.md` §5, which uses the 
   | `BAKE · GPU · PRE` | Boot sprite-sheet time. `PRE Y` = loaded from the prebaked sheets (expected) |
   | `BOSS · OBJ` | The boss and objects sheets, filled in when a level first needs them |
   | `FLIGHT` | Seconds from page load to the first controllable frame |
-  | renderer · GPU | Should say `gl_compatibility` and name the device's GPU |
+  | renderer · driver | `gl_compatibility` and the WebGL/OpenGL version string |
+  | `GPU` | The unmasked GPU name (Safari often just says "Apple GPU"; Chrome gives an ANGLE string) |
 
 - **Get the full report from a desktop.** Open the browser console and run `vrReport()`. Paste
   the output under the device's table. It includes all of the above plus `contextLost`.

@@ -3682,7 +3682,16 @@ func _run() -> void:
 	assert(is_equal_approx(dg_st.fps, 3.0 / 0.082))
 	assert(DiagOverlay.frame_stats(PackedInt64Array([5])).fps == 0.0)
 	var dg_lines := DiagOverlay.lines({})   # headless/empty: every row, placeholders, no error
-	assert(dg_lines.size() == 6 and "—" in dg_lines[0])
+	assert(dg_lines.size() == 7 and "—" in dg_lines[0])
+	# review fix: the GPU and driver get rows of their own, and on web the unmasked
+	# WEBGL_debug_renderer_info string beats Godot's masked "WebKit WebGL"
+	var dg_gl := DiagOverlay.lines({renderer = "gl_compatibility", api = "OpenGL ES 3.0",
+		adapter = "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)"})
+	assert(dg_gl[5].begins_with("gl_compatibility") and "OpenGL ES 3.0" in dg_gl[5])
+	assert(dg_gl[6].begins_with("GPU ANGLE (Apple") and "Apple M2" in dg_gl[6])
+	DiagOverlay.web_gpu = "Apple GPU"
+	assert(game.diag.snapshot().adapter == "Apple GPU")
+	DiagOverlay.web_gpu = ""
 	var dg := game.diag as DiagOverlay
 	assert(dg != null and not dg.visible)   # off by default
 	dg.set_shown(true)

@@ -82,12 +82,13 @@ directory up**, outside this repo, in the parent `RadixRemix/` folder:
 
 v4 is done (PRs #19–#21), PR D's code is merged (#22), PR D2 (the TestFlight packaging) is in,
 both gated by the device pass in `docs/ios/TESTFLIGHT.md`, PR E (the v2 asset pipeline) is in,
-and PR F + PR G went up together (CC0 content pilot + hangar upgrades). The pilot ids
+and PR F + PR G (#27, CC0 content pilot + hangar upgrades) are merged. The pilot ids
 (`SpriteModels.PILOT_ON`) bake into the `enemies_hd` / `bosses_hd` classes; A/B evidence is in
-`docs/revamp/pr-f-pilot-ab/` and `tests/pilot_compare_probe.tscn` regenerates it. Next: M5
-(difficulty/checkpoint/onboarding follow-ups) and M6 (enemy infighting + boost-transition
-feedback), whose plans are in `docs/superpowers/plans/2026-08-25-m5-*.md` / `m6-*.md`; check
-what's already shipped before building from them. The Step 7 device pass is queued as its own
-task. Gates: the smoke test, `node tests/web_check.mjs web-out dist` (needs
+`docs/revamp/pr-f-pilot-ab/` and `tests/pilot_compare_probe.tscn` regenerates it. M5 and M6
+are done (audited 2026-11-24: every task shipped in PRs #8–#11 or superseded; only the optional
+infighting "grudge" is unbuilt). Step 7's tooling is on branch `step7-device-diagnostics`:
+`DiagOverlay` (Shift+F3, a 1 s hold on the build stamp, or `?diag=1`), `vrReport()`'s live
+`diag`, the SIGNAL LOST reload screen, and the checklist in `docs/device-pass/`. The device
+pass itself is John's; Step 8 (landing page, `/play`, PWA) follows it. Gates: the smoke test, `node tests/web_check.mjs web-out dist` (needs
 `npm install --no-save --no-package-lock playwright@1.63.0`), `python3 tools/check_budgets.py`,
 `./build_ios.sh`, and CI.
