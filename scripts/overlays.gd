@@ -31,7 +31,10 @@ signal resume_requested       # re-audit Step 2: pause menu RESUME
 signal quit_to_title_requested   # re-audit Step 2: pause menu QUIT TO TITLE (confirmed)
 signal continue_requested        # re-audit Step 4: title CONTINUE (resume the checkpoint)
 signal retry_checkpoint_requested   # re-audit Step 4: game over RETRY FROM CHECKPOINT
+signal diag_toggle_requested   # Step 7: a 1 s press on the build stamp
 
+const STAMP_HOLD := 1.0   # Step 7: seconds on the build stamp to toggle diagnostics
+var _stamp_labels: Array[Label] = []
 const BG := Color(0.008, 0.012, 0.03, 0.975)   # full screens: the HUD must not bleed through
 const START_BG := Color(0.0, 0.0, 0.02, 0.38)  # the title lets the attract flythrough show
 const WIN_BG := Color(0.02, 0.035, 0.09, 0.94)
@@ -785,7 +788,7 @@ func _build_start() -> void:
 	_high_label = _center(_strip, CARD_Y + 30, "", DIM_COL)
 	_high_label.visible = false   # the records ride the ticker; kept for tests/reuse
 	# M1.4: build stamp, so a bug report can name the build it came from
-	_text(p, Vector2(8, 189), BuildInfo.label(), Color("3d4a63"))
+	_make_stamp(p, Vector2(8, 189))
 	_install_button(p, Vector2(246, 187))   # D11: quiet, opposite the build stamp
 	_build_new_game()
 	_apply_start_state(false)
@@ -961,7 +964,7 @@ func _build_pause() -> void:
 	_quit_btn = _menu_button(p, Rect2(96, 114, 128, 11), "QUIT TO TITLE", _on_quit_pressed,
 		RED_COL, true)
 	_center(p, 136, "ENTER / ESC  RESUME", DIM_COL)
-	_text(p, Vector2(3, 190), BuildInfo.label(), Color("3d4a63"))   # M1.4
+	_make_stamp(p, Vector2(3, 190))   # M1.4
 
 
 ## Quitting ends the run, so the first press only arms it: the row asks again, and
@@ -1520,6 +1523,30 @@ func _shade(p: Control, rect: Rect2, alpha: float) -> void:
 	r.size = rect.size
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(r)
+
+
+## Step 7: the build stamp (M1.4) doubles as the hidden diagnostics switch. Hold it
+## for STAMP_HOLD seconds (mouse or finger; Godot emulates mouse from touch) and
+## diag_toggle_requested fires once, while still held. A shorter press, or one that
+## slides off the label first, does nothing.
+func _make_stamp(p: Control, pos: Vector2) -> Label:
+	var l := _text(p, pos, BuildInfo.label(), Color("3d4a63"))
+	l.mouse_filter = Control.MOUSE_FILTER_STOP
+	var hold := Timer.new()
+	hold.one_shot = true
+	hold.wait_time = STAMP_HOLD
+	hold.process_mode = Node.PROCESS_MODE_ALWAYS   # the pause menu's stamp works too
+	hold.timeout.connect(func() -> void: diag_toggle_requested.emit())
+	l.add_child(hold)
+	l.gui_input.connect(func(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+			if ev.pressed:
+				hold.start()
+			else:
+				hold.stop())
+	l.mouse_exited.connect(hold.stop)
+	_stamp_labels.append(l)
+	return l
 
 
 func _text(p: Control, pos: Vector2, text: String, color: Color, font_size := 8) -> Label:

@@ -3,6 +3,7 @@ extends Node
 ## (NO --headless — it needs the real rasterizer). Boots the game, flies three
 ## representative moments, and saves the native 320x200 SubViewport frame as PNG:
 ##   1. L1 plain corridor in flight   -> shot_corridor.png
+##   1a. diagnostics overlay (Step 7) -> shot_diag.png
 ##   1b. Tab automap over explored L1  -> shot_automap.png
 ##   2. L1 first arena, guards live   -> shot_arena.png
 ##   2b. bolts, missile, fireballs    -> shot_combat.png
@@ -203,6 +204,12 @@ func _run() -> void:
 	await _capture(game, "shot_corridor.png", dir)
 	await _fly(game, 30)   # v4a: half a second on, the colour cycling has moved
 	await _capture(game, "shot_corridor2.png", dir)
+	# 1a) Step 7: the hidden diagnostics overlay over flight (root capture: it sits
+	# outside the 320x200 view, above the CRT pass)
+	game.diag.set_shown(true)
+	await _fly(game, 30)
+	await _capture_root("shot_diag.png", dir)
+	game.diag.set_shown(false)
 	# 1b) Tab automap over the explored corridor — must read as a 1995 automap
 	game._open_automap()
 	await _capture(game, "shot_automap.png", dir)

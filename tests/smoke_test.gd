@@ -3695,6 +3695,44 @@ func _run() -> void:
 	game.get_tree().paused = false
 	dg.set_shown(false)
 	print("DIAG ok — frame stats, placeholder lines, snapshot while paused, off by default")
+	var dg_key := InputEventKey.new()
+	dg_key.keycode = KEY_F3
+	dg_key.shift_pressed = true
+	dg_key.pressed = true
+	game._unhandled_input(dg_key)
+	assert(dg.visible)
+	game._unhandled_input(dg_key)
+	assert(not dg.visible)
+	var dg_plain := dg_key.duplicate() as InputEventKey
+	dg_plain.shift_pressed = false
+	game._unhandled_input(dg_plain)
+	assert(not dg.visible)   # plain F3 does nothing
+	var dg_stamp: Label = game.overlays._stamp_labels[0]
+	assert(game.overlays._stamp_labels.size() == 2)   # title + pause
+	var dg_down := InputEventMouseButton.new()
+	dg_down.button_index = MOUSE_BUTTON_LEFT
+	dg_down.pressed = true
+	var dg_up := dg_down.duplicate() as InputEventMouseButton
+	dg_up.pressed = false
+	dg_stamp.gui_input.emit(dg_down)
+	await game.get_tree().create_timer(0.3).timeout
+	dg_stamp.gui_input.emit(dg_up)
+	await game.get_tree().create_timer(1.0).timeout
+	assert(not dg.visible)   # a short tap never toggles
+	dg_stamp.gui_input.emit(dg_down)
+	await game.get_tree().create_timer(0.4).timeout
+	dg_stamp.mouse_exited.emit()
+	await game.get_tree().create_timer(1.0).timeout
+	assert(not dg.visible)   # sliding off cancels
+	dg_stamp.gui_input.emit(dg_down)
+	await game.get_tree().create_timer(1.15).timeout
+	assert(dg.visible)       # a held press toggles at 1 s, before release
+	dg_stamp.gui_input.emit(dg_up)
+	dg.set_shown(false)
+	var dg_tc := TouchControls.new()   # game.touch_ui is null headless, so probe a fresh one
+	assert(not "_fps_label" in dg_tc)   # the always-on spike readout is gone
+	dg_tc.free()
+	print("DIAG toggles ok — Shift+F3, stamp long-press (tap/slide-off ignored), spike label removed")
 	# --- v4a: palette tricks — banded distance darkness, colour cycling, capped
 	# flashes, richer blasts ---
 	var vrig: LightRig = game.light_rig

@@ -215,6 +215,10 @@ func _ready() -> void:
 	diag = DiagOverlay.new()   # Step 7: hidden until toggled; above the CRT pass
 	diag.view = view
 	add_child(diag)
+	overlays.diag_toggle_requested.connect(diag.toggle)
+	if OS.has_feature("web") and str(JavaScriptBridge.eval(
+			"window.vrDiagOn === true ? '1' : '0'", true)) == "1":
+		diag.set_shown(true)   # ?diag=1, for a phone with no Shift+F3
 	# M4a: touch mode is opt-in via ?touch=1 while the spike is being measured, so
 	# the default desktop build is byte-identical to before.
 	if OS.has_feature("web"):
@@ -2213,6 +2217,11 @@ func _plan_intros(level: LevelDef) -> Dictionary:
 # ---------- input ----------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event as InputEventKey).keycode == KEY_F3 and (event as InputEventKey).shift_pressed:
+		diag.toggle()   # Step 7: hidden diagnostics, any state
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("feedback"):
 		# M3: reachable from every state — the moment someone has an opinion is
 		# usually the moment they died, not the moment they reached a menu

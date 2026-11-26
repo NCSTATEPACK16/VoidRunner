@@ -133,6 +133,7 @@ func _process(_delta: float) -> void:
 		cut += 1
 	if cut > 0:
 		_samples = _samples.slice(cut)
-	if visible and now >= _next_text_usec:
+	if visible and now >= _next_text_usec and _samples.size() >= 2:
 		_next_text_usec = now + int(REFRESH * 1e6)
 		_label.text = "\n".join(lines(snapshot()))
+		_panel.size = _label.get_combined_minimum_size() + Vector2(6, 2)   # fit the text

@@ -70,10 +70,6 @@ var _last_tap_time := -999.0
 var _last_tap_pos := Vector2.ZERO
 var _idle_t := 0.0
 
-var _fps_label: Label
-var _fps_accum := 0.0
-var _fps_frames := 0
-var _worst_frame := 0.0
 
 var _root: Control
 var _fire_btn: Panel
@@ -169,12 +165,6 @@ func _build() -> void:
 	_stick_knob.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stick_knob.visible = false
 	_root.add_child(_stick_knob)
-	# framerate readout — the M4a spike's whole purpose, kept for the M4d Android check
-	_fps_label = Label.new()
-	_fps_label.position = Vector2(12, 12)
-	_fps_label.add_theme_font_size_override("font_size", 7)
-	_fps_label.add_theme_color_override("font_color", Color(0.4, 1.0, 0.6))
-	_root.add_child(_fps_label)
 	_build_dpad()
 
 
@@ -548,15 +538,3 @@ func _process(delta: float) -> void:
 	_fire_btn.modulate = Color(1.3, 1.3, 1.3) if _fire_touch >= 0 else Color.WHITE
 	_bomb_btn.modulate = Color(1.3, 1.3, 1.3) if _bomb_touch >= 0 else Color.WHITE
 	_weapon_btn.modulate = Color(1.3, 1.3, 1.3) if _weapon_touch >= 0 else Color.WHITE
-	# framerate readout
-	_fps_accum += delta
-	_fps_frames += 1
-	_worst_frame = maxf(_worst_frame, delta)
-	if _fps_accum >= 0.5:
-		var fps := _fps_frames / _fps_accum
-		_fps_label.text = "%d FPS  ·  worst %d ms" % [roundi(fps), roundi(_worst_frame * 1000.0)]
-		_fps_label.add_theme_color_override("font_color",
-			Color(0.4, 1.0, 0.6) if fps >= 50.0 else Color(1.0, 0.5, 0.3))
-		_fps_accum = 0.0
-		_fps_frames = 0
-		_worst_frame = 0.0

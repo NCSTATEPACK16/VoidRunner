@@ -455,6 +455,9 @@ body {
 		// never armed the rotate card. It's now a named, idempotent function callable
 		// from anywhere.
 		window.vrTouchMode = /[?&]touch=1\b/.test(window.location.search);
+		// Step 7: ?diag=1 opens the hidden diagnostics overlay at boot, for a device
+		// pass on a phone that has no Shift+F3
+		window.vrDiagOn = /[?&]diag=1\b/.test(window.location.search);
 		(function () {
 			var armed = false;
 			window.vrArmPortraitWatch = function () {
