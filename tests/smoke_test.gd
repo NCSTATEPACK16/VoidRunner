@@ -3675,6 +3675,26 @@ func _run() -> void:
 	GameState.reduce_flashing = false
 	GameState.shields = GameState.max_shields()
 	print("FEEL ok — infighting (not self/grace/boss/sourceless, scores), boost FOV pulse + gate, steady warnings")
+	# --- Step 7: hidden diagnostics overlay ---
+	var dg_st := DiagOverlay.frame_stats(PackedInt64Array([0, 16000, 32000, 82000]))
+	assert(is_equal_approx(dg_st.worst_ms, 50.0))
+	assert(is_equal_approx(dg_st.avg_ms, 82.0 / 3.0))
+	assert(is_equal_approx(dg_st.fps, 3.0 / 0.082))
+	assert(DiagOverlay.frame_stats(PackedInt64Array([5])).fps == 0.0)
+	var dg_lines := DiagOverlay.lines({})   # headless/empty: every row, placeholders, no error
+	assert(dg_lines.size() == 6 and "—" in dg_lines[0])
+	var dg := game.diag as DiagOverlay
+	assert(dg != null and not dg.visible)   # off by default
+	dg.set_shown(true)
+	game.get_tree().paused = true
+	for dg_i in 3:
+		await game.get_tree().process_frame
+	var dg_snap := dg.snapshot()
+	assert(dg_snap.has("draw_calls") and dg_snap.has("renderer") and dg_snap.bake_ms == SpriteForge.bake_ms)
+	assert(dg._samples.size() >= 2)   # it sampled while the tree was paused
+	game.get_tree().paused = false
+	dg.set_shown(false)
+	print("DIAG ok — frame stats, placeholder lines, snapshot while paused, off by default")
 	# --- v4a: palette tricks — banded distance darkness, colour cycling, capped
 	# flashes, richer blasts ---
 	var vrig: LightRig = game.light_rig

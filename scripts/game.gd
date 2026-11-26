@@ -35,6 +35,7 @@ var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipp
 var palette_lut: PaletteLUT     # 3.0: 256-color palette + GPU-baked lookup table
 var light_rig: LightRig         # 3.0: every dynamic light (no OmniLight3D anywhere)
 var crt_layer: CanvasLayer      # 3.0: scanline / CRT monitor pass over the whole window
+var diag: DiagOverlay           # Step 7: hidden device diagnostics (Shift+F3)
 var _crt_mat: ShaderMaterial
 var env: Environment            # K1: per-level fog/ambient moods retune this
 
@@ -211,6 +212,9 @@ func _ready() -> void:
 	overlays.layer = 10
 	add_child(overlays)
 	_build_crt_layer()
+	diag = DiagOverlay.new()   # Step 7: hidden until toggled; above the CRT pass
+	diag.view = view
+	add_child(diag)
 	# M4a: touch mode is opt-in via ?touch=1 while the spike is being measured, so
 	# the default desktop build is byte-identical to before.
 	if OS.has_feature("web"):
@@ -1137,9 +1141,12 @@ func _launch_level() -> void:
 ## Re-audit Step 5: on web, note how long the page took to reach the first
 ## controllable frame (window.vrBoot.firstFlightMs, logged once).
 func _report_first_flight() -> void:
-	if _first_flight_reported or not OS.has_feature("web"):
+	if _first_flight_reported:
 		return
 	_first_flight_reported = true
+	DiagOverlay.first_flight_ms = Time.get_ticks_msec()   # Step 7: every platform
+	if not OS.has_feature("web"):
+		return
 	JavaScriptBridge.eval("if (window.vrBoot && !window.vrBoot.firstFlightMs) {"
 		+ " window.vrBoot.firstFlightMs = Math.round(performance.now());"
 		+ " console.log('[vr] first flight at ' + window.vrBoot.firstFlightMs + ' ms'); }", true)
