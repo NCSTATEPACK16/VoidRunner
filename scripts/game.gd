@@ -35,6 +35,9 @@ var _dither_mat: ShaderMaterial   # so the amber "terminal" uniform can be flipp
 var palette_lut: PaletteLUT     # 3.0: 256-color palette + GPU-baked lookup table
 var light_rig: LightRig         # 3.0: every dynamic light (no OmniLight3D anywhere)
 var crt_layer: CanvasLayer      # 3.0: scanline / CRT monitor pass over the whole window
+var diag: DiagOverlay           # Step 7: hidden device diagnostics (Shift+F3)
+const DIAG_PUBLISH_MS := 2000   # Step 7: how often web mirrors diagnostics to vrBoot
+var _diag_next_ms := 0
 var _crt_mat: ShaderMaterial
 var env: Environment            # K1: per-level fog/ambient moods retune this
 
@@ -211,6 +214,19 @@ func _ready() -> void:
 	overlays.layer = 10
 	add_child(overlays)
 	_build_crt_layer()
+	diag = DiagOverlay.new()   # Step 7: hidden until toggled; above the CRT pass
+	diag.view = view
+	add_child(diag)
+	overlays.diag_toggle_requested.connect(diag.toggle)
+	if OS.has_feature("web"):   # review fix: the unmasked GPU name for the overlay/vrReport
+		DiagOverlay.web_gpu = str(JavaScriptBridge.eval("(function () { try {"
+			+ " var gl = document.getElementById('canvas').getContext('webgl2');"
+			+ " var x = gl && gl.getExtension('WEBGL_debug_renderer_info');"
+			+ " return x ? String(gl.getParameter(x.UNMASKED_RENDERER_WEBGL)) : '';"
+			+ " } catch (e) { return ''; } })()", true))
+	if OS.has_feature("web") and str(JavaScriptBridge.eval(
+			"window.vrDiagOn === true ? '1' : '0'", true)) == "1":
+		diag.set_shown(true)   # ?diag=1, for a phone with no Shift+F3
 	# M4a: touch mode is opt-in via ?touch=1 while the spike is being measured, so
 	# the default desktop build is byte-identical to before.
 	if OS.has_feature("web"):
@@ -1134,15 +1150,39 @@ func _launch_level() -> void:
 	_report_first_flight()
 
 
+## Step 7: the diagnostics snapshot as JSON — what vrReport() carries as boot.diag.
+func _diag_json() -> String:
+	return JSON.stringify(diag.snapshot())
+
+
+## Step 7: every DIAG_PUBLISH seconds of real time, mirror the snapshot into
+## window.vrBoot.diag so vrReport() has live fps/draws/renderer without the overlay.
+func _publish_diag() -> void:
+	if not OS.has_feature("web"):
+		return
+	var now := Time.get_ticks_msec()
+	if now < _diag_next_ms:
+		return
+	_diag_next_ms = now + DIAG_PUBLISH_MS
+	JavaScriptBridge.eval("if (window.vrBoot) { window.vrBoot.diag = %s; }" % _diag_json(), true)
+
+
 ## Re-audit Step 5: on web, note how long the page took to reach the first
 ## controllable frame (window.vrBoot.firstFlightMs, logged once).
 func _report_first_flight() -> void:
-	if _first_flight_reported or not OS.has_feature("web"):
+	if _first_flight_reported:
 		return
 	_first_flight_reported = true
+	# Step 7: engine-start clock on desktop/iOS; on web the page-load clock below wins,
+	# since that's what the device-pass thresholds measure (it includes the download)
+	DiagOverlay.first_flight_ms = Time.get_ticks_msec()
+	if not OS.has_feature("web"):
+		return
 	JavaScriptBridge.eval("if (window.vrBoot && !window.vrBoot.firstFlightMs) {"
 		+ " window.vrBoot.firstFlightMs = Math.round(performance.now());"
 		+ " console.log('[vr] first flight at ' + window.vrBoot.firstFlightMs + ' ms'); }", true)
+	DiagOverlay.first_flight_ms = int(JavaScriptBridge.eval(
+		"window.vrBoot ? window.vrBoot.firstFlightMs : 0", true))
 
 
 ## Re-audit Step 5: the first-run callouts only run on a fresh sector-1 launch, and
@@ -1745,6 +1785,7 @@ func _on_new_campaign() -> void:
 
 func _process(delta: float) -> void:
 	world.animate(delta)
+	_publish_diag()   # Step 7: vrReport()'s live numbers (web only, every 2 s)
 	# 3.0: the title screen is translucent over the attract flythrough — no cockpit
 	hud.visible = state != State.MENU and not _still_grab
 	if state == State.MENU:
@@ -2206,6 +2247,11 @@ func _plan_intros(level: LevelDef) -> Dictionary:
 # ---------- input ----------
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event as InputEventKey).keycode == KEY_F3 and (event as InputEventKey).shift_pressed:
+		diag.toggle()   # Step 7: hidden diagnostics, any state
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("feedback"):
 		# M3: reachable from every state — the moment someone has an opinion is
 		# usually the moment they died, not the moment they reached a menu

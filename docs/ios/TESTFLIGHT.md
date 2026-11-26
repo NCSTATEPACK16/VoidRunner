@@ -79,7 +79,9 @@ set `VR_IOS_BUILD` to a higher number.
       RESUME.
 - [ ] Switch it back on: it reconnects, and the touch layer hides again.
 
-**Borrowed from the Step 7 device pass**
+**Borrowed from the Step 7 device pass** (method and pass thresholds:
+`docs/device-pass/2026-11-24-step7-device-pass.md`; read the numbers off the diagnostics
+overlay, opened by holding the build number for one second, since the app has no `vrReport()`)
 - [ ] Title-up and first-flight times; the sprite bake time (compare with
       `tests/perf_baseline.md`).
 - [ ] fps in the L8 dense arena and the L9 boss.
