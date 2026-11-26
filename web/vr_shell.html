@@ -113,6 +113,27 @@ body {
 	transition: opacity 0.5s ease;
 }
 
+/* Step 7: the WebGL context was lost (iOS memory pressure, a GPU reset). Godot can't
+   restore it, so this covers everything — the loading overlay (100) and the cards
+   (200/210) included — and a tap reloads. Checkpoints make the reload resumable. */
+#vr-lost {
+	position: fixed;
+	inset: 0;
+	z-index: 300;
+	display: none;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 1.5rem;
+	background-color: #0a0a0c;
+	color: #c8ccd4;
+	font-family: 'Courier New', monospace;
+	letter-spacing: 0.08em;
+	text-align: center;
+	cursor: pointer;
+}
+#vr-lost.vr-on { display: flex; }
+
 /* M1.1: capability card. Reddit traffic is overwhelmingly mobile and the game is
    keyboard-and-mouse only until Phase M4 ships touch controls, so a phone visitor
    gets an honest explanation instead of a canvas they cannot play. Deliberately
@@ -155,6 +176,15 @@ body {
 	line-height: 1.6;
 	font-size: 0.9rem;
 }
+
+#vr-lost .vr-gate-title {
+	font-size: 1.5rem;
+	font-weight: bold;
+	color: #e8ebf0;
+	margin-bottom: 0.8rem;
+	text-shadow: 0 0 8px rgba(255, 154, 48, 0.35);
+}
+#vr-lost p { max-width: 28rem; line-height: 1.6; font-size: 0.9rem; }
 
 #vr-rotate .vr-gate-title {
 	font-size: 1.4rem;
@@ -314,6 +344,11 @@ body {
 			<img id="status-splash" class="$GODOT_SPLASH_CLASSES" src="$GODOT_SPLASH" alt="">
 			<progress id="status-progress"></progress>
 			<div id="status-notice"></div>
+		</div>
+
+		<div id="vr-lost" role="button" tabindex="0">
+			<div class="vr-gate-title">SIGNAL LOST</div>
+			<p>The display took a break. Tap to reload — your last checkpoint is waiting.</p>
 		</div>
 
 		<div id="vr-rotate">
@@ -641,6 +676,7 @@ body {
 					boot: window.vrBoot,
 					gated: window.vrGated === true,
 					touch: window.vrTouchMode === true,
+					contextLost: (window.vrBoot && window.vrBoot.contextLost) || 0,
 					webgl: gl,
 					cores: navigator.hardwareConcurrency,
 					ua: navigator.userAgent
@@ -656,6 +692,27 @@ body {
 					if (el.classList.contains('vr-gone')) { el.style.display = 'none'; }
 				}, 560);
 			};
+		}());
+		</script>
+
+		<script>
+		// Step 7: a lost WebGL context never comes back to the engine, so offer a reload
+		(function () {
+			var canvas = document.getElementById('canvas');
+			var lost = document.getElementById('vr-lost');
+			if (!canvas || !lost) { return; }
+			canvas.addEventListener('webglcontextlost', function (e) {
+				e.preventDefault();
+				if (window.vrBoot) { window.vrBoot.contextLost = (window.vrBoot.contextLost || 0) + 1; }
+				console.log('[vr] webgl context lost');
+				lost.classList.add('vr-on');
+			}, false);
+			function reload() { window.location.reload(); }
+			lost.addEventListener('click', reload);
+			lost.addEventListener('touchend', function (e) { e.preventDefault(); reload(); });
+			lost.addEventListener('keydown', function (e) {
+				if (e.key === 'Enter' || e.key === ' ') { reload(); }
+			});
 		}());
 		</script>
 

@@ -3733,6 +3733,10 @@ func _run() -> void:
 	assert(not "_fps_label" in dg_tc)   # the always-on spike readout is gone
 	dg_tc.free()
 	print("DIAG toggles ok — Shift+F3, stamp long-press (tap/slide-off ignored), spike label removed")
+	var cl_json: Variant = JSON.parse_string(game._diag_json())   # vrReport's payload
+	assert(cl_json is Dictionary and (cl_json as Dictionary).has("fps") \
+		and (cl_json as Dictionary).has("renderer") and (cl_json as Dictionary).has("bake_ms"))
+	print("DIAG report ok — _diag_json parses with fps/renderer/bake_ms")
 	# --- v4a: palette tricks — banded distance darkness, colour cycling, capped
 	# flashes, richer blasts ---
 	var vrig: LightRig = game.light_rig

@@ -36,6 +36,8 @@ var palette_lut: PaletteLUT     # 3.0: 256-color palette + GPU-baked lookup tabl
 var light_rig: LightRig         # 3.0: every dynamic light (no OmniLight3D anywhere)
 var crt_layer: CanvasLayer      # 3.0: scanline / CRT monitor pass over the whole window
 var diag: DiagOverlay           # Step 7: hidden device diagnostics (Shift+F3)
+const DIAG_PUBLISH_MS := 2000   # Step 7: how often web mirrors diagnostics to vrBoot
+var _diag_next_ms := 0
 var _crt_mat: ShaderMaterial
 var env: Environment            # K1: per-level fog/ambient moods retune this
 
@@ -1142,6 +1144,23 @@ func _launch_level() -> void:
 	_report_first_flight()
 
 
+## Step 7: the diagnostics snapshot as JSON — what vrReport() carries as boot.diag.
+func _diag_json() -> String:
+	return JSON.stringify(diag.snapshot())
+
+
+## Step 7: every DIAG_PUBLISH seconds of real time, mirror the snapshot into
+## window.vrBoot.diag so vrReport() has live fps/draws/renderer without the overlay.
+func _publish_diag() -> void:
+	if not OS.has_feature("web"):
+		return
+	var now := Time.get_ticks_msec()
+	if now < _diag_next_ms:
+		return
+	_diag_next_ms = now + DIAG_PUBLISH_MS
+	JavaScriptBridge.eval("if (window.vrBoot) { window.vrBoot.diag = %s; }" % _diag_json(), true)
+
+
 ## Re-audit Step 5: on web, note how long the page took to reach the first
 ## controllable frame (window.vrBoot.firstFlightMs, logged once).
 func _report_first_flight() -> void:
@@ -1756,6 +1775,7 @@ func _on_new_campaign() -> void:
 
 func _process(delta: float) -> void:
 	world.animate(delta)
+	_publish_diag()   # Step 7: vrReport()'s live numbers (web only, every 2 s)
 	# 3.0: the title screen is translucent over the attract flythrough — no cockpit
 	hud.visible = state != State.MENU and not _still_grab
 	if state == State.MENU:

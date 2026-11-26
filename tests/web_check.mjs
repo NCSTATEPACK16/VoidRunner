@@ -63,6 +63,26 @@ await page.keyboard.press('Enter'); await wait(2500); await shot('4_briefing'); 
 await page.keyboard.press('Enter'); await wait(4000);                            // briefing LAUNCH
 await page.keyboard.down('Space'); await wait(8000); await page.keyboard.up('Space');
 await shot('5_flight');
+// Step 7: vrReport() carries the live diagnostics (published every 2 s on web)
+const fails = [];
+await wait(2500);
+const diag = await page.evaluate(() => window.vrBoot && window.vrBoot.diag);
+if (diag && diag.fps > 0 && typeof diag.renderer === 'string') console.log('diag ok', JSON.stringify(diag));
+else fails.push('diag missing or empty: ' + JSON.stringify(diag));
+// Step 7: a lost WebGL context shows the tap-to-reload screen above everything.
+// Errors the engine logs after the context is gone don't count.
+const lostAt = errors.length;
+await page.evaluate(() => document.getElementById('canvas').getContext('webgl2')
+  .getExtension('WEBGL_lose_context').loseContext());
+await wait(500);
+const onTop = await page.evaluate(() => {
+  const el = document.elementFromPoint(480, 300);
+  return !!(el && el.closest('#vr-lost')) && window.vrBoot.contextLost >= 1;
+});
+await shot('6_lost');
+if (onTop) console.log('lost screen ok'); else fails.push('lost screen not shown on top');
+errors.length = lostAt;
+errors.push(...fails);
 console.log(errors.length ? errors.join('\n') : 'no script, shader or page errors');
 await browser.close();
 srv.close();
